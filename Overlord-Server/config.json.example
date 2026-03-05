@@ -1,0 +1,28 @@
+{
+  "auth": {
+    "username": "admin",
+    "password": "admin",
+    "jwtSecret": "change-this-secret-in-production"
+  },
+  "server": {
+    "port": 5173,
+    "host": "0.0.0.0"
+  },
+  "tls": {
+    "certPath": "./certs/server.crt",
+    "keyPath": "./certs/server.key",
+    "caPath": ""
+  },
+  "notifications": {
+    "keywords": ["bank", "password", "admin"],
+    "minIntervalMs": 8000,
+    "spamWindowMs": 60000,
+    "spamWarnThreshold": 5,
+    "historyLimit": 200,
+    "webhookEnabled": false,
+    "webhookUrl": "",
+    "telegramEnabled": false,
+    "telegramBotToken": "",
+    "telegramChatId": ""
+  }
+}

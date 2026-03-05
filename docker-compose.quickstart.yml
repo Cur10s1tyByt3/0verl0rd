@@ -1,0 +1,42 @@
+services:
+  overlord-server:
+    image: ghcr.io/pulsarv2/overlord:latest
+    container_name: overlord-server
+    ports:
+      - "5173:5173"
+    environment:
+      # Optional username for first admin user
+      - OVERLORD_USER=admin
+      # Leave these empty to auto-generate and persist to /app/data/save.json
+      - OVERLORD_PASS=
+      - JWT_SECRET=
+      - OVERLORD_AGENT_TOKEN=
+      # Server settings
+      - PORT=5173
+      - HOST=0.0.0.0
+      # TLS paths (self-signed is auto-generated if not present)
+      - OVERLORD_TLS_CERT=/app/certs/server.crt
+      - OVERLORD_TLS_KEY=/app/certs/server.key
+      - OVERLORD_TLS_CA=
+    volumes:
+      - overlord-data:/app/data
+      - overlord-certs:/app/certs
+      # Uncomment to use a static config file instead of env vars
+      # - ./Overlord-Server/config.json:/app/config.json:ro
+    restart: unless-stopped
+    networks:
+      - overlord-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:5173/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  overlord-network:
+    driver: bridge
+
+volumes:
+  overlord-data:
+  overlord-certs:

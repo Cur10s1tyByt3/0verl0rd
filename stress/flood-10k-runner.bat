@@ -1,0 +1,1 @@
+k6 run stress/ws-flood-10k.js --env HOST=127.0.0.1 --env PORT=5173 --env SCHEME=wss --env AGENT_TOKEN=dev-token-insecure-local-only --env TLS_INSECURE=true --env TARGET_VUS=10000 --env RAMP_SEC=300 --env HOLD_SEC=600 --env ROLE=client --env HELLO=1 --env RECONNECT=true --env RECONNECT_DELAY_MS=2000 --env SLICE_SEC=60

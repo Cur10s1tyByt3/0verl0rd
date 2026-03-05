@@ -1,0 +1,669 @@
+import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
+
+(function () {
+  const clientId = new URLSearchParams(location.search).get("clientId");
+  if (!clientId) {
+    alert("Missing clientId");
+    return;
+  }
+  const clientLabel = document.getElementById("clientLabel");
+  clientLabel.textContent = clientId;
+
+  const ws = new WebSocket(
+    (location.protocol === "https:" ? "wss://" : "ws://") +
+      location.host +
+      "/api/clients/" +
+      clientId +
+      "/rd/ws",
+  );
+  const displaySelect = document.getElementById("displaySelect");
+  const refreshBtn = document.getElementById("refreshDisplays");
+  const startBtn = document.getElementById("startBtn");
+  const stopBtn = document.getElementById("stopBtn");
+  const fullscreenBtn = document.getElementById("fullscreenBtn");
+  const mouseCtrl = document.getElementById("mouseCtrl");
+  const kbdCtrl = document.getElementById("kbdCtrl");
+  const cursorCtrl = document.getElementById("cursorCtrl");
+  const duplicationCtrl = document.getElementById("duplicationCtrl");
+  const smoothingSlider = document.getElementById("smoothingSlider");
+  const smoothingValue = document.getElementById("smoothingValue");
+  const qualitySlider = document.getElementById("qualitySlider");
+  const qualityValue = document.getElementById("qualityValue");
+  const canvas = document.getElementById("frameCanvas");
+  const canvasContainer = document.getElementById("canvasContainer");
+  const ctx = canvas.getContext("2d");
+  const agentFps = document.getElementById("agentFps");
+  const viewerFps = document.getElementById("viewerFps");
+  const inputLatency = document.getElementById("inputLatency");
+  const statusEl = document.getElementById("streamStatus");
+  ws.binaryType = "arraybuffer";
+
+  let activeClientId = clientId;
+  let renderCount = 0;
+  let renderWindowStart = performance.now();
+  let lastFrameAt = 0;
+  let desiredStreaming = false;
+  let streamState = "connecting";
+  let frameWatchTimer = null;
+  let offlineTimer = null;
+  let frameWidth = 0;
+  let frameHeight = 0;
+  let latencyAvg = null;
+  let smoothingPct = 20;
+  let smoothPoint = null;
+  let pendingMove = null;
+  let moveTimer = null;
+  const mouseMoveIntervalMs = 33;
+  const inputBackpressureBytes = 256 * 1024;
+  let lastMoveSentAt = 0;
+  setStreamState("connecting", "Connecting");
+
+  function updateFpsDisplay(agentValue) {
+    if (agentValue !== undefined && agentValue !== null && agentFps) {
+      agentFps.textContent = String(agentValue);
+    }
+    const now = performance.now();
+    renderCount += 1;
+    const elapsed = now - renderWindowStart;
+    if (elapsed >= 1000 && viewerFps) {
+      const fps = Math.round((renderCount * 1000) / elapsed);
+      viewerFps.textContent = String(fps);
+      renderCount = 0;
+      renderWindowStart = now;
+    }
+  }
+
+  function setStreamState(state, text) {
+    streamState = state;
+    if (statusEl) {
+      const icons = {
+        connecting: '<i class="fa-solid fa-circle-notch fa-spin"></i>',
+        starting: '<i class="fa-solid fa-circle-notch fa-spin"></i>',
+        stopping: '<i class="fa-solid fa-circle-notch fa-spin"></i>',
+        streaming: '<i class="fa-solid fa-circle text-emerald-400"></i>',
+        idle: '<i class="fa-solid fa-circle text-slate-400"></i>',
+        stalled: '<i class="fa-solid fa-triangle-exclamation text-amber-400"></i>',
+        offline: '<i class="fa-solid fa-plug-circle-xmark text-rose-400"></i>',
+        disconnected: '<i class="fa-solid fa-link-slash text-slate-400"></i>',
+        error: '<i class="fa-solid fa-circle-exclamation text-rose-400"></i>',
+      };
+      const label = text ||
+        (state === "streaming" ? "Streaming" :
+          state === "starting" ? "Starting" :
+            state === "stopping" ? "Stopping" :
+              state === "offline" ? "Client offline" :
+                state === "disconnected" ? "Disconnected" :
+                  state === "stalled" ? "No frames" :
+                    state === "idle" ? "Stopped" :
+                      "Connecting");
+
+      statusEl.innerHTML = `${icons[state] || icons.idle} <span>${label}</span>`;
+      const base = "inline-flex items-center gap-2 px-3 py-2 rounded-full border text-sm";
+      const styles = {
+        streaming: "bg-emerald-900/40 text-emerald-100 border-emerald-700/70",
+        starting: "bg-sky-900/40 text-sky-100 border-sky-700/70",
+        stopping: "bg-amber-900/40 text-amber-100 border-amber-700/70",
+        stalled: "bg-amber-900/40 text-amber-100 border-amber-700/70",
+        offline: "bg-rose-900/40 text-rose-100 border-rose-700/70",
+        error: "bg-rose-900/40 text-rose-100 border-rose-700/70",
+        disconnected: "bg-slate-800 text-slate-300 border-slate-700",
+        idle: "bg-slate-800 text-slate-300 border-slate-700",
+        connecting: "bg-slate-800 text-slate-300 border-slate-700",
+      };
+      statusEl.className = `${base} ${styles[state] || styles.idle}`;
+    }
+
+    if (canvasContainer) {
+      canvasContainer.dataset.streamState = state;
+    }
+
+    if (state === "idle" || state === "offline" || state === "disconnected" || state === "error") {
+      if (agentFps) agentFps.textContent = "--";
+      if (viewerFps) viewerFps.textContent = "--";
+      renderCount = 0;
+      renderWindowStart = performance.now();
+    }
+
+    updateControls();
+  }
+
+  function updateControls() {
+    const wsOpen = ws.readyState === WebSocket.OPEN;
+    const isStarting = streamState === "starting";
+    const isStreaming = streamState === "streaming";
+    const isStopping = streamState === "stopping";
+    const isStalled = streamState === "stalled";
+    const isBlocked = streamState === "offline" || streamState === "disconnected" || streamState === "error";
+
+    if (startBtn) {
+      startBtn.disabled = !wsOpen || isStarting || isStreaming || isStopping || isBlocked;
+    }
+    if (stopBtn) {
+      stopBtn.disabled = !wsOpen || (!isStarting && !isStreaming && !isStopping && !isStalled);
+    }
+  }
+
+  function updateLatency(ms) {
+    if (ms < 0 || !Number.isFinite(ms)) return;
+    latencyAvg = latencyAvg == null ? ms : latencyAvg * 0.8 + ms * 0.2;
+    if (inputLatency) {
+      inputLatency.textContent = `${Math.round(latencyAvg)} ms`;
+    }
+  }
+
+  function clearOfflineTimer() {
+    if (offlineTimer) {
+      clearTimeout(offlineTimer);
+      offlineTimer = null;
+    }
+  }
+
+  function scheduleOffline(reason) {
+    clearOfflineTimer();
+    setStreamState("connecting", "Reconnecting");
+    offlineTimer = setTimeout(() => {
+      const now = performance.now();
+      if (!lastFrameAt || now - lastFrameAt > 3000) {
+        desiredStreaming = false;
+        setStreamState("offline", reason || "Client offline");
+      }
+    }, 3000);
+  }
+
+  function handleStatus(msg) {
+    if (!msg || msg.type !== "status" || !msg.status) return;
+    if (msg.status === "offline") {
+      scheduleOffline(msg.reason);
+      return;
+    }
+    if (msg.status === "connecting") {
+      clearOfflineTimer();
+      setStreamState("connecting", "Connecting");
+      return;
+    }
+    if (msg.status === "online") {
+      clearOfflineTimer();
+      if (desiredStreaming) {
+        setStreamState("starting", "Reconnecting");
+        if (displaySelect && displaySelect.value !== undefined) {
+          sendCmd("desktop_select_display", {
+            display: parseInt(displaySelect.value, 10) || 0,
+          });
+        }
+        sendCmd("desktop_start", {});
+      } else {
+        setStreamState("idle", "Stopped");
+      }
+    }
+  }
+
+  function sendCmd(type, payload) {
+    if (!activeClientId) {
+      console.warn("No active client selected");
+      return;
+    }
+    if (ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const msg = { type, ...payload };
+    console.debug("rd: send", msg);
+    ws.send(encodeMsgpack(msg));
+  }
+
+  let monitors = 1;
+
+  function populateDisplays(count, monitorInfo) {
+    displaySelect.innerHTML = "";
+    const infoList = Array.isArray(monitorInfo) ? monitorInfo : null;
+    monitors = (infoList && infoList.length) ? infoList.length : (count || 1);
+    for (let i = 0; i < monitors; i++) {
+      const opt = document.createElement("option");
+      opt.value = i;
+      const info = infoList && infoList[i];
+      const w = info && Number(info.width);
+      const h = info && Number(info.height);
+      const sizeLabel = w > 0 && h > 0 ? ` (${w}x${h})` : "";
+      opt.textContent = "Display " + (i + 1) + sizeLabel;
+      displaySelect.appendChild(opt);
+    }
+
+    if (displaySelect.options.length) {
+      displaySelect.value = displaySelect.options[0].value;
+    }
+  }
+
+  async function fetchClientInfo() {
+    try {
+      const res = await fetch("/api/clients");
+      const data = await res.json();
+      const client = data.items.find((c) => c.id === activeClientId);
+      if (client) {
+        clientLabel.textContent = `${client.host || client.id} (${client.os || ""})`;
+      }
+      if (client) {
+        populateDisplays(client.monitors, client.monitorInfo);
+      }
+      if (duplicationCtrl) {
+        const os = (client?.os || "").toLowerCase();
+        const isWindows = os.includes("windows") || os.includes("win");
+        duplicationCtrl.disabled = !isWindows;
+        if (!isWindows) {
+          duplicationCtrl.checked = false;
+        }
+      }
+    } catch (e) {
+      console.warn("failed to fetch client info", e);
+    }
+  }
+
+  refreshBtn.addEventListener("click", fetchClientInfo);
+
+  function updateQualityLabel(val) {
+    if (qualityValue) {
+      qualityValue.textContent = `${val}%`;
+    }
+  }
+
+  function updateSmoothingLabel(val) {
+    if (smoothingValue) {
+      smoothingValue.textContent = `${val}%`;
+    }
+  }
+
+  function pushQuality(val) {
+    const q = Number(val) || 90;
+    const codec = q >= 100 ? "raw" : "jpeg";
+    console.debug("rd: pushQuality val=", val, "q=", q, "codec=", codec);
+    sendCmd("desktop_set_quality", { quality: q, codec });
+  }
+
+  displaySelect.addEventListener("change", function () {
+    console.debug("rd: select display", displaySelect.value);
+    sendCmd("desktop_select_display", {
+      display: parseInt(displaySelect.value, 10),
+    });
+  });
+
+  startBtn.addEventListener("click", function () {
+    if (displaySelect && displaySelect.value !== undefined) {
+      sendCmd("desktop_select_display", {
+        display: parseInt(displaySelect.value, 10) || 0,
+      });
+    }
+    if (qualitySlider) {
+      pushQuality(qualitySlider.value);
+    }
+    desiredStreaming = true;
+    lastFrameAt = 0;
+    setStreamState("starting", "Starting stream");
+    sendCmd("desktop_start", {});
+  });
+  stopBtn.addEventListener("click", function () {
+    desiredStreaming = false;
+    setStreamState("stopping", "Stopping stream");
+    sendCmd("desktop_stop", {});
+  });
+  fullscreenBtn.addEventListener("click", function () {
+    if (canvasContainer.requestFullscreen) {
+      canvasContainer.requestFullscreen();
+    } else if (canvasContainer.webkitRequestFullscreen) {
+      canvasContainer.webkitRequestFullscreen();
+    } else if (canvasContainer.mozRequestFullScreen) {
+      canvasContainer.mozRequestFullScreen();
+    }
+  });
+  if (mouseCtrl) {
+    mouseCtrl.checked = false;
+  }
+  if (kbdCtrl) {
+    kbdCtrl.checked = false;
+  }
+  if (duplicationCtrl) {
+    duplicationCtrl.checked = false;
+  }
+
+  function pushInputToggles() {
+    if (mouseCtrl) {
+      sendCmd("desktop_enable_mouse", { enabled: !!mouseCtrl.checked });
+    }
+    if (kbdCtrl) {
+      sendCmd("desktop_enable_keyboard", { enabled: !!kbdCtrl.checked });
+    }
+  }
+
+  function pushCaptureToggles() {
+    if (cursorCtrl) {
+      sendCmd("desktop_enable_cursor", { enabled: cursorCtrl.checked });
+    }
+    if (duplicationCtrl && !duplicationCtrl.disabled) {
+      sendCmd("desktop_set_duplication", { enabled: !!duplicationCtrl.checked });
+    }
+  }
+
+  mouseCtrl.addEventListener("change", function () {
+    pushInputToggles();
+  });
+  kbdCtrl.addEventListener("change", function () {
+    if (kbdCtrl.checked) {
+      canvas.focus();
+    }
+    pushInputToggles();
+  });
+  cursorCtrl.addEventListener("change", function () {
+    pushCaptureToggles();
+  });
+  if (duplicationCtrl) {
+    duplicationCtrl.addEventListener("change", function () {
+      pushCaptureToggles();
+    });
+  }
+
+  if (qualitySlider) {
+    updateQualityLabel(qualitySlider.value);
+    qualitySlider.addEventListener("input", function () {
+      updateQualityLabel(qualitySlider.value);
+      pushQuality(qualitySlider.value);
+    });
+  }
+
+  if (smoothingSlider) {
+    updateSmoothingLabel(smoothingSlider.value);
+    smoothingSlider.addEventListener("input", function () {
+      smoothingPct = Number(smoothingSlider.value) || 0;
+      updateSmoothingLabel(smoothingSlider.value);
+    });
+  }
+
+  ws.addEventListener("message", async function (ev) {
+    if (ev.data instanceof ArrayBuffer) {
+      const buf = new Uint8Array(ev.data);
+      if (buf.length >= 8 && buf[0] === 0x46 && buf[1] === 0x52 && buf[2] === 0x4d) {
+        const fps = buf[5];
+        const format = buf[6];
+        lastFrameAt = performance.now();
+        clearOfflineTimer();
+        if (streamState !== "streaming") {
+          if (desiredStreaming) {
+            setStreamState("streaming", "Streaming");
+          }
+        }
+
+        if (format === 1) {
+          const jpegBytes = buf.slice(8);
+          const blob = new Blob([jpegBytes], { type: "image/jpeg" });
+          try {
+            const bitmap = await createImageBitmap(blob);
+            frameWidth = bitmap.width || frameWidth;
+            frameHeight = bitmap.height || frameHeight;
+            canvas.width = bitmap.width;
+            canvas.height = bitmap.height;
+            ctx.drawImage(bitmap, 0, 0);
+            bitmap.close();
+            updateFpsDisplay(fps);
+          } catch {
+            const img = new Image();
+            const url = URL.createObjectURL(blob);
+            img.onload = function () {
+              frameWidth = img.width || frameWidth;
+              frameHeight = img.height || frameHeight;
+              canvas.width = img.width;
+              canvas.height = img.height;
+              ctx.drawImage(img, 0, 0);
+              URL.revokeObjectURL(url);
+              updateFpsDisplay(fps);
+            };
+            img.src = url;
+          }
+          return;
+        }
+
+        if (format === 2 || format === 3) {
+          if (buf.length < 8 + 8) return;
+          const dv = new DataView(buf.buffer, 8);
+          let pos = 0;
+          const width = dv.getUint16(pos, true);
+          pos += 2;
+          const height = dv.getUint16(pos, true);
+          pos += 2;
+          if (width > 0 && height > 0) {
+            frameWidth = width;
+            frameHeight = height;
+          }
+          const blockCount = dv.getUint16(pos, true);
+          pos += 2;
+          pos += 2;
+
+          if (
+            width > 0 &&
+            height > 0 &&
+            (canvas.width !== width || canvas.height !== height)
+          ) {
+            canvas.width = width;
+            canvas.height = height;
+          }
+          for (let i = 0; i < blockCount; i++) {
+            if (pos + 12 > dv.byteLength) break;
+            const x = dv.getUint16(pos, true);
+            pos += 2;
+            const y = dv.getUint16(pos, true);
+            pos += 2;
+            const w = dv.getUint16(pos, true);
+            pos += 2;
+            const h = dv.getUint16(pos, true);
+            pos += 2;
+            const len = dv.getUint32(pos, true);
+            pos += 4;
+            const start = 8 + pos;
+            const end = start + len;
+            if (end > buf.length) break;
+            const slice = buf.subarray(start, end);
+            pos += len;
+            if (format === 2) {
+              try {
+                const bitmap = await createImageBitmap(
+                  new Blob([slice], { type: "image/jpeg" }),
+                );
+                ctx.drawImage(bitmap, x, y, w, h);
+                bitmap.close();
+              } catch {}
+            } else {
+              if (slice.length === w * h * 4) {
+                const imgData = new ImageData(new Uint8ClampedArray(slice), w, h);
+                ctx.putImageData(imgData, x, y);
+              }
+            }
+          }
+          updateFpsDisplay(fps);
+          return;
+        }
+      }
+
+      const msg = decodeMsgpack(buf);
+      if (msg && msg.type === "status" && msg.status) {
+        handleStatus(msg);
+        return;
+      }
+      if (msg && msg.type === "input_latency") {
+        updateLatency(Number(msg.ms) || 0);
+        return;
+      }
+      return;
+    }
+
+    const msg = decodeMsgpack(ev.data);
+    if (msg && msg.type === "status" && msg.status) {
+      handleStatus(msg);
+      return;
+    }
+    if (msg && msg.type === "input_latency") {
+      updateLatency(Number(msg.ms) || 0);
+      return;
+    }
+  });
+
+  ws.addEventListener("open", function () {
+    if (qualitySlider) {
+      pushQuality(qualitySlider.value);
+    }
+    pushInputToggles();
+    pushCaptureToggles();
+    clearOfflineTimer();
+    setStreamState("idle", "Stopped");
+    fetchClientInfo().then(() => {
+      if (displaySelect && displaySelect.value) {
+        console.debug("rd: initial select display", displaySelect.value);
+        sendCmd("desktop_select_display", {
+          display: parseInt(displaySelect.value, 10),
+        });
+      }
+    });
+  });
+
+  ws.addEventListener("close", function () {
+    desiredStreaming = false;
+    setStreamState("disconnected", "Disconnected");
+  });
+
+  ws.addEventListener("error", function () {
+    setStreamState("error", "WebSocket error");
+  });
+
+  if (!frameWatchTimer) {
+    frameWatchTimer = setInterval(() => {
+      const now = performance.now();
+      if (desiredStreaming) {
+        if (lastFrameAt && now - lastFrameAt > 2000) {
+          setStreamState("stalled", "No frames");
+        } else if (!lastFrameAt && streamState === "starting") {
+          setStreamState("starting", "Starting stream");
+        }
+      } else if (streamState !== "offline" && streamState !== "disconnected" && streamState !== "error") {
+        if (lastFrameAt && now - lastFrameAt < 2000) {
+          if (streamState !== "stopping") {
+            setStreamState("stopping", "Stopping stream");
+          }
+        } else if (streamState !== "idle") {
+          setStreamState("idle", "Stopped");
+        }
+      }
+    }, 1000);
+  }
+
+  function getCanvasPoint(e) {
+    let rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      rect = canvasContainer?.getBoundingClientRect() || rect;
+    }
+    const targetW = canvas.width || frameWidth;
+    const targetH = canvas.height || frameHeight;
+    if (!rect.width || !rect.height || !targetW || !targetH) return null;
+    let x = ((e.clientX - rect.left) / rect.width) * targetW;
+    let y = ((e.clientY - rect.top) / rect.height) * targetH;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    x = Math.max(0, Math.min(targetW - 1, Math.floor(x)));
+    y = Math.max(0, Math.min(targetH - 1, Math.floor(y)));
+    return { x, y };
+  }
+
+  function flushMouseMove() {
+    moveTimer = null;
+    if (!pendingMove || !mouseCtrl.checked) return;
+    const now = performance.now();
+    if (!smoothPoint) {
+      smoothPoint = { x: pendingMove.x, y: pendingMove.y };
+    }
+    const factor = Math.max(0, Math.min(0.8, smoothingPct / 100));
+    const alpha = 1 - factor;
+    smoothPoint.x += (pendingMove.x - smoothPoint.x) * alpha;
+    smoothPoint.y += (pendingMove.y - smoothPoint.y) * alpha;
+
+    const sendPoint = {
+      x: Math.round(smoothPoint.x),
+      y: Math.round(smoothPoint.y),
+    };
+
+    if (now - lastMoveSentAt < mouseMoveIntervalMs) {
+      if (!moveTimer) {
+        moveTimer = setTimeout(flushMouseMove, mouseMoveIntervalMs);
+      }
+      return;
+    }
+
+    lastMoveSentAt = now;
+    if (ws.bufferedAmount <= inputBackpressureBytes) {
+      sendCmd("mouse_move", sendPoint);
+    }
+  }
+
+  canvas.addEventListener("mousemove", function (e) {
+    if (!mouseCtrl.checked) return;
+    const pt = getCanvasPoint(e);
+    if (!pt) return;
+    pendingMove = pt;
+    if (!moveTimer) {
+      flushMouseMove();
+    }
+  });
+  canvas.addEventListener("mousedown", function (e) {
+    if (!mouseCtrl.checked) return;
+    canvas.focus();
+    const pt = getCanvasPoint(e);
+    if (pt) {
+      pendingMove = pt;
+      smoothPoint = { x: pt.x, y: pt.y };
+      sendCmd("mouse_move", pt);
+    }
+    sendCmd("mouse_down", { button: e.button, ...(pt || {}) });
+    e.preventDefault();
+  });
+  canvas.addEventListener("mouseup", function (e) {
+    if (!mouseCtrl.checked) return;
+    const pt = getCanvasPoint(e);
+    if (pt) {
+      pendingMove = pt;
+      smoothPoint = { x: pt.x, y: pt.y };
+      sendCmd("mouse_move", pt);
+    }
+    sendCmd("mouse_up", { button: e.button, ...(pt || {}) });
+    e.preventDefault();
+  });
+  canvas.addEventListener("contextmenu", function (e) {
+    e.preventDefault();
+  });
+
+  canvas.setAttribute("tabindex", "0");
+  canvas.addEventListener("click", function () {
+    canvas.focus();
+  });
+  canvas.addEventListener("keydown", function (e) {
+    if (!kbdCtrl.checked) return;
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && typeof e.key === "string" && e.key.length === 1) {
+      sendCmd("text_input", { text: e.key });
+      e.preventDefault();
+      return;
+    }
+    sendCmd("key_down", { key: e.key, code: e.code });
+    e.preventDefault();
+  });
+  canvas.addEventListener("keyup", function (e) {
+    if (!kbdCtrl.checked) return;
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && typeof e.key === "string" && e.key.length === 1) {
+      e.preventDefault();
+      return;
+    }
+    sendCmd("key_up", { key: e.key, code: e.code });
+    e.preventDefault();
+  });
+
+  function stopOnExit() {
+    if (ws.readyState === WebSocket.OPEN && desiredStreaming) {
+      desiredStreaming = false;
+      sendCmd("desktop_stop", {});
+    }
+  }
+
+  window.addEventListener("beforeunload", stopOnExit);
+  window.addEventListener("pagehide", stopOnExit);
+
+  fetchClientInfo();
+})();
