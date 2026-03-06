@@ -66,7 +66,6 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   let h264FramesSeen = 0;
   let h264KeyframeErrorStreak = 0;
   let h264RecoveryAttempts = 0;
-  let h264LastRecoveryAt = 0;
   let h264LastDecodeWarnAt = 0;
   const H264_LOW_FPS_THRESHOLD = 6;
   const H264_FALLBACK_WARMUP_MS = 10000;
@@ -74,7 +73,6 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   const H264_LOW_FPS_STREAK_LIMIT = 120;
   const H264_KEYFRAME_ERROR_RESTART_THRESHOLD = 24;
   const H264_MAX_RECOVERY_ATTEMPTS = 1;
-  const H264_RECOVERY_COOLDOWN_MS = 5000;
   const H264_DECODE_WARN_THROTTLE_MS = 2000;
   const mouseMoveIntervalMs = 33;
   const inputBackpressureBytes = 256 * 1024;
@@ -91,7 +89,6 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   function resetH264SessionState() {
     resetH264RuntimeState();
     h264RecoveryAttempts = 0;
-    h264LastRecoveryAt = 0;
     h264LastDecodeWarnAt = 0;
   }
 
@@ -563,12 +560,9 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
       return false;
     }
     if (ws.readyState !== WebSocket.OPEN) return false;
-    const now = Date.now();
     if (h264RecoveryAttempts >= H264_MAX_RECOVERY_ATTEMPTS) return false;
-    if (now - h264LastRecoveryAt < H264_RECOVERY_COOLDOWN_MS) return false;
 
     h264RecoveryAttempts += 1;
-    h264LastRecoveryAt = now;
     h264KeyframeErrorStreak = 0;
 
     console.warn("rd: h264 decode stuck waiting for keyframe; auto-restarting stream once", {
