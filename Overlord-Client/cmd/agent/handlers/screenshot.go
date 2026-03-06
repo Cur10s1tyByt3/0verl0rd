@@ -18,9 +18,9 @@ import (
 )
 
 var (
-	monitorCountFn              = capture.MonitorCount
-	displayBoundsFn             = capture.DisplayBounds
-	captureDisplayRGBABitBltFn  = capture.CaptureDisplayRGBABitBlt
+	monitorCountFn             = capture.MonitorCount
+	displayBoundsFn            = capture.DisplayBounds
+	captureDisplayRGBABitBltFn = capture.CaptureDisplayRGBABitBlt
 )
 
 func HandleScreenshot(ctx context.Context, env *rt.Env, cmdID string, allDisplays bool) error {

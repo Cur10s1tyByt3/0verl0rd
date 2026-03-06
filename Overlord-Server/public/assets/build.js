@@ -235,9 +235,15 @@ async function startBuild(config) {
       "info",
     );
 
-    await streamBuildOutput(buildId);
+    await streamBuildOutput(buildId, config);
   } catch (err) {
     addBuildOutput(`\nERROR: ${err.message}\n`, "error");
+    if (!config.disableCgo) {
+      addBuildOutput(
+        "Hint: This build used CGO. If it keeps failing, try enabling the 'Disable CGO' option and build again.\n",
+        "warn",
+      );
+    }
     buildStatusText.textContent = "Build failed";
     buildStatus.querySelector("div").className =
       "flex items-center gap-2 p-3 rounded-lg bg-red-900/40 border border-red-700/60";
@@ -250,7 +256,7 @@ async function startBuild(config) {
   }
 }
 
-async function streamBuildOutput(buildId) {
+async function streamBuildOutput(buildId, config = {}) {
   const res = await fetch(`/api/build/${buildId}/stream`, {
     credentials: "include",
   });
@@ -294,6 +300,13 @@ async function streamBuildOutput(buildId) {
             buildStatus.querySelector("i").className = data.success
               ? "fa-solid fa-circle-check"
               : "fa-solid fa-circle-xmark";
+
+            if (!data.success && !config.disableCgo) {
+              addBuildOutput(
+                "Hint: This build used CGO. If it keeps failing, try enabling the 'Disable CGO' option and build again.\n",
+                "warn",
+              );
+            }
 
             if (data.success && data.files) {
               const buildData = {

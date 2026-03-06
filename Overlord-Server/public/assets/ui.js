@@ -17,6 +17,7 @@ menu.innerHTML = `
   <button class="w-full text-left px-3 py-2.5 mb-1 rounded-lg border border-slate-800 bg-slate-800/60 hover:bg-slate-700 flex items-center gap-2" data-action="reconnect"><i class="fa-solid fa-rotate"></i> Reconnect</button>
   <button class="w-full text-left px-3 py-2.5 mb-1 rounded-lg border border-red-800 bg-red-900/40 hover:bg-red-800/60 text-red-100 flex items-center gap-2" data-action="disconnect"><i class="fa-solid fa-plug-circle-xmark"></i> Disconnect</button>
   <button class="w-full text-left px-3 py-2.5 rounded-lg border border-red-900 bg-red-950/60 hover:bg-red-900/80 text-red-200 flex items-center gap-2" data-action="uninstall"><i class="fa-solid fa-trash"></i> Uninstall</button>
+  <button class="w-full mt-1 text-left px-3 py-2.5 rounded-lg border border-rose-900 bg-rose-950/70 hover:bg-rose-900/90 text-rose-200 flex items-center gap-2" data-action="remove-dashboard"><i class="fa-solid fa-user-xmark"></i> Remove From Dashboard</button>
   <div id="plugin-section" class="hidden">
     <div class="border-t border-slate-700 my-2"></div>
     <div class="text-[11px] uppercase tracking-wider text-slate-400 px-1 mb-1">Plugins</div>

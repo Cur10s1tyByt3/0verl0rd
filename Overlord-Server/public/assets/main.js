@@ -443,6 +443,27 @@ bulkUninstallBtn?.addEventListener("click", async () => {
 window.toggleClientSelection = toggleClientSelection;
 window.isClientSelected = (clientId) => selectedClients.has(clientId);
 window.syncClientSelection = syncSelectionState;
+window.removeClientFromDashboard = async (clientId) => {
+  if (!clientId) return false;
+  try {
+    const res = await fetch(`/api/clients/${clientId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error || "Failed to remove client from dashboard");
+      return false;
+    }
+    selectedClients.delete(clientId);
+    return true;
+  } catch (err) {
+    console.error(err);
+    alert("Failed to remove client from dashboard");
+    return false;
+  }
+};
+
 window.banClient = async (clientId) => {
   if (!clientId) return;
   if (!confirm(`Ban IP for ${clientId} and block future connections?`)) return;
@@ -578,6 +599,23 @@ menu.addEventListener("click", async (e) => {
       closeMenu(clearContext);
       return;
     }
+  } else if (action === "remove-dashboard") {
+    if (
+      !confirm(
+        `Remove ${contextCard} from the dashboard list?\n\nUse this for stale clients that are already gone. If that client reconnects later, it will appear again.`,
+      )
+    ) {
+      closeMenu(clearContext);
+      return;
+    }
+
+    const removed = await window.removeClientFromDashboard(contextCard);
+    if (removed) {
+      updateBulkToolbar();
+      setTimeout(() => loadWithOptions({ force: true }), 200);
+    }
+    closeMenu(clearContext);
+    return;
   }
 
   const ok = await sendCommand(contextCard, action);

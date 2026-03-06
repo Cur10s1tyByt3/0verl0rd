@@ -5,6 +5,9 @@ WORKDIR /app
 # Install Go for agent building and other tools
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc-mingw-w64-x86-64 \
+    gcc-mingw-w64-i686 \
        openssl \
        curl \
        ca-certificates \

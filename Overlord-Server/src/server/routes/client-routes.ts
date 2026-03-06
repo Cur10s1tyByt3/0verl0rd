@@ -4,6 +4,7 @@ import { AuditAction, logAudit } from "../../auditLog";
 import * as clientManager from "../../clientManager";
 import {
   banIp,
+  clientExists,
   deleteClientRow,
   getClientIp,
   listClients,
@@ -119,6 +120,51 @@ export async function handleClientRoutes(
     }
     const success = generateThumbnail(clientId);
     return Response.json({ ok: true, updated: success }, { headers: deps.CORS_HEADERS });
+  }
+
+  const clientDeleteMatch = url.pathname.match(/^\/api\/clients\/([^/]+)$/);
+  if (req.method === "DELETE" && clientDeleteMatch) {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+
+    try {
+      requirePermission(user, "clients:control");
+    } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    const targetId = clientDeleteMatch[1];
+    const target = clientManager.getClient(targetId);
+    const existsInDb = clientExists(targetId);
+    if (!target && !existsInDb) {
+      return Response.json({ error: "Client not found" }, { status: 404 });
+    }
+
+    if (target) {
+      try {
+        target.ws.close(4000, "removed");
+      } catch {
+        // Connection may already be closed.
+      }
+      clientManager.deleteClient(targetId);
+      setOnlineState(targetId, false);
+    }
+
+    deleteClientRow(targetId);
+
+    const ip = server.requestIP(req)?.address || "unknown";
+    logAudit({
+      timestamp: Date.now(),
+      username: user.username,
+      ip,
+      action: AuditAction.COMMAND,
+      targetClientId: targetId,
+      details: "remove_dashboard",
+      success: true,
+    });
+
+    return Response.json({ ok: true }, { headers: deps.CORS_HEADERS });
   }
 
   if (req.method === "POST") {

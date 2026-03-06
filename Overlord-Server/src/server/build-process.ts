@@ -128,10 +128,40 @@ export async function startBuildProcess(
         ...process.env,
         GOOS: os,
         GOARCH: actualArch,
-        CGO_ENABLED: config.disableCgo !== false ? "0" : "1",
+        CGO_ENABLED: config.disableCgo === true ? "0" : "1",
         GOWORK: "off",
         ...(goarm ? { GOARM: goarm } : {}),
       };
+
+      if (env.CGO_ENABLED === "1") {
+        const targetKey = `${os}/${actualArch}${goarm ? `/v${goarm}` : ""}`;
+        const cCompilerByTarget: Record<string, string> = {
+          "linux/amd64": "gcc",
+          "windows/amd64": "x86_64-w64-mingw32-gcc",
+          "windows/386": "i686-w64-mingw32-gcc",
+        };
+        const cxxCompilerByTarget: Record<string, string> = {
+          "linux/amd64": "g++",
+          "windows/amd64": "x86_64-w64-mingw32-g++",
+          "windows/386": "i686-w64-mingw32-g++",
+        };
+
+        const cc = cCompilerByTarget[targetKey];
+        const cxx = cxxCompilerByTarget[targetKey];
+        if (cc) {
+          env.CC = cc;
+          sendToStream({ type: "output", text: `CGO compiler: ${cc}\n`, level: "info" });
+        } else {
+          sendToStream({
+            type: "output",
+            text: `CGO compiler not mapped for ${targetKey}; falling back to default compiler lookup\n`,
+            level: "warn",
+          });
+        }
+        if (cxx) {
+          env.CXX = cxx;
+        }
+      }
 
       let ldflags = config.stripDebug !== false ? "-s -w" : "";
 
@@ -181,7 +211,7 @@ export async function startBuildProcess(
         const buildTool = config.obfuscate ? "garble" : "go";
         const tagArg = config.noPrinting ? "-tags noprint " : "";
         logger.info(`[build:${buildId.substring(0, 8)}] Building: ${buildTool} build ${tagArg}${ldflags ? `-ldflags="${ldflags}" ` : ""}-o ${outDir}/${outputName} ./cmd/agent`);
-        logger.info(`[build:${buildId.substring(0, 8)}] Environment: GOOS=${os} GOARCH=${actualArch} CGO_ENABLED=${env.CGO_ENABLED}`);
+        logger.info(`[build:${buildId.substring(0, 8)}] Environment: GOOS=${os} GOARCH=${actualArch} CGO_ENABLED=${env.CGO_ENABLED} CC=${env.CC || "<default>"}`);
 
         const buildCmd = config.obfuscate
           ? (config.noPrinting
