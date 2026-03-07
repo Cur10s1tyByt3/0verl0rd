@@ -688,8 +688,13 @@ func (s *duplicationState) capture(display int) (*image.RGBA, error) {
 
 	var info dxgiOutDuplFrameInfo
 	var resource *iunknown
-	hr := s.dup.AcquireNextFrame(5, &info, &resource)
-	if hr == dxgiErrorWaitTimeout {
+	waitMs := uint32(5)
+	hr := uintptr(0)
+	for {
+		hr = s.dup.AcquireNextFrame(waitMs, &info, &resource)
+		if hr != dxgiErrorWaitTimeout {
+			break
+		}
 		if s.lastBase != nil {
 			img := s.composeFrame(s.lastBase)
 			s.lastFrame = img
@@ -699,7 +704,10 @@ func (s *duplicationState) capture(display int) (*image.RGBA, error) {
 		if s.lastFrame != nil {
 			return s.lastFrame, nil
 		}
-		return nil, errors.New("dxgi: frame timeout")
+		if waitMs >= 50 {
+			return nil, errors.New("dxgi: frame timeout")
+		}
+		waitMs = 50
 	}
 	if hr == dxgiErrorAccessLost {
 		s.closeLocked()
