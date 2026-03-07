@@ -32,6 +32,17 @@ export interface Config {
     telegramBotToken: string;
     telegramChatId: string;
   };
+  security: {
+    sessionTtlHours: number;
+    loginMaxAttempts: number;
+    loginWindowMinutes: number;
+    loginLockoutMinutes: number;
+    passwordMinLength: number;
+    passwordRequireUppercase: boolean;
+    passwordRequireLowercase: boolean;
+    passwordRequireNumber: boolean;
+    passwordRequireSymbol: boolean;
+  };
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -61,6 +72,17 @@ const DEFAULT_CONFIG: Config = {
     telegramEnabled: false,
     telegramBotToken: "",
     telegramChatId: "",
+  },
+  security: {
+    sessionTtlHours: 168,
+    loginMaxAttempts: 5,
+    loginWindowMinutes: 15,
+    loginLockoutMinutes: 30,
+    passwordMinLength: 6,
+    passwordRequireUppercase: false,
+    passwordRequireLowercase: false,
+    passwordRequireNumber: false,
+    passwordRequireSymbol: false,
   },
 };
 
@@ -256,6 +278,44 @@ export function loadConfig(): Config {
         fileConfig.notifications?.telegramChatId ||
         DEFAULT_CONFIG.notifications.telegramChatId,
     },
+    security: {
+      sessionTtlHours:
+        Number(process.env.OVERLORD_SESSION_TTL_HOURS) ||
+        fileConfig.security?.sessionTtlHours ||
+        DEFAULT_CONFIG.security.sessionTtlHours,
+      loginMaxAttempts:
+        Number(process.env.OVERLORD_LOGIN_MAX_ATTEMPTS) ||
+        fileConfig.security?.loginMaxAttempts ||
+        DEFAULT_CONFIG.security.loginMaxAttempts,
+      loginWindowMinutes:
+        Number(process.env.OVERLORD_LOGIN_WINDOW_MINUTES) ||
+        fileConfig.security?.loginWindowMinutes ||
+        DEFAULT_CONFIG.security.loginWindowMinutes,
+      loginLockoutMinutes:
+        Number(process.env.OVERLORD_LOGIN_LOCKOUT_MINUTES) ||
+        fileConfig.security?.loginLockoutMinutes ||
+        DEFAULT_CONFIG.security.loginLockoutMinutes,
+      passwordMinLength:
+        Number(process.env.OVERLORD_PASSWORD_MIN_LENGTH) ||
+        fileConfig.security?.passwordMinLength ||
+        DEFAULT_CONFIG.security.passwordMinLength,
+      passwordRequireUppercase:
+        String(process.env.OVERLORD_PASSWORD_REQUIRE_UPPERCASE || "").toLowerCase() === "true" ||
+        fileConfig.security?.passwordRequireUppercase ||
+        DEFAULT_CONFIG.security.passwordRequireUppercase,
+      passwordRequireLowercase:
+        String(process.env.OVERLORD_PASSWORD_REQUIRE_LOWERCASE || "").toLowerCase() === "true" ||
+        fileConfig.security?.passwordRequireLowercase ||
+        DEFAULT_CONFIG.security.passwordRequireLowercase,
+      passwordRequireNumber:
+        String(process.env.OVERLORD_PASSWORD_REQUIRE_NUMBER || "").toLowerCase() === "true" ||
+        fileConfig.security?.passwordRequireNumber ||
+        DEFAULT_CONFIG.security.passwordRequireNumber,
+      passwordRequireSymbol:
+        String(process.env.OVERLORD_PASSWORD_REQUIRE_SYMBOL || "").toLowerCase() === "true" ||
+        fileConfig.security?.passwordRequireSymbol ||
+        DEFAULT_CONFIG.security.passwordRequireSymbol,
+    },
   };
 
   if (saveChanged) {
@@ -324,6 +384,57 @@ export async function updateNotificationsConfig(
   }
 
   fileConfig.notifications = next;
+
+  try {
+    await mkdir(resolve(process.cwd()), { recursive: true });
+  } catch {}
+
+  await writeFile(configPath, JSON.stringify(fileConfig, null, 2));
+  return next;
+}
+
+export async function updateSecurityConfig(
+  updates: Partial<Config["security"]>,
+): Promise<Config["security"]> {
+  const current = getConfig();
+
+  const next = {
+    ...current.security,
+    ...updates,
+  };
+
+  const toNumberOr = (value: unknown, fallback: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  next.sessionTtlHours = Math.min(24 * 30, Math.max(1, toNumberOr(next.sessionTtlHours, 168)));
+  next.loginMaxAttempts = Math.min(50, Math.max(1, toNumberOr(next.loginMaxAttempts, 5)));
+  next.loginWindowMinutes = Math.min(24 * 24, Math.max(1, toNumberOr(next.loginWindowMinutes, 15)));
+  next.loginLockoutMinutes = Math.min(24 * 24, Math.max(1, toNumberOr(next.loginLockoutMinutes, 30)));
+  next.passwordMinLength = Math.min(128, Math.max(6, toNumberOr(next.passwordMinLength, 6)));
+  next.passwordRequireUppercase = Boolean(next.passwordRequireUppercase);
+  next.passwordRequireLowercase = Boolean(next.passwordRequireLowercase);
+  next.passwordRequireNumber = Boolean(next.passwordRequireNumber);
+  next.passwordRequireSymbol = Boolean(next.passwordRequireSymbol);
+
+  configCache = {
+    ...current,
+    security: next,
+  };
+
+  const configPath = resolve(process.cwd(), "config.json");
+  let fileConfig: any = {};
+  if (existsSync(configPath)) {
+    try {
+      const content = readFileSync(configPath, "utf-8");
+      fileConfig = JSON.parse(content) || {};
+    } catch {
+      fileConfig = {};
+    }
+  }
+
+  fileConfig.security = next;
 
   try {
     await mkdir(resolve(process.cwd()), { recursive: true });

@@ -85,8 +85,12 @@ export function mountNav(host) {
             class="hidden min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white text-xs flex items-center justify-center"
           ></span>
         </button>
-        <div
-          class="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-slate-800 text-slate-100 min-w-0 max-w-full md:max-w-none"
+        <button
+          id="account-settings-btn"
+          class="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-slate-800 text-slate-100 min-w-0 max-w-full md:max-w-none border border-slate-700/70 hover:bg-slate-700 transition-colors"
+          title="Open settings"
+          aria-label="Open settings"
+          type="button"
         >
           <i class="fa-solid fa-user-shield text-sky-300"></i>
           <span id="username-display" class="truncate max-w-[110px] sm:max-w-[180px] md:max-w-none">Loading...</span>
@@ -94,7 +98,7 @@ export function mountNav(host) {
             id="role-badge"
             class="text-sm px-2 py-0.5 rounded-full bg-slate-700 shrink-0"
           ></span>
-        </div>
+        </button>
         <button
           id="logout-btn"
           class="group inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-red-900/40 hover:bg-red-800/60 text-red-100 border border-red-700/60 transition-colors"
@@ -116,6 +120,7 @@ export function mountNav(host) {
     logoutBtn: document.getElementById("logout-btn"),
     notifyToggle: document.getElementById("notify-toggle"),
     notifyBadge: document.getElementById("notify-badge"),
+    accountSettingsBtn: document.getElementById("account-settings-btn"),
     usernameDisplay: document.getElementById("username-display"),
     roleBadge: document.getElementById("role-badge"),
     usersLink: document.getElementById("users-link"),

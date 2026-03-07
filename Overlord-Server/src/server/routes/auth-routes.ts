@@ -3,6 +3,7 @@ import {
   authenticateUser,
   extractTokenFromRequest,
   generateToken,
+  getSessionTtlSeconds,
   getUserFromRequest,
   revokeToken,
 } from "../../auth";
@@ -62,6 +63,7 @@ export async function handleAuthRoutes(
 
       if (user) {
         const token = await generateToken(user);
+        const sessionTtlSeconds = getSessionTtlSeconds();
 
         logger.info(
           `[auth] User ${user.username} logged in. must_change_password =`,
@@ -93,7 +95,7 @@ export async function handleAuthRoutes(
           {
             headers: {
               "Content-Type": "application/json",
-              "Set-Cookie": `overlord_token=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=604800`,
+              "Set-Cookie": `overlord_token=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${sessionTtlSeconds}`,
             },
           },
         );

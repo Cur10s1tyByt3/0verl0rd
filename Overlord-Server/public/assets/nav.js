@@ -23,6 +23,7 @@ if (host) {
     "/plugins": "plugins-link",
     "/build": "build-link",
     "/users": "users-link",
+    "/user-client-access": "users-link",
     "/notifications": "notifications-link",
   };
   const activeId = activeMap[path];
@@ -56,6 +57,17 @@ if (host) {
         alert("Logout failed. Please try again.");
       }
     });
+  }
+
+  if (refs.accountSettingsBtn && !refs.accountSettingsBtn.dataset.boundSettings) {
+    refs.accountSettingsBtn.dataset.boundSettings = "true";
+    refs.accountSettingsBtn.addEventListener("click", () => {
+      window.location.href = "/settings";
+    });
+  }
+
+  if (path === "/settings" && refs.accountSettingsBtn) {
+    refs.accountSettingsBtn.classList.add("ring-1", "ring-sky-500/60", "bg-slate-700");
   }
 
   const updateToggle = () => {

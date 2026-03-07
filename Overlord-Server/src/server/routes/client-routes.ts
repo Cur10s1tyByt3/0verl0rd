@@ -7,12 +7,20 @@ import {
   clientExists,
   deleteClientRow,
   getClientIp,
+  isIpBanned,
+  listBannedIps,
   listClients,
   setOnlineState,
+  unbanIp,
 } from "../../db";
 import { metrics } from "../../metrics";
 import { encodeMessage } from "../../protocol";
 import { requirePermission } from "../../rbac";
+import {
+  canUserAccessClient,
+  getUserClientAccessScope,
+  listUserClientRuleIdsByAccess,
+} from "../../users";
 
 type RequestIpProvider = {
   requestIP: (req: Request) => { address?: string } | null | undefined;
@@ -43,7 +51,8 @@ export async function handleClientRoutes(
   }
 
   if (url.pathname === "/api/clients") {
-    if (!(await authenticateRequest(req))) {
+    const user = await authenticateRequest(req);
+    if (!user) {
       return new Response("Unauthorized", { status: 401 });
     }
     const page = Math.max(1, Number(url.searchParams.get("page") || 1));
@@ -52,8 +61,84 @@ export async function handleClientRoutes(
     const sort = url.searchParams.get("sort") || "last_seen_desc";
     const statusFilter = url.searchParams.get("status") || "all";
     const osFilter = url.searchParams.get("os") || "all";
-    const result = listClients({ page, pageSize, search, sort, statusFilter, osFilter });
+    if (user.role === "admin") {
+      const result = listClients({ page, pageSize, search, sort, statusFilter, osFilter });
+      return Response.json(result, { headers: deps.CORS_HEADERS });
+    }
+
+    const scope = getUserClientAccessScope(user.userId);
+    if (scope === "none") {
+      return Response.json(
+        { page, pageSize, total: 0, online: 0, items: [] },
+        { headers: deps.CORS_HEADERS },
+      );
+    }
+
+    const allowedClientIds =
+      scope === "allowlist"
+        ? listUserClientRuleIdsByAccess(user.userId, "allow")
+        : undefined;
+    const deniedClientIds =
+      scope === "denylist"
+        ? listUserClientRuleIdsByAccess(user.userId, "deny")
+        : undefined;
+
+    const result = listClients({
+      page,
+      pageSize,
+      search,
+      sort,
+      statusFilter,
+      osFilter,
+      allowedClientIds,
+      deniedClientIds,
+    });
     return Response.json(result, { headers: deps.CORS_HEADERS });
+  }
+
+  if (url.pathname === "/api/clients/banned-ips") {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+
+    try {
+      requirePermission(user, "clients:control");
+    } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    if (req.method === "GET") {
+      return Response.json({ items: listBannedIps() }, { headers: deps.CORS_HEADERS });
+    }
+
+    if (req.method === "DELETE") {
+      const ipToUnban = (url.searchParams.get("ip") || "").trim();
+      if (!ipToUnban) {
+        return Response.json({ error: "Missing ip query parameter" }, { status: 400 });
+      }
+
+      if (!/^[0-9a-fA-F:.]{3,64}$/.test(ipToUnban)) {
+        return Response.json({ error: "Invalid IP format" }, { status: 400 });
+      }
+
+      if (!isIpBanned(ipToUnban)) {
+        return Response.json({ error: "IP is not banned" }, { status: 404 });
+      }
+
+      unbanIp(ipToUnban);
+
+      const ip = server.requestIP(req)?.address || "unknown";
+      logAudit({
+        timestamp: Date.now(),
+        username: user.username,
+        ip,
+        action: AuditAction.COMMAND,
+        details: `Unbanned IP ${ipToUnban}`,
+        success: true,
+      });
+
+      return Response.json({ ok: true }, { headers: deps.CORS_HEADERS });
+    }
   }
 
   const banMatch = url.pathname.match(/^\/api\/clients\/(.+)\/ban$/);
@@ -68,6 +153,9 @@ export async function handleClientRoutes(
     }
 
     const targetId = banMatch[1];
+    if (!canUserAccessClient(user.userId, user.role, targetId)) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
+    }
     const target = clientManager.getClient(targetId);
     const targetIp = target?.ip || getClientIp(targetId);
     if (!targetIp) {
@@ -99,10 +187,14 @@ export async function handleClientRoutes(
 
   const thumbnailMatch = url.pathname.match(/^\/api\/clients\/(.+)\/thumbnail$/);
   if (req.method === "POST" && thumbnailMatch) {
-    if (!(await authenticateRequest(req))) {
+    const user = await authenticateRequest(req);
+    if (!user) {
       return new Response("Unauthorized", { status: 401 });
     }
     const clientId = thumbnailMatch[1];
+    if (!canUserAccessClient(user.userId, user.role, clientId)) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
+    }
     const { generateThumbnail, markThumbnailRequested } = await import("../../thumbnails");
     markThumbnailRequested(clientId);
     const target = clientManager.getClient(clientId);
@@ -135,6 +227,9 @@ export async function handleClientRoutes(
     }
 
     const targetId = clientDeleteMatch[1];
+    if (!canUserAccessClient(user.userId, user.role, targetId)) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
+    }
     const target = clientManager.getClient(targetId);
     const existsInDb = clientExists(targetId);
     if (!target && !existsInDb) {
@@ -181,6 +276,9 @@ export async function handleClientRoutes(
       }
 
       const targetId = cmdMatch[1];
+      if (!canUserAccessClient(user.userId, user.role, targetId)) {
+        return new Response("Forbidden: Client access denied", { status: 403 });
+      }
       const target = clientManager.getClient(targetId);
       const ip = server.requestIP(req)?.address || "unknown";
 

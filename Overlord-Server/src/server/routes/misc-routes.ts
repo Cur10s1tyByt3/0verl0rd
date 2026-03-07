@@ -1,6 +1,7 @@
 import { authenticateRequest } from "../../auth";
 import * as clientManager from "../../clientManager";
-import { getAuditLogs } from "../../auditLog";
+import { AuditAction, getAuditLogs, logAudit } from "../../auditLog";
+import { getConfig, updateSecurityConfig } from "../../config";
 import { listClients } from "../../db";
 import { logger } from "../../logger";
 import { metrics } from "../../metrics";
@@ -9,6 +10,7 @@ import { requirePermission } from "../../rbac";
 type MiscRouteDeps = {
   CORS_HEADERS: Record<string, string>;
   SERVER_VERSION: string;
+  requestIP?: (req: Request) => { address?: string } | null | undefined;
   getConsoleSessionCount: () => number;
   getRdSessionCount: () => number;
   getFileBrowserSessionCount: () => number;
@@ -91,6 +93,53 @@ export async function handleMiscRoutes(
         "Content-Type": "application/json",
       },
     });
+  }
+
+  if (url.pathname === "/api/settings/security") {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+
+    if (user.role !== "admin") {
+      return new Response("Forbidden: Admin access required", { status: 403 });
+    }
+
+    if (req.method === "GET") {
+      return Response.json({ security: getConfig().security }, { headers: deps.CORS_HEADERS });
+    }
+
+    if (req.method === "PUT") {
+      let body: any = {};
+      try {
+        body = await req.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+
+      const updated = await updateSecurityConfig({
+        sessionTtlHours: Number(body?.sessionTtlHours),
+        loginMaxAttempts: Number(body?.loginMaxAttempts),
+        loginWindowMinutes: Number(body?.loginWindowMinutes),
+        loginLockoutMinutes: Number(body?.loginLockoutMinutes),
+        passwordMinLength: Number(body?.passwordMinLength),
+        passwordRequireUppercase: Boolean(body?.passwordRequireUppercase),
+        passwordRequireLowercase: Boolean(body?.passwordRequireLowercase),
+        passwordRequireNumber: Boolean(body?.passwordRequireNumber),
+        passwordRequireSymbol: Boolean(body?.passwordRequireSymbol),
+      });
+
+      logAudit({
+        timestamp: Date.now(),
+        username: user.username,
+        ip: deps.requestIP?.(req)?.address || "unknown",
+        action: AuditAction.COMMAND,
+        details: "Updated security settings",
+        success: true,
+      });
+
+      return Response.json({ ok: true, security: updated }, { headers: deps.CORS_HEADERS });
+    }
   }
 
   if (req.method === "GET" && url.pathname === "/api/audit-logs") {

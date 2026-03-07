@@ -2,6 +2,7 @@ import { state } from "./state.js";
 import { digestData } from "./utils.js";
 
 const POLL_INTERVAL_MS = 5000;
+const PREF_REFRESH_KEY = "overlord_refresh_interval_seconds";
 let pollTimer = null;
 let render = () => {};
 
@@ -91,11 +92,19 @@ function updateOsFilter(items) {
   }
 }
 
+function getConfiguredPollIntervalMs(defaultMs) {
+  const savedSeconds = Number(localStorage.getItem(PREF_REFRESH_KEY));
+  if (!Number.isFinite(savedSeconds)) return defaultMs;
+  const boundedSeconds = Math.min(120, Math.max(3, savedSeconds));
+  return boundedSeconds * 1000;
+}
+
 export function startAutoRefresh(intervalMs = POLL_INTERVAL_MS) {
+  const effectiveInterval = getConfiguredPollIntervalMs(intervalMs);
   clearInterval(pollTimer);
   pollTimer = setInterval(() => {
     loadWithOptions({ force: false });
-  }, intervalMs);
+  }, effectiveInterval);
 }
 
 export async function sendCommand(clientId, action) {

@@ -10,7 +10,6 @@ import {
 
 const JWT_ISSUER = "overlord-server";
 const JWT_AUDIENCE = "overlord-client";
-const JWT_EXPIRATION = "7d";
 
 const tokenBlacklist = new Set<string>();
 
@@ -23,6 +22,15 @@ const TOKEN_CACHE_TTL = 5000;
 function getSecretKey(): Uint8Array {
   const config = getConfig();
   return new TextEncoder().encode(config.auth.jwtSecret);
+}
+
+export function getSessionTtlHours(): number {
+  const configured = Number(getConfig().security.sessionTtlHours) || 168;
+  return Math.min(24 * 30, Math.max(1, configured));
+}
+
+export function getSessionTtlSeconds(): number {
+  return getSessionTtlHours() * 60 * 60;
 }
 
 export interface JWTPayload {
@@ -42,6 +50,7 @@ export interface AuthenticatedUser {
 }
 
 export async function generateToken(user: User): Promise<string> {
+  const expiration = `${getSessionTtlHours()}h`;
   const token = await new SignJWT({
     sub: user.username,
     userId: user.id,
@@ -51,7 +60,7 @@ export async function generateToken(user: User): Promise<string> {
     .setIssuedAt()
     .setIssuer(JWT_ISSUER)
     .setAudience(JWT_AUDIENCE)
-    .setExpirationTime(JWT_EXPIRATION)
+    .setExpirationTime(expiration)
     .sign(getSecretKey());
 
   return token;

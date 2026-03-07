@@ -28,6 +28,8 @@ export type ListFilters = {
   sort: string;
   statusFilter?: string;
   osFilter?: string;
+  allowedClientIds?: string[];
+  deniedClientIds?: string[];
 };
 
 export type ListItem = ClientInfo & {

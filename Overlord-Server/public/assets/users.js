@@ -184,6 +184,16 @@ function renderUsers() {
               <i class="fa-solid fa-user-tag"></i>
             </button>
             <button 
+              class="user-action-btn px-3 py-1.5 text-sm bg-indigo-900/30 hover:bg-indigo-900/50 text-indigo-300 rounded border border-indigo-800 transition-colors"
+              data-action="client-access"
+              data-user-id="${user.id}"
+              data-username="${escapeHtml(user.username)}"
+              data-role="${escapeHtml(user.role)}"
+              title="Client Visibility"
+            >
+              <i class="fa-solid fa-user-shield"></i>
+            </button>
+            <button 
               class="user-action-btn px-3 py-1.5 text-sm bg-red-900/20 hover:bg-red-900/40 text-red-400 rounded border border-red-800 transition-colors"
               data-action="delete"
               data-user-id="${user.id}"
@@ -241,6 +251,9 @@ function attachActionListeners() {
         break;
       case "delete":
         deleteUser(userId, username);
+        break;
+      case "client-access":
+        configureClientAccess(userId, username, role);
         break;
     }
   };
@@ -409,6 +422,11 @@ window.deleteUser = async function (userId, username) {
     console.error("Delete user error:", err);
     alert("Network error. Please try again.");
   }
+};
+
+window.configureClientAccess = async function (userId, username, role) {
+  const params = new URLSearchParams({ userId: String(userId) });
+  window.location.href = `/user-client-access?${params.toString()}`;
 };
 
 getCurrentUser();

@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings - Overlord</title>
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="stylesheet" href="/assets/tailwind.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <link rel="stylesheet" href="/assets/main.css" />
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <header id="top-nav"></header>
+
+    <main class="max-w-6xl w-full mx-auto px-4 py-8 space-y-6">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-100">Settings</h1>
+        <p class="text-slate-400 text-sm">
+          Manage your account preferences and review banned IP addresses.
+        </p>
+      </div>
+
+      <section class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+          <div>
+            <h2 class="text-lg font-semibold">Basic Settings</h2>
+            <p class="text-sm text-slate-400">Update account and local dashboard preferences.</p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <div class="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
+              <div class="text-slate-400">Username</div>
+              <div id="settings-username" class="font-medium">-</div>
+            </div>
+            <div class="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
+              <div class="text-slate-400">Role</div>
+              <div id="settings-role" class="font-medium">-</div>
+            </div>
+          </div>
+
+          <form id="password-form" class="space-y-3 pt-1">
+            <h3 class="font-medium">Change Password</h3>
+            <input
+              id="current-password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Current password"
+              class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              required
+            />
+            <input
+              id="new-password"
+              type="password"
+              autocomplete="new-password"
+              minlength="6"
+              placeholder="New password (min 6 chars)"
+              class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              required
+            />
+            <input
+              id="confirm-password"
+              type="password"
+              autocomplete="new-password"
+              minlength="6"
+              placeholder="Confirm new password"
+              class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              required
+            />
+            <p id="password-policy-hint" class="text-xs text-slate-400"></p>
+            <button
+              type="submit"
+              class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 transition-colors text-white font-medium"
+            >
+              <i class="fa-solid fa-key mr-2"></i>Update Password
+            </button>
+          </form>
+
+          <form id="prefs-form" class="space-y-3 pt-1">
+            <h3 class="font-medium">Dashboard Preferences</h3>
+            <label class="flex items-center gap-2">
+              <input id="pref-notifications" type="checkbox" class="h-4 w-4" />
+              <span>Enable notification badge updates</span>
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Client refresh interval (seconds)</span>
+              <input
+                id="pref-refresh-seconds"
+                type="number"
+                min="3"
+                max="120"
+                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </label>
+            <button
+              type="submit"
+              class="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors text-white font-medium"
+            >
+              <i class="fa-solid fa-floppy-disk mr-2"></i>Save Preferences
+            </button>
+          </form>
+
+          <form id="security-form" class="space-y-3 pt-1 border-t border-slate-800 pt-4">
+            <div>
+              <h3 class="font-medium">Security Policy</h3>
+              <p class="text-xs text-slate-400">Admin-only global security controls.</p>
+            </div>
+
+            <div id="security-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
+              Only admins can update security policy settings.
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label class="block">
+                <span class="text-sm text-slate-300">Session TTL (hours)</span>
+                <input
+                  id="security-session-ttl"
+                  type="number"
+                  min="1"
+                  max="720"
+                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </label>
+              <label class="block">
+                <span class="text-sm text-slate-300">Max login attempts</span>
+                <input
+                  id="security-login-max-attempts"
+                  type="number"
+                  min="1"
+                  max="50"
+                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </label>
+              <label class="block">
+                <span class="text-sm text-slate-300">Login window (minutes)</span>
+                <input
+                  id="security-login-window"
+                  type="number"
+                  min="1"
+                  max="1440"
+                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </label>
+              <label class="block">
+                <span class="text-sm text-slate-300">Lockout duration (minutes)</span>
+                <input
+                  id="security-lockout"
+                  type="number"
+                  min="1"
+                  max="1440"
+                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </label>
+              <label class="block sm:col-span-2">
+                <span class="text-sm text-slate-300">Minimum password length</span>
+                <input
+                  id="security-password-min"
+                  type="number"
+                  min="6"
+                  max="128"
+                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </label>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+              <label class="flex items-center gap-2">
+                <input id="security-require-uppercase" type="checkbox" class="h-4 w-4" />
+                <span>Require uppercase letter</span>
+              </label>
+              <label class="flex items-center gap-2">
+                <input id="security-require-lowercase" type="checkbox" class="h-4 w-4" />
+                <span>Require lowercase letter</span>
+              </label>
+              <label class="flex items-center gap-2">
+                <input id="security-require-number" type="checkbox" class="h-4 w-4" />
+                <span>Require number</span>
+              </label>
+              <label class="flex items-center gap-2">
+                <input id="security-require-symbol" type="checkbox" class="h-4 w-4" />
+                <span>Require symbol</span>
+              </label>
+            </div>
+
+            <button
+              type="submit"
+              id="security-save-btn"
+              class="px-4 py-2 rounded-lg bg-indigo-700 hover:bg-indigo-600 transition-colors text-white font-medium"
+            >
+              <i class="fa-solid fa-shield-halved mr-2"></i>Save Security Policy
+            </button>
+          </form>
+
+          <p id="settings-message" class="hidden text-sm rounded-lg px-3 py-2"></p>
+        </div>
+
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <h2 class="text-lg font-semibold">Banned IPs</h2>
+              <p class="text-sm text-slate-400">Unban blocked agent source IPs.</p>
+            </div>
+            <button
+              id="refresh-bans-btn"
+              class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm"
+              type="button"
+            >
+              <i class="fa-solid fa-rotate mr-1"></i>Refresh
+            </button>
+          </div>
+
+          <div id="bans-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
+            Your role does not allow IP unban actions.
+          </div>
+
+          <div class="overflow-x-auto border border-slate-800 rounded-lg">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-800/60 text-slate-300">
+                <tr>
+                  <th class="text-left px-3 py-2">IP</th>
+                  <th class="text-left px-3 py-2">Reason</th>
+                  <th class="text-left px-3 py-2">Banned At</th>
+                  <th class="text-right px-3 py-2">Action</th>
+                </tr>
+              </thead>
+              <tbody id="bans-table-body" class="divide-y divide-slate-800">
+                <tr>
+                  <td colspan="4" class="px-3 py-6 text-center text-slate-400">Loading...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/assets/nav.js"></script>
+    <script type="module" src="/assets/settings.js"></script>
+  </body>
+</html>

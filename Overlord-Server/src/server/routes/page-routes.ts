@@ -1,6 +1,6 @@
 import { authenticateRequest } from "../../auth";
 import { requirePermission } from "../../rbac";
-import { getUserById } from "../../users";
+import { canUserAccessClient, getUserById, type UserRole } from "../../users";
 
 type PageRouteDeps = {
   PUBLIC_ROOT: string;
@@ -37,6 +37,11 @@ export async function handlePageRoutes(
   url: URL,
   deps: PageRouteDeps,
 ): Promise<Response | null> {
+  const canAccessClientPage = (userId: number, role: UserRole, clientId: string): boolean => {
+    if (!clientId) return false;
+    return canUserAccessClient(userId, role, clientId);
+  };
+
   if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
     const authed = await authenticateRequest(req);
 
@@ -71,6 +76,12 @@ export async function handlePageRoutes(
     if (user.role === "viewer") {
       return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
     }
+
+    const clientId = (url.searchParams.get("clientId") || "").trim();
+    if (!canAccessClientPage(user.userId, user.role, clientId)) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
+    }
+
     const file = Bun.file(`${deps.PUBLIC_ROOT}/remotedesktop.html`);
     if (await file.exists()) {
       return new Response(file, { headers: deps.secureHeaders(deps.mimeType("remotedesktop.html")) });
@@ -89,6 +100,12 @@ export async function handlePageRoutes(
     if (user.role === "viewer") {
       return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
     }
+
+    const clientId = (url.searchParams.get("clientId") || "").trim();
+    if (!canAccessClientPage(user.userId, user.role, clientId)) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
+    }
+
     const file = Bun.file(`${deps.PUBLIC_ROOT}/hvnc.html`);
     if (await file.exists()) {
       return new Response(file, { headers: deps.secureHeaders(deps.mimeType("hvnc.html")) });
@@ -168,6 +185,42 @@ export async function handlePageRoutes(
     }
   }
 
+  if (req.method === "GET" && url.pathname === "/user-client-access") {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return serveLoginOrUnauthorized(deps);
+    }
+
+    const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
+    if (maybeChange) return maybeChange;
+
+    if (user.role !== "admin") {
+      return new Response("Forbidden: Admin access required", { status: 403 });
+    }
+
+    const file = Bun.file(`${deps.PUBLIC_ROOT}/user-client-access.html`);
+    if (await file.exists()) {
+      return new Response(file, {
+        headers: deps.secureHeaders(deps.mimeType("user-client-access.html")),
+      });
+    }
+  }
+
+  if (req.method === "GET" && url.pathname === "/settings") {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return serveLoginOrUnauthorized(deps);
+    }
+
+    const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
+    if (maybeChange) return maybeChange;
+
+    const file = Bun.file(`${deps.PUBLIC_ROOT}/settings.html`);
+    if (await file.exists()) {
+      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("settings.html")) });
+    }
+  }
+
   if (req.method === "GET" && url.pathname === "/build") {
     const user = await authenticateRequest(req);
     if (!user) {
@@ -210,6 +263,9 @@ export async function handlePageRoutes(
     if (user.role === "viewer") {
       return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
     }
+    if (!canAccessClientPage(user.userId, user.role, consolePageMatch[1])) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
+    }
     const file = Bun.file(`${deps.PUBLIC_ROOT}/console.html`);
     if (await file.exists()) {
       return new Response(file, { headers: deps.secureHeaders(deps.mimeType("console.html")) });
@@ -225,6 +281,9 @@ export async function handlePageRoutes(
 
     if (user.role === "viewer") {
       return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
+    }
+    if (!canAccessClientPage(user.userId, user.role, filesPageMatch[1])) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
     }
     const file = Bun.file(`${deps.PUBLIC_ROOT}/filebrowser.html`);
     if (await file.exists()) {
@@ -242,6 +301,9 @@ export async function handlePageRoutes(
     if (user.role === "viewer") {
       return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
     }
+    if (!canAccessClientPage(user.userId, user.role, processesPageMatch[1])) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
+    }
     const file = Bun.file(`${deps.PUBLIC_ROOT}/processes.html`);
     if (await file.exists()) {
       return new Response(file, { headers: deps.secureHeaders(deps.mimeType("processes.html")) });
@@ -258,6 +320,9 @@ export async function handlePageRoutes(
     if (user.role === "viewer") {
       return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
     }
+    if (!canAccessClientPage(user.userId, user.role, keyloggerPageMatch[1])) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
+    }
     const file = Bun.file(`${deps.PUBLIC_ROOT}/keylogger.html`);
     if (await file.exists()) {
       return new Response(file, { headers: deps.secureHeaders(deps.mimeType("keylogger.html")) });
@@ -273,6 +338,9 @@ export async function handlePageRoutes(
 
     if (user.role === "viewer") {
       return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
+    }
+    if (!canAccessClientPage(user.userId, user.role, proxyPageMatch[1])) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
     }
     const file = Bun.file(`${deps.PUBLIC_ROOT}/proxy.html`);
     if (await file.exists()) {

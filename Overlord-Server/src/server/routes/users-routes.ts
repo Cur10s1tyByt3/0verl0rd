@@ -1,12 +1,19 @@
-import { generateToken, authenticateRequest } from "../../auth";
+import { generateToken, authenticateRequest, getSessionTtlSeconds } from "../../auth";
 import { AuditAction, logAudit } from "../../auditLog";
 import { logger } from "../../logger";
 import { requirePermission } from "../../rbac";
 import {
+  type ClientAccessRuleKind,
+  type ClientAccessScope,
   createUser,
   deleteUser,
   getUserById,
+  getUserClientAccessScope,
   listUsers,
+  listUserClientAccessRules,
+  removeUserClientAccessRule,
+  setUserClientAccessRule,
+  setUserClientAccessScope,
   updateUserPassword,
   updateUserRole,
 } from "../../users";
@@ -114,6 +121,7 @@ export async function handleUsersRoutes(
 
         if (user.userId === userId && targetUser) {
           const newToken = await generateToken(targetUser);
+          const sessionTtlSeconds = getSessionTtlSeconds();
           return new Response(
             JSON.stringify({
               success: true,
@@ -122,7 +130,7 @@ export async function handleUsersRoutes(
             {
               headers: {
                 "Content-Type": "application/json",
-                "Set-Cookie": `overlord_token=${newToken}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=604800`,
+                "Set-Cookie": `overlord_token=${newToken}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${sessionTtlSeconds}`,
               },
             },
           );
@@ -164,6 +172,118 @@ export async function handleUsersRoutes(
         return Response.json({ success: true });
       }
       return Response.json({ error: result.error }, { status: 400 });
+    }
+
+    if (req.method === "GET" && url.pathname.match(/^\/api\/users\/\d+\/client-access$/)) {
+      const authedUser = requirePermission(user, "users:manage");
+      const userId = parseInt(url.pathname.split("/")[3]);
+      const targetUser = getUserById(userId);
+      if (!targetUser) {
+        return Response.json({ error: "User not found" }, { status: 404 });
+      }
+
+      const scope = getUserClientAccessScope(userId);
+      const rules = listUserClientAccessRules(userId);
+
+      const ip = server.requestIP(req)?.address || "unknown";
+      logAudit({
+        timestamp: Date.now(),
+        username: authedUser.username,
+        ip,
+        action: AuditAction.COMMAND,
+        details: `Viewed client access policy for user: ${targetUser.username}`,
+        success: true,
+      });
+
+      return Response.json({ scope, rules });
+    }
+
+    if (req.method === "PUT" && url.pathname.match(/^\/api\/users\/\d+\/client-access$/)) {
+      const authedUser = requirePermission(user, "users:manage");
+      const userId = parseInt(url.pathname.split("/")[3]);
+      const targetUser = getUserById(userId);
+      if (!targetUser) {
+        return Response.json({ error: "User not found" }, { status: 404 });
+      }
+
+      const body = await req.json();
+      const scope = body?.scope as ClientAccessScope;
+      const result = setUserClientAccessScope(userId, scope);
+      if (!result.success) {
+        return Response.json({ error: result.error }, { status: 400 });
+      }
+
+      const ip = server.requestIP(req)?.address || "unknown";
+      logAudit({
+        timestamp: Date.now(),
+        username: authedUser.username,
+        ip,
+        action: AuditAction.COMMAND,
+        details: `Updated client access scope for ${targetUser.username} to ${scope}`,
+        success: true,
+      });
+
+      return Response.json({ success: true, scope });
+    }
+
+    if (req.method === "POST" && url.pathname.match(/^\/api\/users\/\d+\/client-access\/rules$/)) {
+      const authedUser = requirePermission(user, "users:manage");
+      const userId = parseInt(url.pathname.split("/")[3]);
+      const targetUser = getUserById(userId);
+      if (!targetUser) {
+        return Response.json({ error: "User not found" }, { status: 404 });
+      }
+
+      const body = await req.json();
+      const clientId = String(body?.clientId || "").trim();
+      const access = body?.access as ClientAccessRuleKind;
+      const result = setUserClientAccessRule(userId, clientId, access);
+      if (!result.success) {
+        return Response.json({ error: result.error }, { status: 400 });
+      }
+
+      const ip = server.requestIP(req)?.address || "unknown";
+      logAudit({
+        timestamp: Date.now(),
+        username: authedUser.username,
+        ip,
+        action: AuditAction.COMMAND,
+        details: `Set client access rule for ${targetUser.username}: ${access} ${clientId}`,
+        success: true,
+      });
+
+      return Response.json({ success: true });
+    }
+
+    if (req.method === "DELETE" && url.pathname.match(/^\/api\/users\/\d+\/client-access\/rules$/)) {
+      const authedUser = requirePermission(user, "users:manage");
+      const userId = parseInt(url.pathname.split("/")[3]);
+      const targetUser = getUserById(userId);
+      if (!targetUser) {
+        return Response.json({ error: "User not found" }, { status: 404 });
+      }
+
+      const clientId = String(url.searchParams.get("clientId") || "").trim();
+      if (!clientId) {
+        return Response.json({ error: "clientId is required" }, { status: 400 });
+      }
+
+      const result = removeUserClientAccessRule(userId, clientId);
+      if (!result.success) {
+        return Response.json({ error: result.error }, { status: 400 });
+      }
+
+      const ip = server.requestIP(req)?.address || "unknown";
+      logAudit({
+        timestamp: Date.now(),
+        username: authedUser.username,
+        ip,
+        action: AuditAction.COMMAND,
+        details: `Removed client access rule for ${targetUser.username}: ${clientId}`,
+        success: true,
+      });
+
+      return Response.json({ success: true });
     }
 
     if (req.method === "DELETE" && url.pathname.match(/^\/api\/users\/\d+$/)) {

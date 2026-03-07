@@ -187,6 +187,26 @@ export function unbanIp(ip: string) {
   db.run(`DELETE FROM banned_ips WHERE ip=?`, ip);
 }
 
+export type BannedIpEntry = {
+  ip: string;
+  reason: string | null;
+  createdAt: number;
+};
+
+export function listBannedIps(): BannedIpEntry[] {
+  const rows = db
+    .query<{ ip: string; reason: string | null; createdAt: number }>(
+      `SELECT ip, reason, created_at as createdAt FROM banned_ips ORDER BY created_at DESC`,
+    )
+    .all();
+
+  return rows.map((row) => ({
+    ip: row.ip,
+    reason: row.reason,
+    createdAt: Number(row.createdAt) || 0,
+  }));
+}
+
 export function isIpBanned(ip: string): boolean {
   const row = db.query<{ ip: string }>(`SELECT ip FROM banned_ips WHERE ip=?`).get(ip);
   return !!row?.ip;
@@ -198,7 +218,16 @@ export function markAllClientsOffline() {
 }
 
 export function listClients(filters: ListFilters): ListResult {
-  const { page, pageSize, search, sort, statusFilter, osFilter } = filters;
+  const {
+    page,
+    pageSize,
+    search,
+    sort,
+    statusFilter,
+    osFilter,
+    allowedClientIds,
+    deniedClientIds,
+  } = filters;
   const where: string[] = [];
   const params: any[] = [];
 
@@ -219,6 +248,20 @@ export function listClients(filters: ListFilters): ListResult {
   if (osFilter && osFilter !== "all") {
     where.push("os=?");
     params.push(osFilter);
+  }
+
+  if (Array.isArray(allowedClientIds)) {
+    if (allowedClientIds.length === 0) {
+      where.push("1=0");
+    } else {
+      where.push(`id IN (${allowedClientIds.map(() => "?").join(",")})`);
+      params.push(...allowedClientIds);
+    }
+  }
+
+  if (Array.isArray(deniedClientIds) && deniedClientIds.length > 0) {
+    where.push(`id NOT IN (${deniedClientIds.map(() => "?").join(",")})`);
+    params.push(...deniedClientIds);
   }
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
@@ -242,8 +285,10 @@ export function listClients(filters: ListFilters): ListResult {
     .query<{ c: number }>(`SELECT COUNT(*) as c FROM clients ${whereSql}`)
     .get(...params) ?? { c: 0 };
   const onlineRow = db
-    .query<{ c: number }>(`SELECT COUNT(*) as c FROM clients WHERE online=1`)
-    .get() ?? { c: 0 };
+    .query<{ c: number }>(
+      `SELECT COUNT(*) as c FROM clients ${whereSql ? `${whereSql} AND online=1` : "WHERE online=1"}`,
+    )
+    .get(...params) ?? { c: 0 };
   const offset = (page - 1) * pageSize;
 
   const rows = db
