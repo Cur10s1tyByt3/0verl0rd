@@ -10,6 +10,7 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   const clientLabel = document.getElementById("clientLabel");
   const startBtn = document.getElementById("startBtn");
   const stopBtn = document.getElementById("stopBtn");
+  const screenshotBtn = document.getElementById("screenshotBtn");
   const cameraSelect = document.getElementById("cameraSelect");
   const refreshCameras = document.getElementById("refreshCameras");
   const fpsInput = document.getElementById("fpsInput");
@@ -30,6 +31,33 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   let h264TimestampUs = 0;
   let availableDevices = [];
   let selectedDeviceIndex = 0;
+  let hasRenderedFrame = false;
+
+  function buildScreenshotFilename() {
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    return `webcam-${clientId}-${ts}.jpg`;
+  }
+
+  function downloadScreenshot() {
+    if (!hasRenderedFrame) {
+      setStreamState("error", "No frame available for screenshot");
+      return;
+    }
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        setStreamState("error", "Failed to encode screenshot");
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = buildScreenshotFilename();
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, "image/jpeg", 0.92);
+  }
 
   function selectedDeviceMaxFps() {
     const selected = availableDevices.find((dev) => (Number(dev.index) || 0) === selectedDeviceIndex);
@@ -137,6 +165,7 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
     try {
       videoDecoder = new VideoDecoder({
         output: (frame) => {
+          hasRenderedFrame = true;
           const width = frame.displayWidth || frame.codedWidth || canvas.width;
           const height = frame.displayHeight || frame.codedHeight || canvas.height;
           if (width > 0 && height > 0 && (canvas.width !== width || canvas.height !== height)) {
@@ -190,6 +219,7 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
     const streamLocked = streamState === "streaming" || streamState === "starting" || streamState === "stopping";
     startBtn.disabled = !wsOpen || streamState === "starting" || streamState === "streaming";
     stopBtn.disabled = !wsOpen || (streamState !== "starting" && streamState !== "streaming");
+    screenshotBtn.disabled = !hasRenderedFrame;
     refreshCameras.disabled = !wsOpen;
     applyFps.disabled = !wsOpen || streamLocked;
     fpsInput.disabled = !wsOpen || streamLocked;
@@ -218,6 +248,7 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;
     ctx.drawImage(bitmap, 0, 0, bitmap.width, bitmap.height);
+    hasRenderedFrame = true;
     bitmap.close();
     updateViewerFps();
     setStreamState("streaming", "Streaming");
@@ -373,6 +404,10 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
 
   applyFps.addEventListener("click", () => {
     applyFpsSettings();
+  });
+
+  screenshotBtn.addEventListener("click", () => {
+    downloadScreenshot();
   });
 
   connect();
