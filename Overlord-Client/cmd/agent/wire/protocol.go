@@ -48,6 +48,7 @@ type FrameHeader struct {
 	FPS     int    `msgpack:"fps"`
 	Format  string `msgpack:"format"`
 	HVNC    bool   `msgpack:"hvnc,omitempty"`
+	Webcam  bool   `msgpack:"webcam,omitempty"`
 }
 
 type Frame struct {
@@ -184,4 +185,16 @@ type Notification struct {
 	PID         int32  `msgpack:"pid,omitempty"`
 	Keyword     string `msgpack:"keyword,omitempty"`
 	TS          int64  `msgpack:"ts,omitempty"`
+}
+
+type WebcamDevice struct {
+	Index  int    `msgpack:"index"`
+	Name   string `msgpack:"name"`
+	MaxFPS int    `msgpack:"maxFps,omitempty"`
+}
+
+type WebcamDevices struct {
+	Type     string         `msgpack:"type"`
+	Devices  []WebcamDevice `msgpack:"devices"`
+	Selected int            `msgpack:"selected"`
 }

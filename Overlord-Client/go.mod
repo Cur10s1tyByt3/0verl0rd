@@ -1,6 +1,6 @@
 module overlord-client
 
-go 1.23
+go 1.24
 
 require (
 	github.com/creack/pty v1.1.21
@@ -13,6 +13,7 @@ require (
 )
 
 require (
+	github.com/Kirizu-Official/windows-camera-go v0.2.0
 	github.com/gen2brain/malgo v0.11.24
 	golang.org/x/sys v0.24.0
 )
@@ -25,4 +26,5 @@ require (
 	github.com/jezek/xgb v1.1.1 // indirect
 	github.com/lxn/win v0.0.0-20210218163916-a377121e959e // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

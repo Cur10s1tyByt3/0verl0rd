@@ -1,0 +1,105 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Overlord Webcam Viewer</title>
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/assets/tailwind.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/console.css" />
+    <script src="/assets/logout.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <header id="top-nav"></header>
+
+    <main class="px-5 py-6 flex-1 flex flex-col">
+      <div class="flex-1 flex flex-col gap-4" style="max-width: 100%">
+        <div class="flex flex-wrap gap-3 items-center">
+          <div
+            class="bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 flex items-center gap-3"
+          >
+            <label class="text-sm text-slate-300" for="cameraSelect">Camera</label>
+            <select
+              id="cameraSelect"
+              class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100 min-w-56"
+            ></select>
+            <button id="refreshCameras" class="button ghost">
+              <i class="fa-solid fa-rotate"></i><span>Refresh</span>
+            </button>
+          </div>
+          <div
+            class="bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 text-sm text-slate-300"
+          >
+            <label class="flex items-center gap-2 text-slate-200" for="fpsInput">
+              <span>FPS</span>
+              <input id="fpsInput" type="number" min="1" max="120" value="30" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 w-20 text-slate-100" />
+            </label>
+            <button id="applyFps" class="button ghost">
+              <i class="fa-solid fa-sliders"></i><span>Apply</span>
+            </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="startBtn" class="button primary">
+              <i class="fa-solid fa-play"></i><span>Start</span>
+            </button>
+            <button id="stopBtn" class="button ghost">
+              <i class="fa-solid fa-stop"></i><span>Stop</span>
+            </button>
+          </div>
+          <div
+            id="streamStatus"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-slate-800 text-slate-300 border border-slate-700 text-sm"
+          >
+            <i class="fa-solid fa-circle-notch fa-spin"></i>
+            <span>Connecting</span>
+          </div>
+          <div
+            class="flex items-center gap-2 bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300"
+          >
+            <span class="uppercase tracking-wide text-xs text-slate-500">fps</span>
+            <span id="viewerFps" class="pill pill-ghost font-mono text-sky-200">--</span>
+          </div>
+        </div>
+
+        <div
+          id="canvasContainer"
+          class="flex-1 rounded-xl border border-slate-800 bg-slate-900/70 shadow-lg overflow-hidden flex flex-col"
+          style="min-height: 500px"
+        >
+          <div class="p-3 text-sm text-slate-400 flex-shrink-0">
+            Client: <span id="clientLabel" class="text-slate-100">-</span>
+          </div>
+          <div
+            class="flex-1 flex items-center justify-center p-4"
+            style="min-height: 0; overflow: hidden"
+          >
+            <canvas
+              id="frameCanvas"
+              class="bg-slate-950"
+              width="1280"
+              height="720"
+              style="display: block; max-width: 100%; max-height: 100%; width: auto; height: auto;"
+            ></canvas>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/msgpackr@1.11.8/dist/index.js"></script>
+    <script type="module" src="/assets/nav.js"></script>
+    <script type="module" src="/assets/webcam.js"></script>
+  </body>
+</html>

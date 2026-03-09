@@ -12,6 +12,7 @@ export type MessageKind =
   | "status"
   | "plugin_event"
   | "notification"
+  | "webcam_devices"
   | "notification_config";
 
 export type Hello = {
@@ -43,6 +44,11 @@ export type CommandType =
   | "input"
   | "remote_start"
   | "remote_stop"
+  | "webcam_start"
+  | "webcam_stop"
+  | "webcam_list"
+  | "webcam_select"
+  | "webcam_set_fps"
   | "disconnect"
   | "reconnect"
   | "screenshot"
@@ -108,6 +114,7 @@ export type FrameHeader = {
   format: "jpeg" | "webp" | "raw" | "h264";
   hash?: string;
   hvnc?: boolean;
+  webcam?: boolean;
 };
 
 export type Frame = { type: "frame"; header: FrameHeader; data: Uint8Array };
@@ -115,6 +122,18 @@ export type Status = {
   type: "status";
   state: "idle" | "streaming" | "error";
   detail?: string;
+};
+
+export type WebcamDevice = {
+  index: number;
+  name: string;
+  maxFps?: number;
+};
+
+export type WebcamDevices = {
+  type: "webcam_devices";
+  devices: WebcamDevice[];
+  selected: number;
 };
 export type ConsoleOutput = {
   type: "console_output";

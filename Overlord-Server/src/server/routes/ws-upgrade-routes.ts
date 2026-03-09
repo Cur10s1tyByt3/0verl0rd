@@ -91,6 +91,24 @@ export async function handleWsUpgradeRoutes(
     return new Response("Upgrade failed", { status: 500 });
   }
 
+  const webcamMatch = url.pathname.match(/^\/api\/clients\/(.+)\/webcam\/ws$/);
+  if (webcamMatch) {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+
+    if (user.role === "viewer") {
+      return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
+    }
+    const clientId = webcamMatch[1];
+    const ip = server.requestIP(req)?.address || "";
+    if (server.upgrade(req, { data: { role: "webcam_viewer", clientId, ip, userRole: user.role } })) {
+      return new Response();
+    }
+    return new Response("Upgrade failed", { status: 500 });
+  }
+
   const fbMatch = url.pathname.match(/^\/api\/clients\/(.+)\/files\/ws$/);
   if (fbMatch) {
     const user = await authenticateRequest(req);

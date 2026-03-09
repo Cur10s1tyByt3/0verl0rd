@@ -140,7 +140,14 @@ export function handleFrame(info: ClientInfo, payload: any) {
   let sentToViewers = false;
   try {
     const globalAny: any = globalThis as any;
-    if (header?.hvnc) {
+    if (header?.webcam) {
+      if (globalAny.__webcamBroadcast) {
+        sentToViewers = globalAny.__webcamBroadcast(info.id, bytes, header);
+      }
+      if (sentToViewers) {
+        return;
+      }
+    } else if (header?.hvnc) {
       if (globalAny.__hvncBroadcast) {
         sentToViewers = globalAny.__hvncBroadcast(info.id, bytes, header);
       }

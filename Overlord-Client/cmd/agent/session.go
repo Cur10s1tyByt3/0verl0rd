@@ -315,6 +315,9 @@ func shouldRetryImmediately(err error) bool {
 	if strings.Contains(msg, "timed out from inactivity") {
 		return true
 	}
+	if strings.Contains(msg, "use of closed network connection") || strings.Contains(msg, "failed to get reader") {
+		return true
+	}
 	return false
 }
 
@@ -498,6 +501,10 @@ func readLoop(ctx context.Context, conn *websocket.Conn, env *rt.Env, dispatcher
 		if err != nil {
 			if ctx.Err() != nil {
 				return err
+			}
+			var closeErr *websocket.CloseError
+			if errors.As(err, &closeErr) {
+				log.Printf("readLoop: websocket close code=%d reason=%q", closeErr.Code, closeErr.Reason)
 			}
 			log.Printf("readLoop: read error: %v", err)
 			return err
