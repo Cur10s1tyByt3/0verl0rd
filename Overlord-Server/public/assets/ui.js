@@ -179,10 +179,10 @@ document.head.appendChild(menuStyle);
 // ── Build DOM ─────────────────────────────────────────────────────────────────
 function buildItemHTML(item) {
   if (item.divider) return `<div class="ctx-divider"></div>`;
-  const dataAttr  = item.open   ? `data-open="${item.open}"`   : `data-action="${item.action}"`;
-  const idAttr    = item.id     ? `id="${item.id}"`             : "";
-  const styleAttr = item.hidden ? `style="display:none"`        : "";
-  return `<button class="ctx-item" ${dataAttr} ${idAttr} ${styleAttr}><i class="${item.icon} ctx-icon ${item.icolor}"></i><span>${item.label}</span></button>`;
+  const dataAttr   = item.open   ? `data-open="${item.open}"`   : `data-action="${item.action}"`;
+  const idAttr     = item.id     ? `id="${item.id}"`             : "";
+  const hiddenClass = item.hidden ? " hidden"                    : "";
+  return `<button class="ctx-item${hiddenClass}" ${dataAttr} ${idAttr}><i class="${item.icon} ctx-icon ${item.icolor}"></i><span>${item.label}</span></button>`;
 }
 
 const mainRowsHTML =
