@@ -32,6 +32,7 @@ func DesktopStart(ctx context.Context, env *rt.Env) error {
 		fps = 60
 		interval = time.Second / time.Duration(fps)
 	}
+	capture.SetH264TargetFPS(fps)
 	log.Printf("desktop: starting stream (target fps %d)", fps)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

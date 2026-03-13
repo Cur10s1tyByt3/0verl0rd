@@ -32,6 +32,7 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   let availableDevices = [];
   let selectedDeviceIndex = 0;
   let hasRenderedFrame = false;
+  let drawPending = false;
 
   function buildScreenshotFilename() {
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
@@ -243,15 +244,23 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   }
 
   async function drawJpeg(bytes) {
-    const blob = new Blob([bytes], { type: "image/jpeg" });
-    const bitmap = await createImageBitmap(blob);
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    ctx.drawImage(bitmap, 0, 0, bitmap.width, bitmap.height);
-    hasRenderedFrame = true;
-    bitmap.close();
-    updateViewerFps();
-    setStreamState("streaming", "Streaming");
+    if (drawPending) return;
+    drawPending = true;
+    try {
+      const blob = new Blob([bytes], { type: "image/jpeg" });
+      const bitmap = await createImageBitmap(blob);
+      if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+      }
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      hasRenderedFrame = true;
+      bitmap.close();
+      updateViewerFps();
+      setStreamState("streaming", "Streaming");
+    } finally {
+      drawPending = false;
+    }
   }
 
   function handleFrame(data) {

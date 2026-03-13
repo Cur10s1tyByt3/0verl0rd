@@ -20,3 +20,5 @@ func h264AvailabilityDetail() string {
 }
 
 func resetH264Encoder() {}
+
+func SetH264TargetFPS(_ int) {}

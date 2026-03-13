@@ -22,6 +22,67 @@ type webcamState struct {
 	capture     *cam.CaptureSync
 	format      string
 	captureFPS  float64
+
+	latestMu    sync.Mutex
+	latestBytes []byte
+
+	stopCh     chan struct{}
+	readerDone chan struct{}
+}
+
+func (s *webcamState) startReader() {
+	go func() {
+		defer close(s.readerDone)
+		for {
+			select {
+			case <-s.stopCh:
+				return
+			default:
+			}
+
+			sample, err := s.capture.GetFrame()
+			if err != nil {
+				select {
+				case <-s.stopCh:
+					return
+				default:
+					time.Sleep(20 * time.Millisecond)
+					continue
+				}
+			}
+			if sample == nil || sample.PpSample == nil {
+				if sample != nil {
+					sample.Release()
+				}
+				continue
+			}
+
+			buffer, err := s.capture.Device.ParseSampleToBuffer(sample.PpSample)
+			if err != nil {
+				sample.Release()
+				select {
+				case <-s.stopCh:
+					return
+				default:
+					time.Sleep(20 * time.Millisecond)
+					continue
+				}
+			}
+			if buffer == nil {
+				sample.Release()
+				continue
+			}
+
+			frameBytes := make([]byte, int(buffer.Length))
+			copy(frameBytes, buffer.Buffer[:buffer.Length])
+			buffer.Release()
+			sample.Release()
+
+			s.latestMu.Lock()
+			s.latestBytes = frameBytes
+			s.latestMu.Unlock()
+		}
+	}()
 }
 
 var (
@@ -35,34 +96,26 @@ func NowWebcam(ctx context.Context, env *rt.Env) error {
 		return nil
 	}
 
-	capture, deviceIndex, format, err := ensureWebcamCapture(env.WebcamDeviceIndex)
+	_, deviceIndex, format, err := ensureWebcamCapture(env.WebcamDeviceIndex)
 	if err != nil {
 		return err
 	}
 
-	sample, err := capture.GetFrame()
-	if err != nil {
-		resetWebcamState()
-		return err
-	}
-	if sample == nil || sample.PpSample == nil {
+	webcamMu.Lock()
+	state := webcamActive
+	webcamMu.Unlock()
+
+	if state == nil {
 		return nil
 	}
 
-	buffer, err := capture.Device.ParseSampleToBuffer(sample.PpSample)
-	if err != nil {
-		sample.Release()
-		return err
-	}
-	if buffer == nil {
-		sample.Release()
+	state.latestMu.Lock()
+	frameBytes := state.latestBytes
+	state.latestMu.Unlock()
+
+	if frameBytes == nil {
 		return nil
 	}
-
-	frameBytes := make([]byte, int(buffer.Length))
-	copy(frameBytes, buffer.Buffer[:buffer.Length])
-	buffer.Release()
-	sample.Release()
 
 	frame := wire.Frame{
 		Type: "frame",
@@ -153,7 +206,10 @@ func ensureWebcamCapture(requestedIndex int) (*cam.CaptureSync, int, string, err
 		capture:     capture,
 		format:      selectedFormat,
 		captureFPS:  selected.Fps,
+		stopCh:      make(chan struct{}),
+		readerDone:  make(chan struct{}),
 	}
+	webcamActive.startReader()
 	log.Printf("webcam: selected device=%q index=%d format=%s %dx%d@%.2ffps", deviceInfo.Name, requestedIndex, selectedFormat, selected.Width, selected.Height, selected.Fps)
 	return capture, requestedIndex, selectedFormat, nil
 }
@@ -224,15 +280,19 @@ func formatScore(format *cam.CaptureFormats) float64 {
 func resetWebcamState() {
 	webcamMu.Lock()
 	defer webcamMu.Unlock()
-	if webcamActive != nil {
-		webcamActive.device.CloseDevice()
-		webcamActive = nil
-	}
+	closeWebcamLocked()
 }
 
 func closeWebcamLocked() {
 	if webcamActive != nil {
+		close(webcamActive.stopCh)
 		webcamActive.device.CloseDevice()
+		readerDone := webcamActive.readerDone
 		webcamActive = nil
+
+		select {
+		case <-readerDone:
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 }

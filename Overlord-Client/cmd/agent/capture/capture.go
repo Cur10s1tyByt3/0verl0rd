@@ -1169,9 +1169,17 @@ func encodeBlocksHVNC(img *image.RGBA, prev *prevImage, quality int, codec strin
 func copyPrev(img *image.RGBA) {
 	width := img.Bounds().Dx()
 	height := img.Bounds().Dy()
-	buf := make([]byte, len(img.Pix))
-	copy(buf, img.Pix)
-	prevFrame = &prevImage{w: width, h: height, pix: buf}
+	n := len(img.Pix)
+	if prevFrame != nil && cap(prevFrame.pix) >= n {
+		prevFrame.w = width
+		prevFrame.h = height
+		prevFrame.pix = prevFrame.pix[:n]
+		copy(prevFrame.pix, img.Pix)
+	} else {
+		buf := make([]byte, n)
+		copy(buf, img.Pix)
+		prevFrame = &prevImage{w: width, h: height, pix: buf}
+	}
 }
 
 func encodeBlockRaw(img *image.RGBA, x, y, w, h int) []byte {

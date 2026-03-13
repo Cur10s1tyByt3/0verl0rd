@@ -27,7 +27,7 @@ export function createWebSocketRuntime<TLifecycleDeps>(deps: {
   handleWebSocketMessage: MessageHandler<TLifecycleDeps>;
   handleWebSocketClose: CloseHandler<TLifecycleDeps>;
 }) {
-  const wsDeflateEnabled = String(process.env.OVERLORD_WS_PERMESSAGE_DEFLATE || "true")
+  const wsDeflateEnabled = String(process.env.OVERLORD_WS_PERMESSAGE_DEFLATE || "false")
     .trim()
     .toLowerCase() !== "false";
 
