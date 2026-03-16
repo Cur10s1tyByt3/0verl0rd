@@ -190,7 +190,13 @@ export async function handleBuildRoutes(
       const buildId = decodeURIComponent(url.pathname.split("/")[3]);
 
       const build = getBuild(buildId);
-      if (build?.files) {
+      if (!build) {
+        return new Response("Not Found", { status: 404 });
+      }
+      if (build.builtByUserId && build.builtByUserId !== user.userId && user.role !== "admin") {
+        return new Response("Forbidden", { status: 403 });
+      }
+      if (build.files) {
         const rootDir = resolveRuntimeRoot();
         const outDir = path.join(rootDir, "dist-clients");
         for (const file of build.files) {
@@ -231,6 +237,9 @@ export async function handleBuildRoutes(
 
       if (!build) {
         return Response.json({ error: "Build not found" }, { status: 404 });
+      }
+      if (build.userId && build.userId !== user.userId && user.role !== "admin") {
+        return new Response("Forbidden", { status: 403 });
       }
 
       logger.info(`[build:${buildId.substring(0, 8)}] Client connected to stream`);
@@ -288,6 +297,9 @@ export async function handleBuildRoutes(
         if (!dbBuild) {
           return Response.json({ error: "Build not found" }, { status: 404 });
         }
+        if (dbBuild.builtByUserId && dbBuild.builtByUserId !== user.userId && user.role !== "admin") {
+          return new Response("Forbidden", { status: 403 });
+        }
         return Response.json({
           id: dbBuild.id,
           status: dbBuild.status,
@@ -297,6 +309,9 @@ export async function handleBuildRoutes(
         });
       }
 
+      if (build.userId && build.userId !== user.userId && user.role !== "admin") {
+        return new Response("Forbidden", { status: 403 });
+      }
       return Response.json({
         id: build.id,
         status: build.status,

@@ -652,7 +652,10 @@ export function getBuildByTag(buildTag: string): BuildRecord | null {
 }
 
 export function getAllBuilds(userId?: number, role?: string): BuildRecord[] {
-  if (role !== "admin" && userId != null) {
+  if (role !== "admin") {
+    if (userId == null) {
+      return [];
+    }
     const rows = db
       .query<any>(`SELECT * FROM builds WHERE built_by_user_id = ? ORDER BY start_time DESC`)
       .all(userId);
@@ -667,7 +670,7 @@ export function getAllBuilds(userId?: number, role?: string): BuildRecord[] {
     }));
   }
   const rows = db
-    .query<any>(`SELECT * FROM builds ORDER BY start_time DESC`)
+    .query<any>("SELECT * FROM builds ORDER BY start_time DESC")
     .all();
   return rows.map((row) => ({
     id: row.id,

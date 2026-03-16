@@ -80,103 +80,16 @@ type BuildProcessConfig = {
   upxStripHeaders?: boolean;
 };
 
-async function ensureUpxAvailable(sendToStream: (data: any) => void): Promise<string | null> {
+async function checkUpxAvailable(sendToStream: (data: any) => void): Promise<boolean> {
   try {
     const check = await $`upx --version`.quiet().nothrow();
     if (check.exitCode === 0) {
       const ver = check.stdout.toString().split("\n")[0]?.trim() || "upx";
       sendToStream({ type: "output", text: `UPX found: ${ver}\n`, level: "info" });
-      return "upx";
+      return true;
     }
   } catch {}
-
-  sendToStream({ type: "output", text: "UPX not found, attempting auto-install...\n", level: "info" });
-
-  const isWindows = process.platform === "win32";
-
-  if (!isWindows) {
-    try {
-      const apt = await $`apt-get install -y upx-ucl 2>&1`.nothrow().quiet();
-      if (apt.exitCode === 0) {
-        sendToStream({ type: "output", text: "UPX installed via apt-get\n", level: "info" });
-        return "upx";
-      }
-    } catch {}
-    try {
-      const apt2 = await $`apt-get install -y upx 2>&1`.nothrow().quiet();
-      if (apt2.exitCode === 0) {
-        sendToStream({ type: "output", text: "UPX installed via apt-get\n", level: "info" });
-        return "upx";
-      }
-    } catch {}
-    try {
-      const yum = await $`yum install -y upx 2>&1`.nothrow().quiet();
-      if (yum.exitCode === 0) {
-        sendToStream({ type: "output", text: "UPX installed via yum\n", level: "info" });
-        return "upx";
-      }
-    } catch {}
-  }
-
-  if (isWindows) {
-    try {
-      const winget = await $`winget install --id upx.upx -e --accept-source-agreements --accept-package-agreements 2>&1`.nothrow().quiet();
-      if (winget.exitCode === 0) {
-        sendToStream({ type: "output", text: "UPX installed via winget\n", level: "info" });
-        return "upx";
-      }
-    } catch {}
-    try {
-      const choco = await $`choco install upx -y 2>&1`.nothrow().quiet();
-      if (choco.exitCode === 0) {
-        sendToStream({ type: "output", text: "UPX installed via chocolatey\n", level: "info" });
-        return "upx";
-      }
-    } catch {}
-  }
-
-  const arch = process.arch === "x64" ? "amd64" : process.arch === "arm64" ? "arm64" : "amd64";
-  const plat = isWindows ? "win64" : "amd64_linux";
-  const upxVersion = "4.2.4";
-  const archiveName = `upx-${upxVersion}-${plat}`;
-  const ext = isWindows ? "zip" : "tar.xz";
-  const url = `https://github.com/upx/upx/releases/download/v${upxVersion}/${archiveName}.${ext}`;
-  const tmpDir = path.join(ensureDataDir(), "upx-install");
-  fs.mkdirSync(tmpDir, { recursive: true });
-  const archivePath = path.join(tmpDir, `upx.${ext}`);
-
-  try {
-    sendToStream({ type: "output", text: `Downloading UPX from ${url}...\n`, level: "info" });
-    const dlResult = await $`curl -fsSL -o ${archivePath} ${url}`.nothrow().quiet();
-    if (dlResult.exitCode !== 0) {
-      sendToStream({ type: "output", text: "WARNING: Failed to download UPX. Skipping compression.\n", level: "warn" });
-      return null;
-    }
-
-    if (isWindows) {
-      await $`tar -xf ${archivePath} -C ${tmpDir}`.nothrow().quiet();
-    } else {
-      await $`tar -xJf ${archivePath} -C ${tmpDir}`.nothrow().quiet();
-    }
-
-    const upxBinName = isWindows ? "upx.exe" : "upx";
-    const extractedDir = path.join(tmpDir, archiveName);
-    const upxBin = path.join(extractedDir, upxBinName);
-
-    if (fs.existsSync(upxBin)) {
-      if (!isWindows) {
-        await $`chmod +x ${upxBin}`.nothrow().quiet();
-      }
-      sendToStream({ type: "output", text: `UPX downloaded to ${upxBin}\n`, level: "info" });
-      return upxBin;
-    }
-
-    sendToStream({ type: "output", text: "WARNING: UPX binary not found after extraction. Skipping compression.\n", level: "warn" });
-    return null;
-  } catch (err: any) {
-    sendToStream({ type: "output", text: `WARNING: UPX auto-install failed: ${err.message || err}. Skipping compression.\n`, level: "warn" });
-    return null;
-  }
+  return false;
 }
 
 function stripUpxHeaders(filePath: string): boolean {
@@ -372,10 +285,16 @@ export async function startBuildProcess(
 
     let upxBin: string | null = null;
     if (config.enableUpx) {
-      upxBin = await ensureUpxAvailable(sendToStream);
-      if (!upxBin) {
-        sendToStream({ type: "output", text: "WARNING: UPX could not be installed. Compression will be skipped.\n", level: "warn" });
+      const upxFound = await checkUpxAvailable(sendToStream);
+      if (!upxFound) {
+        sendToStream({
+          type: "output",
+          text: "ERROR: UPX is not installed or not found in PATH. Please install UPX (https://upx.github.io) and ensure it is available on PATH, then retry.\n",
+          level: "error",
+        });
+        throw new Error("UPX not found");
       }
+      upxBin = "upx";
     }
 
     const hasAssemblyData = !!(config.assemblyTitle || config.assemblyProduct || config.assemblyCompany || config.assemblyVersion || config.assemblyCopyright || config.iconBase64);
