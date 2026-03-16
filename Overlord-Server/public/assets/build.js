@@ -103,6 +103,18 @@ if (obfuscateCheckbox && garbleSettingsContainer) {
   });
 }
 
+const upxCheckbox = document.querySelector('input[name="enable-upx"]');
+const upxSettingsContainer = document.getElementById("upx-settings-container");
+if (upxCheckbox && upxSettingsContainer) {
+  upxCheckbox.addEventListener("change", () => {
+    if (upxCheckbox.checked) {
+      upxSettingsContainer.classList.remove("hidden");
+    } else {
+      upxSettingsContainer.classList.add("hidden");
+    }
+  });
+}
+
 let pendingIconBase64 = null;
 const iconUpload = document.getElementById("icon-upload");
 const iconLabel = document.getElementById("icon-label");
@@ -294,6 +306,8 @@ form?.addEventListener("submit", async (e) => {
     assemblyVersion: assemblyVersion || undefined,
     assemblyCopyright: assemblyCopyright || undefined,
     iconBase64: pendingIconBase64 || undefined,
+    enableUpx: form.querySelector('input[name="enable-upx"]')?.checked || false,
+    upxStripHeaders: form.querySelector('input[name="upx-strip-headers"]')?.checked || false,
   };
 
   const hasAndroid = platforms.some(p => p.startsWith('android-'));

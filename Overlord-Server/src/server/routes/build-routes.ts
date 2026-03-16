@@ -62,6 +62,8 @@ export async function handleBuildRoutes(
         assemblyVersion,
         assemblyCopyright,
         iconBase64,
+        enableUpx,
+        upxStripHeaders,
       } = body;
 
       if (!platforms || !Array.isArray(platforms) || platforms.length === 0) {
@@ -168,6 +170,8 @@ export async function handleBuildRoutes(
         assemblyVersion: safeAssemblyVersion,
         assemblyCopyright: safeStr(assemblyCopyright),
         iconBase64: safeIconBase64,
+        enableUpx: !!enableUpx,
+        upxStripHeaders: !!upxStripHeaders,
       });
 
       return Response.json({ buildId });

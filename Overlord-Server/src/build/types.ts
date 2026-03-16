@@ -32,4 +32,6 @@ export type BuildConfig = {
   assemblyVersion?: string;
   assemblyCopyright?: string;
   iconBase64?: string;
+  enableUpx?: boolean;
+  upxStripHeaders?: boolean;
 };

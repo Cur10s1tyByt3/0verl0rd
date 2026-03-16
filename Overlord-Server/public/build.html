@@ -375,7 +375,8 @@
                     <div class="flex flex-col">
                       <span class="flex items-center gap-2"
                         ><i class="fa-solid fa-window-minimize text-emerald-400"></i>
-                        Hide Console Window (Windows)</span
+                        Hide Console Window
+                        <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50 font-semibold"><i class="fa-brands fa-windows mr-0.5"></i>Windows</span></span
                       >
                       <span class="text-xs text-slate-500"
                         >Builds Windows EXEs as GUI apps (no console)</span
@@ -401,6 +402,37 @@
                       >
                     </div>
                   </label>
+                  <label
+                    class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-cyan-500 transition-colors"
+                    title="Compress binaries with UPX to reduce file size"
+                  >
+                    <input
+                      type="checkbox"
+                      name="enable-upx"
+                      class="w-4 h-4"
+                    />
+                    <div class="flex flex-col">
+                      <span class="flex items-center gap-2"
+                        ><i class="fa-solid fa-compress text-cyan-400"></i>
+                        UPX Compression</span
+                      >
+                      <span class="text-xs text-slate-500"
+                        >Compress binaries with UPX (requires UPX installed on server)</span
+                      >
+                    </div>
+                  </label>
+                  <div
+                    id="upx-settings-container"
+                    class="hidden pl-3 border-l-2 border-cyan-500/40"
+                  >
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer">
+                      <input type="checkbox" name="upx-strip-headers" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span>Strip UPX Headers</span>
+                        <span class="text-xs text-slate-500">Remove UPX magic bytes to avoid signature-based detection</span>
+                      </div>
+                    </label>
+                  </div>
                 </div>
               </div>
 
@@ -435,9 +467,9 @@
 
               <!-- Windows Assembly / PE Metadata -->
               <div>
-                <label class="block text-sm font-medium text-slate-300 mb-2">
+                <label class="block text-sm font-medium text-slate-300 mb-2 flex items-center gap-2 flex-wrap">
                   <i class="fa-brands fa-windows text-blue-400"></i> Windows Assembly Data
-                  <span class="text-xs text-slate-500 font-normal ml-1">(optional, Windows only)</span>
+                  <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50 font-semibold"><i class="fa-brands fa-windows mr-0.5"></i>Windows only</span>
                 </label>
                 <div class="flex flex-col gap-2">
                   <input type="text" id="assembly-title" name="assembly-title" placeholder="File Description"
@@ -455,9 +487,10 @@
 
               <!-- Icon Upload -->
               <div>
-                <label class="block text-sm font-medium text-slate-300 mb-2">
+                <label class="block text-sm font-medium text-slate-300 mb-2 flex items-center gap-2 flex-wrap">
                   <i class="fa-solid fa-image text-yellow-400"></i> Custom Icon
-                  <span class="text-xs text-slate-500 font-normal ml-1">(optional, Windows .ico, max 1MB)</span>
+                  <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50 font-semibold"><i class="fa-brands fa-windows mr-0.5"></i>Windows only</span>
+                  <span class="text-xs text-slate-500 font-normal">.ico, max 1MB</span>
                 </label>
                 <div class="flex items-center gap-3">
                   <label class="flex items-center gap-2 px-4 py-2 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-yellow-500 transition-colors text-sm">
