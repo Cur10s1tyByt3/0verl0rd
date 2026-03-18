@@ -6,7 +6,7 @@ REM Run from VS Developer Command Prompt, or let the script detect VS.
 set ROOT=%~dp0
 set PROJ=%ROOT%HVNCInjection\HVNCInjection.vcxproj
 set OUT_DIR=%ROOT%Overlord-Server\dist-clients
-set CONFIG=Debug
+set CONFIG=Release
 set PLATFORM=x64
 
 REM Locate MSBuild via vswhere if not already on PATH
