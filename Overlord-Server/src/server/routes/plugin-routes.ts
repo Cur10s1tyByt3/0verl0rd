@@ -413,7 +413,7 @@ export async function handlePluginRoutes(
           <iframe
             id="plugin-frame"
             src="${iframeSrc}"
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-same-origin"
             class="w-full h-[calc(100vh-220px)] bg-slate-950"
           ></iframe>
         </div>
