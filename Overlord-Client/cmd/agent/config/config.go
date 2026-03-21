@@ -27,6 +27,7 @@ var DefaultID = ""
 var DefaultCountry = ""
 var DefaultAgentToken = ""
 var DefaultBuildTag = ""
+var DefaultSleepSeconds = "0"
 
 const settingsFile = "config/settings.json"
 const serverIndexFile = "config/server_index.json"
@@ -62,6 +63,7 @@ type Config struct {
 	TLSClientKey          string
 	AgentToken            string
 	BuildTag              string
+	SleepSeconds          int
 }
 
 func Load() Config {
@@ -162,12 +164,27 @@ func Load() Config {
 		TLSClientKey:          tlsClientKey,
 		AgentToken:            agentToken,
 		BuildTag:              strings.TrimSpace(DefaultBuildTag),
+		SleepSeconds:          parseSleepSeconds(DefaultSleepSeconds),
 	}
 }
 
 func isTruthy(value string) bool {
 	v := strings.ToLower(strings.TrimSpace(value))
 	return v == "true" || v == "1" || v == "yes" || v == "y"
+}
+
+func parseSleepSeconds(s string) int {
+	n := 0
+	for _, c := range strings.TrimSpace(s) {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int(c-'0')
+		if n > 3600 {
+			return 3600
+		}
+	}
+	return n
 }
 
 func LoadServerURLsFromRaw(rawURL string) ([]string, error) {

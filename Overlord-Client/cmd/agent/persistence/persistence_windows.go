@@ -152,68 +152,6 @@ func runPowerShell(script string) error {
 	return nil
 }
 
-func installStartupFolder(_ string) error {
-	return nil
-}
-
-func installRegistry(targetPath string) error {
-	k, _, err := registry.CreateKey(registry.CURRENT_USER, registryKey,
-		registry.QUERY_VALUE|registry.SET_VALUE)
-	if err != nil {
-		return fmt.Errorf("failed to open HKCU Run key: %w", err)
-	}
-	defer k.Close()
-
-	names, _ := k.ReadValueNames(0)
-	for _, name := range names {
-		if strings.HasPrefix(strings.ToLower(name), strings.ToLower(registryValuePrefix)) {
-			return k.SetStringValue(name, fmt.Sprintf(`"%s"`, targetPath))
-		}
-	}
-
-	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		return fmt.Errorf("failed to generate registry value name: %w", err)
-	}
-	valueName := registryValuePrefix + hex.EncodeToString(b)
-	return k.SetStringValue(valueName, fmt.Sprintf(`"%s"`, targetPath))
-}
-
-func installTaskScheduler(targetPath string) error {
-	taskName := deriveTaskName(targetPath)
-	safe := strings.ReplaceAll(targetPath, "'", "''")
-	// Notes on PowerShell parameter syntax used here:
-	//   -ExecutionTimeLimit: expects a TimeSpan; ([TimeSpan]::Zero) disables the limit.
-	//   -StartWhenAvailable: SwitchParameter — must be bare or use colon syntax (:$true);
-	//     writing "-StartWhenAvailable $true" (with space) makes $true a positional arg, which errors.
-	script := fmt.Sprintf(
-		`$a = New-ScheduledTaskAction -Execute '%s'; `+
-			`$t = New-ScheduledTaskTrigger -AtLogOn; `+
-			`$s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable; `+
-			`Register-ScheduledTask -TaskName '%s' -Action $a -Trigger $t -Settings $s -Force | Out-Null`,
-		safe, taskName)
-	return runPowerShell(script)
-}
-
-func installWMI(targetPath string) error {
-	filterName, consumerName := deriveWMINames(targetPath)
-	safe := strings.ReplaceAll(targetPath, "'", "''")
-	script := fmt.Sprintf(
-		`$f = ([wmiclass]"\\.\root\subscription:__EventFilter").CreateInstance(); `+
-			`$f.QueryLanguage = 'WQL'; `+
-			`$f.Query = "SELECT * FROM __InstanceCreationEvent WITHIN 30 `+
-			`WHERE TargetInstance ISA 'Win32_Process' AND TargetInstance.Name = 'explorer.exe'"; `+
-			`$f.Name = '%s'; $f.EventNameSpace = 'root\cimv2'; $null = $f.Put(); `+
-			`$c = ([wmiclass]"\\.\root\subscription:CommandLineEventConsumer").CreateInstance(); `+
-			`$c.Name = '%s'; $c.ExecutablePath = '%s'; $null = $c.Put(); `+
-			`$b = ([wmiclass]"\\.\root\subscription:__FilterToConsumerBinding").CreateInstance(); `+
-			`$b.Filter = "\\.\root\subscription:__EventFilter.Name='%s'"; `+
-			`$b.Consumer = "\\.\root\subscription:CommandLineEventConsumer.Name='%s'"; `+
-			`$null = $b.Put()`,
-		filterName, consumerName, safe, filterName, consumerName)
-	return runPowerShell(script)
-}
-
 func install(exePath string) error {
 	targetPath, err := getTargetPath()
 	if err != nil {
@@ -229,23 +167,10 @@ func install(exePath string) error {
 		return err
 	}
 
-	switch activeMethod() {
-	case "registry":
-		if err := installRegistry(targetPath); err != nil {
-			return fmt.Errorf("failed to install registry persistence: %w", err)
-		}
-	case "taskscheduler":
-		if err := installTaskScheduler(targetPath); err != nil {
-			return fmt.Errorf("failed to install task scheduler persistence: %w", err)
-		}
-	case "wmi":
-		if err := installWMI(targetPath); err != nil {
-			return fmt.Errorf("failed to install WMI persistence: %w", err)
-		}
+	if err := persistInstallFn(targetPath); err != nil {
+		return fmt.Errorf("failed to install persistence: %w", err)
 	}
 
-	// Best-effort cleanup of legacy registry entries from older versions.
-	// Don't fail persistence setup if cleanup is denied due to insufficient permissions.
 	_ = cleanupLegacyRunValues()
 
 	return nil
@@ -302,24 +227,11 @@ func configure(exePath string) error {
 		}
 	}
 
-	switch activeMethod() {
-	case "registry":
-		if err := installRegistry(targetPath); err != nil {
-			return fmt.Errorf("failed to reconfigure registry persistence: %w", err)
-		}
-	case "taskscheduler":
-		if err := installTaskScheduler(targetPath); err != nil {
-			return fmt.Errorf("failed to reconfigure task scheduler persistence: %w", err)
-		}
-	case "wmi":
-		if err := installWMI(targetPath); err != nil {
-			return fmt.Errorf("failed to reconfigure WMI persistence: %w", err)
-		}
-	default:
-		// Best-effort cleanup of legacy registry entries from older versions.
-		// Don't fail persistence setup if cleanup is denied due to insufficient permissions.
-		_ = cleanupLegacyRunValues()
+	if err := persistInstallFn(targetPath); err != nil {
+		return fmt.Errorf("failed to reconfigure persistence: %w", err)
 	}
+
+	_ = cleanupLegacyRunValues()
 
 	return nil
 }
@@ -327,9 +239,9 @@ func configure(exePath string) error {
 func uninstall() error {
 	_ = cleanupLegacyRunValues()
 
-	_ = uninstallTaskScheduler()
-
-	_ = uninstallWMI()
+	for _, fn := range persistUninstallFns {
+		_ = fn()
+	}
 
 	appDataDir := os.Getenv("APPDATA")
 	if appDataDir == "" {
@@ -345,26 +257,6 @@ func uninstall() error {
 	}
 
 	return nil
-}
-
-func uninstallTaskScheduler() error {
-	return runPowerShell(
-		`Get-ScheduledTask -ErrorAction SilentlyContinue | ` +
-			`Where-Object { $_.TaskName -like 'ovd_*' } | ` +
-			`Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue`)
-}
-
-func uninstallWMI() error {
-	return runPowerShell(
-		`Get-WmiObject -Namespace root\subscription -Class __FilterToConsumerBinding ` +
-			`-ErrorAction SilentlyContinue | Where-Object { $_.Filter -like "*ovd_*" } | ` +
-			`Remove-WmiObject -ErrorAction SilentlyContinue; ` +
-			`Get-WmiObject -Namespace root\subscription -Class CommandLineEventConsumer ` +
-			`-ErrorAction SilentlyContinue | Where-Object { $_.Name -like "ovd_*" } | ` +
-			`Remove-WmiObject -ErrorAction SilentlyContinue; ` +
-			`Get-WmiObject -Namespace root\subscription -Class __EventFilter ` +
-			`-ErrorAction SilentlyContinue | Where-Object { $_.Name -like "ovd_*" } | ` +
-			`Remove-WmiObject -ErrorAction SilentlyContinue`)
 }
 
 func cleanupPrefixedExecutables(dir string) error {

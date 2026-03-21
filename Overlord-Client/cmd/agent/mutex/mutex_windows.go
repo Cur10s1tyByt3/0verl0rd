@@ -20,6 +20,12 @@ func Acquire(name string) (func(), bool, error) {
 
 	fullName := "Global\\Overlord-" + sanitized
 	handle, err := windows.CreateMutex(nil, false, windows.StringToUTF16Ptr(fullName))
+	if err == windows.ERROR_ALREADY_EXISTS {
+		if handle != 0 {
+			windows.CloseHandle(handle)
+		}
+		return func() {}, false, nil
+	}
 	if err != nil {
 		return nil, false, fmt.Errorf("create mutex: %w", err)
 	}

