@@ -221,6 +221,13 @@ type HVNCCloneProgress struct {
 	Status      string `msgpack:"status"`
 }
 
+type HVNCLookupResult struct {
+	Type string `msgpack:"type"`
+	Exe  string `msgpack:"exe"`
+	Path string `msgpack:"path"`
+	Done bool   `msgpack:"done"`
+}
+
 type ProxyData struct {
 	Type         string `msgpack:"type"`
 	ConnectionID string `msgpack:"connectionId"`

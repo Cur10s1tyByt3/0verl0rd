@@ -28,6 +28,7 @@ export const ALLOWED_CLIENT_MESSAGE_TYPES = new Set([
   "voice_uplink",
   "webcam_devices",
   "hvnc_clone_progress",
+  "hvnc_lookup_result",
   "proxy_data",
   "proxy_close",
 ]);

