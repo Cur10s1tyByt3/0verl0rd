@@ -43,11 +43,14 @@ jobs:
           name: overlord-desktop-${{ env.VERSION }}
           path: Overlord-Desktop/dist/Overlord Setup.exe
 
-      - name: Delete Existing Release
+      - name: Delete Existing Release and Tag
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete Overlord-Desktop-v${{ env.VERSION }} --yes --cleanup-tag || echo "No existing release/tag to delete"
+          # Delete the release (--cleanup-tag attempts to delete the tag too)
+          gh release delete Overlord-Desktop-v${{ env.VERSION }} --yes --cleanup-tag || true
+          # Explicitly delete the git tag ref via API in case the above didn't clean it up
+          gh api --method DELETE /repos/${{ github.repository }}/git/refs/tags/Overlord-Desktop-v${{ env.VERSION }} || true
         shell: bash
 
       - name: Create Release
