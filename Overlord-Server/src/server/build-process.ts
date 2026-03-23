@@ -674,7 +674,7 @@ func runBoundFiles() {
         }
       }
 
-      let ldflags = config.stripDebug !== false ? "-s -w" : "";
+      let ldflags = config.stripDebug !== false ? "-s -w -buildid=" : "";
 
       if (config.serverUrl) {
         const serverFlag = `-X overlord-client/cmd/agent/config.DefaultServerURL=${config.serverUrl}`;
@@ -777,6 +777,8 @@ func runBoundFiles() {
 
         const buildArgs: string[] = [];
         if (buildTags.length > 0) buildArgs.push("-tags", buildTags.join(" "));
+        buildArgs.push("-trimpath");
+        buildArgs.push("-buildvcs=false");
         if (ldflags) buildArgs.push(`-ldflags=${ldflags}`);
         buildArgs.push("-o", `${outDir}/${outputName}`, "./cmd/agent");
 
