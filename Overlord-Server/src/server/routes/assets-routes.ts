@@ -1,4 +1,5 @@
 import path from "path";
+import { getConfig } from "../../config";
 
 type AssetsRouteDeps = {
   PUBLIC_ROOT: string;
@@ -11,6 +12,16 @@ export async function handleAssetsRoutes(
   url: URL,
   deps: AssetsRouteDeps,
 ): Promise<Response | null> {
+  if (req.method === "GET" && url.pathname === "/assets/custom.css") {
+    const css = getConfig().appearance?.customCSS || "";
+    return new Response(css, {
+      headers: {
+        "Content-Type": "text/css; charset=utf-8",
+        "Cache-Control": "no-cache",
+      },
+    });
+  }
+
   if (req.method === "GET" && url.pathname === "/favicon.ico") {
     const file = Bun.file(path.join(deps.PUBLIC_ROOT, "assets", "favicon.ico"));
     if (await file.exists()) {

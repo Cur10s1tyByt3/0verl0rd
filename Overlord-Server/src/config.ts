@@ -55,6 +55,9 @@ export interface Config {
   enrollment: {
     requireApproval: boolean;
   };
+  appearance: {
+    customCSS: string;
+  };
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -107,6 +110,9 @@ const DEFAULT_CONFIG: Config = {
   },
   enrollment: {
     requireApproval: true,
+  },
+  appearance: {
+    customCSS: "",
   },
 };
 
@@ -423,6 +429,9 @@ export function loadConfig(): Config {
           ? String(process.env.OVERLORD_ENROLLMENT_REQUIRE_APPROVAL).toLowerCase() === "true"
           : (fileConfig.enrollment?.requireApproval ?? DEFAULT_CONFIG.enrollment.requireApproval),
     },
+    appearance: {
+      customCSS: fileConfig.appearance?.customCSS || DEFAULT_CONFIG.appearance.customCSS,
+    },
   };
 
   if (saveChanged) {
@@ -588,6 +597,21 @@ export async function updateTlsConfig(
 
   fileConfig.tls = next;
 
+  await writePersistentFileConfig(fileConfig);
+  return next;
+}
+
+export async function updateAppearanceConfig(customCSS: string): Promise<Config["appearance"]> {
+  const current = getConfig();
+  const next = { customCSS: String(customCSS || "").slice(0, 51200) };
+
+  configCache = {
+    ...current,
+    appearance: next,
+  };
+
+  const fileConfig = readFileConfigForUpdate();
+  fileConfig.appearance = next;
   await writePersistentFileConfig(fileConfig);
   return next;
 }

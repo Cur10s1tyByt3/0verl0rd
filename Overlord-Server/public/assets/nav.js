@@ -5,6 +5,13 @@ import {
   subscribeStatus,
   subscribeUnread,
 } from "./notify-client.js";
+
+(function injectCustomCSS() {
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "/assets/custom.css";
+  document.head.appendChild(link);
+})();
 import { mountNav } from "./nav/template.js";
 import { createAdaptiveNavController } from "./nav/layout.js";
 import { applyUserRoleUI } from "./nav/role-ui.js";

@@ -337,6 +337,37 @@
             </button>
           </form>
 
+          <form id="appearance-form" class="space-y-3 pt-1 border-t border-slate-800 pt-4">
+            <div>
+              <h3 class="font-medium">Custom CSS</h3>
+              <p class="text-xs text-slate-400">Admin-only. Paste custom CSS to override the default theme across all pages.</p>
+            </div>
+
+            <div id="appearance-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
+              Only admins can update custom CSS.
+            </div>
+
+            <label class="block">
+              <span class="text-sm text-slate-300">Custom CSS</span>
+              <textarea
+                id="appearance-custom-css"
+                rows="12"
+                spellcheck="false"
+                placeholder="/* Paste your custom CSS here */&#10;:root { --color-primary: #f59e0b; }"
+                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-xs resize-y"
+              ></textarea>
+              <p class="text-xs text-slate-500 mt-1">Max 50 KB. Reload any open page after saving to see the new styles.</p>
+            </label>
+
+            <button
+              type="submit"
+              id="appearance-save-btn"
+              class="px-4 py-2 rounded-lg bg-violet-700 hover:bg-violet-600 transition-colors text-white font-medium"
+            >
+              <i class="fa-solid fa-paintbrush mr-2"></i>Save Custom CSS
+            </button>
+          </form>
+
           <p id="settings-message" class="hidden text-sm rounded-lg px-3 py-2"></p>
         </div>
 

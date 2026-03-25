@@ -56,6 +56,11 @@ const tlsCertbotCertFileInput = document.getElementById("tls-certbot-cert-file")
 const tlsCertbotKeyFileInput = document.getElementById("tls-certbot-key-file");
 const tlsCertbotCaFileInput = document.getElementById("tls-certbot-ca-file");
 
+const appearanceForm = document.getElementById("appearance-form");
+const appearancePermissionNote = document.getElementById("appearance-permission-note");
+const appearanceSaveBtn = document.getElementById("appearance-save-btn");
+const appearanceCustomCssInput = document.getElementById("appearance-custom-css");
+
 let currentUser = null;
 let securityConfig = null;
 let tlsConfig = null;
@@ -605,12 +610,68 @@ async function handleUnbanClick(event) {
   await loadBannedIps();
 }
 
+async function loadAppearanceSettings() {
+  if (!currentUser) return;
+
+  if (!isAdmin(currentUser.role)) {
+    if (appearancePermissionNote) appearancePermissionNote.classList.remove("hidden");
+    if (appearanceCustomCssInput) appearanceCustomCssInput.disabled = true;
+    if (appearanceSaveBtn) appearanceSaveBtn.disabled = true;
+    return;
+  }
+
+  if (appearancePermissionNote) appearancePermissionNote.classList.add("hidden");
+
+  try {
+    const res = await fetch("/api/settings/appearance", { credentials: "include" });
+    if (!res.ok) {
+      showMessage("Failed to load custom CSS settings.", "error");
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (appearanceCustomCssInput) appearanceCustomCssInput.value = data.customCSS || "";
+    if (appearanceSaveBtn) appearanceSaveBtn.disabled = false;
+  } catch {
+    showMessage("Failed to load custom CSS settings.", "error");
+  }
+}
+
+async function saveAppearanceSettings(event) {
+  event.preventDefault();
+  if (!isAdmin(currentUser?.role)) {
+    showMessage("Admin role required.", "error");
+    return;
+  }
+
+  const customCSS = appearanceCustomCssInput ? appearanceCustomCssInput.value : "";
+  if (customCSS.length > 51200) {
+    showMessage("CSS exceeds the 50 KB size limit.", "error");
+    return;
+  }
+
+  const res = await fetch("/api/settings/appearance", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ customCSS }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showMessage(data.error || "Failed to save custom CSS.", "error");
+    return;
+  }
+
+  showMessage("Custom CSS saved. Reload the page to apply the new styles.");
+}
+
 async function init() {
   try {
     await loadCurrentUser();
     loadPrefs();
     await loadSecurityPolicy();
     await loadTlsSettings();
+    await loadAppearanceSettings();
     await loadBannedIps();
 
     passwordForm.addEventListener("submit", updatePassword);
@@ -618,6 +679,7 @@ async function init() {
     securityForm.addEventListener("submit", saveSecurityPolicy);
     tlsForm.addEventListener("submit", saveTlsSettings);
     tlsCertbotAutoBtn.addEventListener("click", runCertbotAutoSetup);
+    if (appearanceForm) appearanceForm.addEventListener("submit", saveAppearanceSettings);
     refreshBansBtn.addEventListener("click", loadBannedIps);
     bansTableBody.addEventListener("click", handleUnbanClick);
   } catch (error) {
