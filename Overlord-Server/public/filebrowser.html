@@ -123,6 +123,9 @@
       .breadcrumb-item:hover {
         background-color: rgba(51, 65, 85, 0.5);
       }
+      .file-meta {
+        display: none;
+      }
 
       /* Mobile responsive styles */
       @media (max-width: 768px) {
@@ -274,6 +277,56 @@
       .bulk-actions-bar {
         background-color: rgba(59, 130, 246, 0.15);
         border: 1px solid rgba(59, 130, 246, 0.4);
+      }
+
+      /* File preview modal styles */
+      .file-preview-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.85);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 2100;
+      }
+      .file-preview-modal.show {
+        display: flex;
+      }
+      .file-preview-content {
+        background-color: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 0.75rem;
+        width: 92%;
+        max-width: 1100px;
+        height: 90vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.5);
+        overflow: hidden;
+      }
+      #preview-content {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #0f172a;
+        overflow: auto;
+        padding: 1rem;
+      }
+      #preview-content img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        border-radius: 0.25rem;
+      }
+      #preview-content object {
+        width: 100%;
+        height: 100%;
+        border: none;
       }
 
       /* Sidebar styles */
@@ -686,6 +739,38 @@
             </button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- File Preview Modal -->
+    <div id="file-preview-modal" class="file-preview-modal">
+      <div class="file-preview-content">
+        <div class="px-4 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between flex-shrink-0">
+          <div class="flex items-center gap-3 min-w-0">
+            <i class="fa-solid fa-eye text-blue-400 flex-shrink-0"></i>
+            <span class="font-semibold truncate" id="preview-file-name">Preview</span>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0 ml-2">
+            <button
+              id="preview-download-btn"
+              class="inline-flex items-center gap-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm"
+              title="Download file"
+            >
+              <i class="fa-solid fa-download"></i> Download
+            </button>
+            <button
+              id="preview-close-btn"
+              class="px-2 py-1 rounded hover:text-red-400 text-slate-400 transition-colors"
+              title="Close preview"
+            >
+              <i class="fa-solid fa-times"></i>
+            </button>
+          </div>
+        </div>
+        <div id="preview-content">
+          <!-- Image or PDF will be rendered here -->
+        </div>
+        <div id="preview-status" class="px-4 py-2 text-sm text-slate-400 text-center flex-shrink-0"></div>
       </div>
     </div>
 

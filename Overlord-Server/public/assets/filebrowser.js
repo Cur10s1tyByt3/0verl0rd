@@ -10,6 +10,8 @@ let fileUploads = new Map();
 let fileUploadsById = new Map();
 let activeTransfers = new Map();
 let currentEditingFile = null;
+let currentPreviewBlobUrl = null;
+let currentPreviewPath = null;
 let lastSuccessfulResponse = 0;
 let pendingToast = null;
 const recentToasts = new Map();
@@ -69,6 +71,12 @@ const editorStatus = document.getElementById("editor-status");
 const editorSaveBtn = document.getElementById("editor-save-btn");
 const editorCancelBtn = document.getElementById("editor-cancel-btn");
 const editorCloseBtn = document.getElementById("editor-close-btn");
+const filePreviewModal = document.getElementById("file-preview-modal");
+const previewFileNameEl = document.getElementById("preview-file-name");
+const previewContent = document.getElementById("preview-content");
+const previewCloseBtn = document.getElementById("preview-close-btn");
+const previewDownloadBtn = document.getElementById("preview-download-btn");
+const previewStatusEl = document.getElementById("preview-status");
 
 if (clientIdHeader) {
   clientIdHeader.textContent = `${clientId} - File Browser`;
@@ -344,6 +352,163 @@ function getFileExt(name = "") {
   const idx = name.lastIndexOf(".");
   if (idx < 0 || idx === name.length - 1) return "";
   return name.slice(idx + 1).toLowerCase();
+}
+
+
+const PREVIEW_IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp"]);
+const PREVIEW_PDF_EXTS = new Set(["pdf"]);
+const PREVIEW_MAX_BYTES = 50 * 1024 * 1024;
+
+// list of binary files from chatgpt (I can't think of anything else either)
+const KNOWN_BINARY_EXTS = new Set([
+  "mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v",
+  "mp3", "wav", "flac", "ogg", "aac", "wma", "m4a",
+  "exe", "msi", "com", "app", "appimage",
+  "dll", "so", "dylib", "lib",
+  "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz",
+  "db", "sqlite", "sqlite3", "mdb",
+  "ttf", "otf", "woff", "woff2", "eot",
+  "iso", "img", "vhd", "vmdk",
+]);
+
+const IMAGE_MIME_MAP = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+};
+
+function isPreviewable(name) {
+  const ext = getFileExt(name);
+  return PREVIEW_IMAGE_EXTS.has(ext) || PREVIEW_PDF_EXTS.has(ext);
+}
+
+function getPreviewMimeType(name) {
+  const ext = getFileExt(name);
+  if (PREVIEW_PDF_EXTS.has(ext)) return "application/pdf";
+  return IMAGE_MIME_MAP[ext] || null;
+}
+
+function closePreview() {
+  if (filePreviewModal) filePreviewModal.classList.remove("show");
+  if (currentPreviewBlobUrl) {
+    URL.revokeObjectURL(currentPreviewBlobUrl);
+    currentPreviewBlobUrl = null;
+  }
+  if (previewContent) previewContent.innerHTML = "";
+  if (previewStatusEl) previewStatusEl.textContent = "";
+  currentPreviewPath = null;
+}
+
+async function openFilePreview(path, knownSize) {
+  const fileName = path.split(/[\/\\]/).pop() || "";
+  const mimeType = getPreviewMimeType(fileName);
+  if (!mimeType) return;
+
+  if (typeof knownSize === "number" && knownSize > PREVIEW_MAX_BYTES) {
+    notifyToast(`File too large to preview (${formatBytes(knownSize)})`, "info", 4000);
+    return;
+  }
+
+  currentPreviewPath = path;
+  if (previewFileNameEl) previewFileNameEl.textContent = fileName;
+  if (previewContent) previewContent.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-slate-400 text-2xl"></i>';
+  if (previewStatusEl) previewStatusEl.textContent = "Loading...";
+  if (filePreviewModal) filePreviewModal.classList.add("show");
+
+  try {
+    const requestRes = await fetch("/api/file/download/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ clientId, path }),
+    });
+
+    if (!requestRes.ok) {
+      const text = await requestRes.text();
+      if (currentPreviewPath !== path) return;
+      if (previewContent) previewContent.innerHTML = `<div class="text-red-400 text-sm text-center p-6"><i class="fa-solid fa-exclamation-triangle mr-2"></i>${escapeHtml(text || "Failed to load preview")}</div>`;
+      if (previewStatusEl) previewStatusEl.textContent = "";
+      return;
+    }
+
+    const requestData = await requestRes.json();
+    const downloadUrl = typeof requestData?.downloadUrl === "string"
+      ? requestData.downloadUrl
+      : (requestData?.downloadId
+        ? `/api/file/download/${encodeURIComponent(requestData.downloadId)}`
+        : "");
+
+    if (!downloadUrl) {
+      if (currentPreviewPath !== path) return;
+      if (previewContent) previewContent.innerHTML = `<div class="text-red-400 text-sm text-center p-6"><i class="fa-solid fa-exclamation-triangle mr-2"></i>Failed to load preview</div>`;
+      if (previewStatusEl) previewStatusEl.textContent = "";
+      return;
+    }
+
+    const res = await fetch(downloadUrl, {
+      method: "GET",
+      credentials: "include",
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      if (currentPreviewPath !== path) return;
+      if (previewContent) previewContent.innerHTML = `<div class="text-red-400 text-sm text-center p-6"><i class="fa-solid fa-exclamation-triangle mr-2"></i>${escapeHtml(text || "Failed to load preview")}</div>`;
+      if (previewStatusEl) previewStatusEl.textContent = "";
+      return;
+    }
+
+    // Reject oversized files before buffering to prevent OOM.
+    const contentLength = Number(res.headers.get("Content-Length") || 0);
+    if (contentLength > PREVIEW_MAX_BYTES) {
+      if (currentPreviewPath !== path) return;
+      if (previewContent) previewContent.innerHTML = `<div class="text-slate-400 text-sm text-center p-6"><i class="fa-solid fa-file mr-2"></i>File too large to preview (${escapeHtml(formatBytes(contentLength))})</div>`;
+      if (previewStatusEl) previewStatusEl.textContent = "";
+      return;
+    }
+
+    const arrayBuffer = await res.arrayBuffer();
+
+    if (currentPreviewPath !== path) return;
+
+    if (arrayBuffer.byteLength > PREVIEW_MAX_BYTES) {
+      if (previewContent) previewContent.innerHTML = `<div class="text-slate-400 text-sm text-center p-6"><i class="fa-solid fa-file mr-2"></i>File too large to preview (${escapeHtml(formatBytes(arrayBuffer.byteLength))})</div>`;
+      if (previewStatusEl) previewStatusEl.textContent = "";
+      return;
+    }
+
+    if (currentPreviewBlobUrl) {
+      URL.revokeObjectURL(currentPreviewBlobUrl);
+      currentPreviewBlobUrl = null;
+    }
+
+    const blob = new Blob([arrayBuffer], { type: mimeType });
+    currentPreviewBlobUrl = URL.createObjectURL(blob);
+
+    if (previewContent) {
+      previewContent.innerHTML = "";
+      if (PREVIEW_IMAGE_EXTS.has(getFileExt(fileName))) {
+        const img = document.createElement("img");
+        img.src = currentPreviewBlobUrl;
+        img.alt = "";
+        previewContent.appendChild(img);
+      } else {
+        const obj = document.createElement("object");
+        obj.data = currentPreviewBlobUrl;
+        obj.type = "application/pdf";
+        previewContent.appendChild(obj);
+      }
+    }
+
+    if (previewStatusEl) previewStatusEl.textContent = "";
+  } catch (err) {
+    if (currentPreviewPath !== path) return;
+    if (previewContent) previewContent.innerHTML = `<div class="text-red-400 text-sm text-center p-6"><i class="fa-solid fa-exclamation-triangle mr-2"></i>${escapeHtml(err.message || "Failed to load preview")}</div>`;
+    if (previewStatusEl) previewStatusEl.textContent = "";
+  }
 }
 
 const FILE_ICON_MAP = {
@@ -785,7 +950,7 @@ function createFileRow(entry) {
   const nameDiv = row.querySelector(".col-span-6");
   const mobileMetaDiv = document.createElement("div");
   mobileMetaDiv.className = "file-meta";
-  mobileMetaDiv.innerHTML = `<span>${size}</span><span>${modTime}</span>`;
+  mobileMetaDiv.innerHTML = `<span>${size}</span><span class="opacity-30 select-none mx-1">·</span><span>${modTime}</span>`;
   nameDiv.appendChild(mobileMetaDiv);
 
   row.onclick = (e) => {
@@ -795,6 +960,10 @@ function createFileRow(entry) {
 
     if (entry.isDir) {
       listFiles(entry.path);
+    } else if (isPreviewable(entry.name)) {
+      openFilePreview(entry.path, entry.size);
+    } else if (KNOWN_BINARY_EXTS.has(getFileExt(entry.name))) {
+      notifyToast("Binary file — use Download to save it", "info", 3000);
     } else {
       openFileInEditor(entry.path);
     }
@@ -2284,7 +2453,12 @@ function handleFileSearchResult(msg) {
     `;
 
     row.onclick = () => {
-      openFileInEditor(result.path);
+      const resultName = result.path.split(/[\/\\]/).pop() || "";
+      if (isPreviewable(resultName)) {
+        openFilePreview(result.path);
+      } else {
+        openFileInEditor(result.path);
+      }
     };
 
     fileListEl.appendChild(row);
@@ -2337,7 +2511,7 @@ function handleFileReadResult(msg) {
   }
 
   if (msg.isBinary) {
-    alert("Cannot edit binary file");
+    notifyToast("Binary file — use Download to save it", "info", 3000);
     closeEditor();
     return;
   }
@@ -2458,6 +2632,22 @@ editorPreviewTab.addEventListener("click", () => {
 editorSaveBtn.addEventListener("click", saveFileFromEditor);
 editorCancelBtn.addEventListener("click", closeEditor);
 editorCloseBtn.addEventListener("click", closeEditor);
+
+if (previewCloseBtn) previewCloseBtn.addEventListener("click", closePreview);
+if (previewDownloadBtn) previewDownloadBtn.addEventListener("click", () => {
+  if (currentPreviewPath) downloadFile(currentPreviewPath);
+});
+if (filePreviewModal) {
+  // Close on backdrop click.
+  filePreviewModal.addEventListener("click", (e) => {
+    if (e.target === filePreviewModal) closePreview();
+  });
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && filePreviewModal && filePreviewModal.classList.contains("show")) {
+    closePreview();
+  }
+});
 
 const editorRunBtn = document.getElementById("editor-run-btn");
 editorRunBtn.addEventListener("click", () => {
