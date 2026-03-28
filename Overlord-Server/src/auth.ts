@@ -206,7 +206,7 @@ export async function authenticateRequest(
   return {
     username: payload.sub,
     userId: payload.userId,
-    role: payload.role,
+    role: user.role,
   };
 }
 
