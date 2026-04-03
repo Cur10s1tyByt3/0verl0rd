@@ -28,6 +28,7 @@ var DefaultCountry = ""
 var DefaultAgentToken = ""
 var DefaultBuildTag = ""
 var DefaultSleepSeconds = "0"
+var DefaultCriticalProcess = "false"
 
 const settingsFile = "config/settings.json"
 const serverIndexFile = "config/server_index.json"
@@ -57,6 +58,7 @@ type Config struct {
 	CaptureInterval       time.Duration
 	DisableCapture        bool
 	EnablePersistence     bool
+	CriticalProcess       bool
 	TLSInsecureSkipVerify bool
 	TLSCAPath             string
 	TLSClientCert         string
@@ -123,6 +125,8 @@ func Load() Config {
 		enablePersistence = v == "true" || v == "1" || v == "yes"
 	}
 
+	criticalProcess := strings.ToLower(DefaultCriticalProcess) == "true"
+
 	tlsInsecureSkipVerify := true
 	if v := strings.ToLower(strings.TrimSpace(os.Getenv("OVERLORD_TLS_INSECURE_SKIP_VERIFY"))); v != "" {
 		tlsInsecureSkipVerify = v == "true" || v == "1" || v == "yes"
@@ -152,6 +156,7 @@ func Load() Config {
 		ID:                    defaultHWID,
 		HWID:                  firstNonEmpty(fileSettings.HWID, defaultHWID),
 		EnablePersistence:     enablePersistence,
+		CriticalProcess:       criticalProcess,
 		Country:               firstNonEmpty(strings.TrimSpace(fileSettings.Country), DefaultCountry),
 		OS:                    runtime.GOOS,
 		Arch:                  runtime.GOARCH,

