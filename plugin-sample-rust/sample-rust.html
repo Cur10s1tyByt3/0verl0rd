@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sample Rust Plugin</title>
+    <link rel="stylesheet" href="/plugins/sample-rust/assets/sample-rust.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="header">
+        <h1>Sample Rust Plugin</h1>
+        <p class="sub">Rust &mdash; fully unloadable, zero runtime leak</p>
+      </header>
+
+      <section class="card">
+        <div class="row">
+          <label class="label">Client ID</label>
+          <input id="client-id" class="input" placeholder="clientId" />
+        </div>
+
+        <div class="row">
+          <label class="label">Message</label>
+          <input id="message" class="input" placeholder="hello from UI" />
+        </div>
+
+        <div class="actions">
+          <button id="send-btn" class="btn">Send event to client</button>
+          <button id="ping-btn" class="btn">Ping</button>
+          <button id="stats-btn" class="btn">Get Stats</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Log</h2>
+        <pre id="log" class="log"></pre>
+      </section>
+    </main>
+
+    <script src="/plugins/sample-rust/assets/sample-rust.js"></script>
+  </body>
+</html>

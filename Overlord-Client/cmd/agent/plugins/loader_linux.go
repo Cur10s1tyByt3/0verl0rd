@@ -73,6 +73,11 @@ static void so_call_onunload(void* fn) {
 	typedef void (*fn_t)(void);
 	((fn_t)fn)();
 }
+
+static const char* so_call_getruntime(void* fn) {
+	typedef const char* (*fn_t)(void);
+	return ((fn_t)fn)();
+}
 */
 import "C"
 
@@ -145,21 +150,30 @@ func loadNativePlugin(data []byte) (NativePlugin, error) {
 		return nil, err
 	}
 
+	pluginRT := "go"
+	if getRuntimeFn, err := resolve("PluginGetRuntime"); err == nil {
+		if cs := C.so_call_getruntime(getRuntimeFn); cs != nil {
+			pluginRT = C.GoString(cs)
+		}
+	}
+
 	return &soPlugin{
-		handle:     handle,
-		onLoadFn:   onLoad,
-		onEventFn:  onEvent,
-		onUnloadFn: onUnload,
+		handle:        handle,
+		onLoadFn:      onLoad,
+		onEventFn:     onEvent,
+		onUnloadFn:    onUnload,
+		pluginRuntime: pluginRT,
 	}, nil
 }
 
 type soPlugin struct {
-	handle     unsafe.Pointer
-	onLoadFn   unsafe.Pointer
-	onEventFn  unsafe.Pointer
-	onUnloadFn unsafe.Pointer
-	cbHandle   cgo.Handle
-	mu         sync.Mutex
+	handle        unsafe.Pointer
+	onLoadFn      unsafe.Pointer
+	onEventFn     unsafe.Pointer
+	onUnloadFn    unsafe.Pointer
+	cbHandle      cgo.Handle
+	pluginRuntime string
+	mu            sync.Mutex
 }
 
 func (p *soPlugin) Load(send func(string, []byte), hostInfo []byte) error {
@@ -220,8 +234,14 @@ func (p *soPlugin) Close() error {
 		p.cbHandle = 0
 	}
 	if p.handle != nil {
-		C.so_dlclose(p.handle)
+		if p.pluginRuntime != "go" {
+			C.so_dlclose(p.handle)
+		}
 		p.handle = nil
 	}
 	return nil
+}
+
+func (p *soPlugin) Runtime() string {
+	return p.pluginRuntime
 }

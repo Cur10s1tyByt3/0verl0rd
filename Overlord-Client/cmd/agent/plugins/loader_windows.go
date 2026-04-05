@@ -43,12 +43,29 @@ func loadNativePlugin(data []byte) (NativePlugin, error) {
 
 	setCallback, _ := mm.GetExport("PluginSetCallback")
 
+	runtime := "go"
+	if getRuntimeAddr, err := mm.GetExport("PluginGetRuntime"); err == nil {
+		ret, _, _ := syscall.SyscallN(getRuntimeAddr)
+		if ret != 0 {
+			var buf [32]byte
+			for i := range buf {
+				b := *(*byte)(unsafe.Pointer(ret + uintptr(i)))
+				if b == 0 {
+					runtime = string(buf[:i])
+					break
+				}
+				buf[i] = b
+			}
+		}
+	}
+
 	dp := &dllPlugin{
 		mem:             mm,
 		onLoadAddr:      onLoad,
 		onEventAddr:     onEvent,
 		onUnloadAddr:    onUnload,
 		setCallbackAddr: setCallback,
+		pluginRuntime:   runtime,
 	}
 	return dp, nil
 }
@@ -60,6 +77,7 @@ type dllPlugin struct {
 	onUnloadAddr    uintptr
 	setCallbackAddr uintptr
 	callbackHandle  uintptr // prevent GC of the callback closure
+	pluginRuntime   string  // "go", "c", "cpp", etc.
 	mu              sync.Mutex
 }
 
@@ -130,8 +148,17 @@ func (p *dllPlugin) Unload() {
 
 func (p *dllPlugin) Close() error {
 	p.Unload()
-	// https://github.com/golang/go/issues/11100 as of right now you can't
-	// unload a go c-shared DLL safely
-	p.mem = nil
+	if p.pluginRuntime != "go" {
+		if p.mem != nil {
+			p.mem.Free()
+			p.mem = nil
+		}
+	} else {
+		p.mem = nil
+	}
 	return nil
+}
+
+func (p *dllPlugin) Runtime() string {
+	return p.pluginRuntime
 }

@@ -184,7 +184,9 @@ func (m *Manager) Load(ctx context.Context, manifest PluginManifest, binary []by
 	m.plugins[pluginID] = pi
 	m.mu.Unlock()
 
-	log.Printf("[plugin] loaded %s (native)", pluginID)
+	rt := np.Runtime()
+	freeable := rt != "go"
+	log.Printf("[plugin] loaded %s (native, runtime=%s, freeable=%v)", pluginID, rt, freeable)
 	return nil
 }
 
@@ -207,8 +209,14 @@ func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id, pi := range m.plugins {
+		rt := pi.native.Runtime()
 		pi.native.Close()
 		delete(m.plugins, id)
+		if rt != "go" {
+			log.Printf("[plugin] unloaded %s (runtime=%s, memory freed)", id, rt)
+		} else {
+			log.Printf("[plugin] unloaded %s (runtime=go, memory leaked — see golang/go#11100)", id)
+		}
 	}
 }
 
@@ -216,7 +224,13 @@ func (m *Manager) Unload(pluginId string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if pi, ok := m.plugins[pluginId]; ok {
+		rt := pi.native.Runtime()
 		pi.native.Close()
 		delete(m.plugins, pluginId)
+		if rt != "go" {
+			log.Printf("[plugin] unloaded %s (runtime=%s, memory freed)", pluginId, rt)
+		} else {
+			log.Printf("[plugin] unloaded %s (runtime=go, memory leaked — see golang/go#11100)", pluginId)
+		}
 	}
 }

@@ -41,6 +41,8 @@ type NativePlugin interface {
 	Unload()
 
 	Close() error
+
+	Runtime() string
 }
 
 func ManifestFromMap(m map[string]interface{}) (PluginManifest, error) {
