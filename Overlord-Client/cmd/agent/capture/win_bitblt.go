@@ -320,7 +320,7 @@ func captureDisplayBitBlt(display int) (*image.RGBA, error) {
 			img = resizeNearest(img, dstW, dstH)
 		} else {
 			// Detach from the reusable DIB buffer to avoid concurrent mutation during encode.
-			stable := image.NewRGBA(img.Rect)
+			stable := GetRGBA(img.Rect.Dx(), img.Rect.Dy())
 			copy(stable.Pix, img.Pix)
 			img = stable
 		}
@@ -422,7 +422,7 @@ func logCaptureTimings(bitDur, dibDur, convDur time.Duration) {
 }
 
 func resizeNearest(src *image.RGBA, w, h int) *image.RGBA {
-	dst := image.NewRGBA(image.Rect(0, 0, w, h))
+	dst := GetRGBA(w, h)
 	srcW := src.Bounds().Dx()
 	srcH := src.Bounds().Dy()
 	if srcW <= 0 || srcH <= 0 || w <= 0 || h <= 0 {

@@ -454,6 +454,7 @@ export async function handleWebSocketMessage(
           }
         }
         handleFrame(client, payload);
+        try { ws.send(encodeMessage({ type: "frame_ack" })); } catch {}
         break;
       case "screenshot_result":
         deps.handleNotificationScreenshotResult(client.id, payload);

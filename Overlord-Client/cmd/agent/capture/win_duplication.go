@@ -828,7 +828,7 @@ func cloneRGBA(src *image.RGBA) *image.RGBA {
 	if src == nil {
 		return nil
 	}
-	dst := image.NewRGBA(src.Rect)
+	dst := GetRGBA(src.Rect.Dx(), src.Rect.Dy())
 	copy(dst.Pix, src.Pix)
 	return dst
 }
@@ -1096,7 +1096,7 @@ func createD3DDevice(adapter *idxgiAdapter1) (*d3d11Device, *d3d11DeviceContext,
 func convertBGRA(src []byte, pitch, width, height int, rotation uint32) *image.RGBA {
 	switch rotation {
 	case dxgiModeRotationRotate90:
-		dst := image.NewRGBA(image.Rect(0, 0, height, width))
+		dst := GetRGBA(height, width)
 		for y := 0; y < height; y++ {
 			sRow := src[y*pitch : y*pitch+width*4]
 			for x := 0; x < width; x++ {
@@ -1112,7 +1112,7 @@ func convertBGRA(src []byte, pitch, width, height int, rotation uint32) *image.R
 		}
 		return dst
 	case dxgiModeRotationRotate180:
-		dst := image.NewRGBA(image.Rect(0, 0, width, height))
+		dst := GetRGBA(width, height)
 		for y := 0; y < height; y++ {
 			sRow := src[y*pitch : y*pitch+width*4]
 			dy := height - 1 - y
@@ -1129,7 +1129,7 @@ func convertBGRA(src []byte, pitch, width, height int, rotation uint32) *image.R
 		}
 		return dst
 	case dxgiModeRotationRotate270:
-		dst := image.NewRGBA(image.Rect(0, 0, height, width))
+		dst := GetRGBA(height, width)
 		for y := 0; y < height; y++ {
 			sRow := src[y*pitch : y*pitch+width*4]
 			for x := 0; x < width; x++ {
@@ -1145,7 +1145,7 @@ func convertBGRA(src []byte, pitch, width, height int, rotation uint32) *image.R
 		}
 		return dst
 	default:
-		dst := image.NewRGBA(image.Rect(0, 0, width, height))
+		dst := GetRGBA(width, height)
 		for y := 0; y < height; y++ {
 			sRow := src[y*pitch : y*pitch+width*4]
 			dRow := dst.Pix[y*dst.Stride : y*dst.Stride+width*4]
@@ -1166,7 +1166,7 @@ func convertBGRAScaled(src []byte, pitch, srcW, srcH, dstW, dstH int, rotation u
 	if rotation != dxgiModeRotationIdentity && rotation != 0 {
 		return nil
 	}
-	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
+	dst := GetRGBA(dstW, dstH)
 	xOff := make([]int, dstW)
 	for x := 0; x < dstW; x++ {
 		xOff[x] = (x * srcW / dstW) * 4

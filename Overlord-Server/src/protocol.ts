@@ -138,6 +138,7 @@ export type FrameHeader = {
 };
 
 export type Frame = { type: "frame"; header: FrameHeader; data: Uint8Array };
+export type FrameAck = { type: "frame_ack" };
 export type Status = {
   type: "status";
   state: "idle" | "streaming" | "error";
@@ -304,6 +305,7 @@ export type WireMessage =
   | CommandResult
   | ScreenshotResult
   | Frame
+  | FrameAck
   | Status
   | ConsoleOutput
   | FileListResult

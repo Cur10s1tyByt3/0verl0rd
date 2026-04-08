@@ -75,6 +75,10 @@ type Frame struct {
 	Data   []byte      `msgpack:"data"`
 }
 
+type FrameAck struct {
+	Type string `msgpack:"type"`
+}
+
 type ScreenshotResult struct {
 	Type      string `msgpack:"type"`
 	CommandID string `msgpack:"commandId,omitempty"`

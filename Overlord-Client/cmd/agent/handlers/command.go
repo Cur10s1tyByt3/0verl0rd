@@ -81,6 +81,7 @@ func resetForReconnect(env *runtime.Env) {
 	}
 
 	cancelAllCommands()
+	capture.ResetFrameSlots()
 
 	env.DesktopMu.Lock()
 	if env.DesktopCancel != nil {

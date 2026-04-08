@@ -130,6 +130,8 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 
 	quality := jpegQuality()
 	frame, encodeDur, err := buildFrame(img, display, quality)
+	PutRGBA(img)
+	img = nil
 	if err != nil {
 		return err
 	}
@@ -141,6 +143,9 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 	frame.Header.FPS = fps
 	if ctx.Err() != nil {
 		return nil
+	}
+	if !AcquireFrameSlot() {
+		return nil // backpressure: server hasn't acked previous frames
 	}
 	sendStart := time.Now()
 	err = wire.WriteMsg(ctx, env.Conn, frame)
@@ -263,14 +268,19 @@ func captureAllDisplaysAndSend(ctx context.Context, env *rt.Env) error {
 			cH = ry
 		}
 	}
-	canvas := image.NewRGBA(image.Rect(0, 0, cW, cH))
+	canvas := GetRGBA(cW, cH)
 	for _, sp := range scaled {
 		dst := image.Rect(sp.offX, sp.offY, sp.offX+sp.img.Rect.Dx(), sp.offY+sp.img.Rect.Dy())
 		draw.Draw(canvas, dst, sp.img, sp.img.Rect.Min, draw.Src)
 	}
+	for _, part := range parts {
+		PutRGBA(part.img)
+	}
 
 	quality := jpegQuality()
 	frame, _, err := buildFrame(canvas, 0, quality)
+	PutRGBA(canvas)
+	canvas = nil
 	if err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	"overlord-client/cmd/agent/capture"
 	"overlord-client/cmd/agent/runtime"
 )
 
@@ -37,6 +38,9 @@ func (d *Dispatcher) Dispatch(ctx context.Context, envelope map[string]interface
 		return HandlePing(ctx, d.Env, envelope)
 	case "pong":
 		return HandlePong(ctx, d.Env, envelope)
+	case "frame_ack":
+		capture.ReleaseFrameSlot()
+		return nil
 	case "command":
 		cmdType, _ := envelope["commandType"].(string)
 		switch cmdType {
