@@ -1,8 +1,123 @@
 export const NAV_MODE_KEY = "sb_mode";
 
+/* ──────────────────────────────────────────────
+   NAVIGATION DATA — single source of truth
+   ────────────────────────────────────────────── */
+
+const NAV_GROUPS = [
+  {
+    id: "clients",
+    label: "Clients",
+    icon: "fa-display",
+    iconColor: "text-sky-400",
+    href: "/",
+    linkId: "nav-clients",
+    alwaysVisible: true,
+  },
+  {
+    id: "purgatory",
+    label: "Purgatory",
+    icon: "fa-user-clock",
+    iconColor: "text-amber-400",
+    href: "/purgatory",
+    linkId: "enrollment-link",
+    hasBadge: true,
+  },
+  {
+    id: "system",
+    label: "System",
+    icon: "fa-gear",
+    iconColor: "text-slate-300",
+    children: [
+      { href: "/logs",           label: "Logs",           icon: "fa-clipboard-list",  iconColor: "text-amber-400",   linkId: "logs-link",           hidden: true },
+      { href: "/file-share",     label: "File Share",     icon: "fa-share-nodes",     iconColor: "text-rose-400",    linkId: "file-share-link",     hidden: true },
+      { href: "/users",          label: "Users",          icon: "fa-users",           iconColor: "text-indigo-400",  linkId: "users-link",          hidden: true },
+      { href: "/notifications",  label: "Notifications",  icon: "fa-bell",            iconColor: "text-yellow-400",  linkId: "notifications-link",  hidden: true },
+    ],
+  },
+  {
+    id: "management",
+    label: "Management",
+    icon: "fa-folder-open",
+    iconColor: "text-cyan-400",
+    children: [
+      { href: "/scripts",        label: "Scripts",        icon: "fa-code",            iconColor: "text-cyan-400",    linkId: "scripts-link" },
+      { href: "/socks5-manager", label: "Proxies",        icon: "fa-network-wired",   iconColor: "text-sky-400",     linkId: "socks5-link" },
+    ],
+  },
+  {
+    id: "build",
+    label: "Build",
+    icon: "fa-wrench",
+    iconColor: "text-orange-400",
+    children: [
+      { href: "/build",         label: "Builder",        icon: "fa-hammer",          iconColor: "text-orange-400",  linkId: "build-link",          hidden: true },
+      { href: "/plugins",       label: "Plugins",        icon: "fa-puzzle-piece",    iconColor: "text-violet-400",  linkId: "plugins-link",        hidden: true },
+      { href: "/sol-publish",   label: "Sol Publish",    icon: "fa-link-slash",      iconColor: "text-purple-400",  linkId: "sol-publish-link",    hidden: true },
+    ],
+  },
+  {
+    id: "monitoring",
+    label: "Monitoring",
+    icon: "fa-chart-line",
+    iconColor: "text-emerald-400",
+    children: [
+      { href: "/metrics",       label: "Metrics",        icon: "fa-chart-line",      iconColor: "text-emerald-400", linkId: "metrics-link" },
+    ],
+  },
+];
+
+/* ──────────────────────────────────────────────
+   TOPBAR — dropdown menus
+   ────────────────────────────────────────────── */
+
+function dropdownItem(child) {
+  const hiddenCls = child.hidden ? " hidden" : "";
+  const badgeHtml = child.hasBadge
+    ? `<span id="enrollment-badge" class="nav-dd-badge hidden"></span>`
+    : "";
+  return `<a href="${child.href}" id="${child.linkId}"
+      class="nav-dd-item${hiddenCls}" data-link-id="${child.linkId}">
+      <i class="fa-solid ${child.icon} ${child.iconColor} nav-dd-item-icon"></i>
+      <span>${child.label}</span>
+      ${badgeHtml}
+    </a>`;
+}
+
+function dropdownGroup(group) {
+  if (group.href && !group.children) {
+    // Simple link (Clients, Purgatory)
+    const alwaysCls = group.alwaysVisible ? "" : " hidden";
+    const badgeHtml = group.hasBadge
+      ? `<span id="enrollment-badge" class="nav-dd-badge hidden"></span>`
+      : "";
+    return `<a href="${group.href}" id="${group.linkId}"
+        class="nav-dd-group-btn${alwaysCls}" data-group="${group.id}">
+        <i class="fa-solid ${group.icon} ${group.iconColor}"></i>
+        <span>${group.label}</span>
+        ${badgeHtml}
+      </a>`;
+  }
+  // Dropdown group — wrapper always visible, children control visibility
+  const items = group.children.map(dropdownItem).join("");
+  return `
+    <div class="nav-dd-wrapper" data-group="${group.id}">
+      <button class="nav-dd-group-btn" data-group="${group.id}" aria-haspopup="true" aria-expanded="false">
+        <i class="fa-solid ${group.icon} ${group.iconColor}"></i>
+        <span>${group.label}</span>
+        <i class="fa-solid fa-chevron-down nav-dd-chevron"></i>
+      </button>
+      <div class="nav-dd-menu" role="menu">
+        ${items}
+      </div>
+    </div>`;
+}
+
 function mountTopbar(host) {
   host.className =
     "sticky top-0 z-10 w-full px-5 py-3 bg-slate-950/80 backdrop-blur border-b border-slate-800";
+
+  const groupsHtml = NAV_GROUPS.map(dropdownGroup).join("");
 
   host.innerHTML = `
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 w-full">
@@ -22,47 +137,12 @@ function mountTopbar(host) {
       </div>
       <div
         id="nav-panel"
-        class="hidden md:flex md:flex-1 md:items-center md:justify-between gap-3"
+        class="hidden md:flex md:flex-1 md:items-center md:justify-center gap-3"
       >
-        <nav id="nav-links" class="flex flex-wrap items-center gap-2 md:flex-1 md:justify-center">
-          <a href="/" id="nav-clients"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
-            ><i class="fa-solid fa-display text-sky-400"></i> Clients</a>
-          <a href="/metrics" id="metrics-link"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
-            ><i class="fa-solid fa-chart-line text-emerald-400"></i> Metrics</a>
-          <a href="/logs" id="logs-link"
-            class="hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
-            ><i class="fa-solid fa-clipboard-list text-amber-400"></i> Logs</a>
-          <a href="/scripts" id="scripts-link"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
-            ><i class="fa-solid fa-code text-cyan-400"></i> Scripts</a>
-          <a href="/socks5-manager" id="socks5-link"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
-            ><i class="fa-solid fa-network-wired text-sky-400"></i> Proxies</a>
-          <a href="/file-share" id="file-share-link"
-            class="hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
-            ><i class="fa-solid fa-share-nodes text-rose-400"></i> File Share</a>
-          <a href="/plugins" id="plugins-link"
-            class="hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
-            ><i class="fa-solid fa-puzzle-piece text-violet-400"></i> Plugins</a>
-          <a href="/build" id="build-link"
-            class="hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
-            ><i class="fa-solid fa-hammer text-orange-400"></i> Builder</a>
-          <a href="/sol-publish" id="sol-publish-link"
-            class="hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
-            ><i class="fa-solid fa-link-slash text-purple-400"></i> Sol Publish</a>
-          <a href="/notifications" id="notifications-link"
-            class="hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
-            ><i class="fa-solid fa-bell text-yellow-400"></i> Notifications</a>
-          <a href="/users" id="users-link"
-            class="hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
-            ><i class="fa-solid fa-users text-indigo-400"></i> Users</a>
-          <a href="/purgatory" id="enrollment-link"
-            class="hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
-            ><i class="fa-solid fa-user-clock text-amber-400"></i> Purgatory<span id="enrollment-badge" class="hidden min-w-[20px] h-5 px-1 rounded-full bg-amber-500 text-white text-xs flex items-center justify-center"></span></a>
+        <nav id="nav-links" class="nav-dd-bar">
+          ${groupsHtml}
         </nav>
-        <div id="nav-utility" class="flex flex-wrap items-center gap-2 md:w-auto md:justify-end md:shrink-0">
+        <div id="nav-utility" class="flex flex-wrap items-center gap-2 md:w-auto md:justify-end md:shrink-0 md:ml-auto">
           <button id="notify-toggle"
             class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 text-slate-300 hover:bg-slate-800"
             title="Toggle notifications" aria-label="Toggle notifications">
@@ -86,7 +166,8 @@ function mountTopbar(host) {
     </div>
   `;
 
-  return {
+  // Collect all link refs
+  const refs = {
     toggle: document.getElementById("nav-toggle"),
     panel: document.getElementById("nav-panel"),
     collapseBtn: null,
@@ -98,21 +179,83 @@ function mountTopbar(host) {
     accountSettingsBtn: document.getElementById("account-settings-btn"),
     usernameDisplay: document.getElementById("username-display"),
     roleBadge: document.getElementById("role-badge"),
-    usersLink: document.getElementById("users-link"),
-    buildLink: document.getElementById("build-link"),
-    solPublishLink: document.getElementById("sol-publish-link"),
-    pluginsLink: document.getElementById("plugins-link"),
-    scriptsLink: document.getElementById("scripts-link"),
-    logsLink: document.getElementById("logs-link"),
-    notificationsLink: document.getElementById("notifications-link"),
-    enrollmentLink: document.getElementById("enrollment-link"),
     enrollmentBadge: document.getElementById("enrollment-badge"),
-    fileShareLink: document.getElementById("file-share-link"),
   };
+
+  // Add individual link refs
+  NAV_GROUPS.forEach((g) => {
+    if (g.linkId) refs[g.linkId.replace(/-/g, "") + "Ref"] = document.getElementById(g.linkId);
+    if (g.children) {
+      g.children.forEach((c) => {
+        const key = c.linkId.replace(/-/g, "") + "Ref";
+        refs[key] = document.getElementById(c.linkId);
+      });
+    }
+  });
+
+  // Convenience refs expected by nav.js
+  refs.usersLink = document.getElementById("users-link");
+  refs.buildLink = document.getElementById("build-link");
+  refs.solPublishLink = document.getElementById("sol-publish-link");
+  refs.pluginsLink = document.getElementById("plugins-link");
+  refs.scriptsLink = document.getElementById("scripts-link");
+  refs.logsLink = document.getElementById("logs-link");
+  refs.notificationsLink = document.getElementById("notifications-link");
+  refs.enrollmentLink = document.getElementById("enrollment-link");
+  refs.fileShareLink = document.getElementById("file-share-link");
+
+  return refs;
+}
+
+/* ──────────────────────────────────────────────
+   SIDEBAR — tree-style expandable
+   ────────────────────────────────────────────── */
+
+function sidebarChild(child) {
+  const hiddenCls = child.hidden ? " hidden" : "";
+  const badgeHtml = child.hasBadge
+    ? `<span id="enrollment-badge" class="sb-badge hidden"></span>`
+    : "";
+  return `<a href="${child.href}" id="${child.linkId}"
+      class="sb-link sb-link-child${hiddenCls}" data-link-id="${child.linkId}" title="${child.label}">
+      <i class="fa-solid ${child.icon} ${child.iconColor} sb-icon"></i>
+      <span class="sb-text">${child.label}</span>
+      ${badgeHtml}
+    </a>`;
+}
+
+function sidebarGroup(group) {
+  if (group.href && !group.children) {
+    // Simple link (Clients, Purgatory)
+    const alwaysCls = group.alwaysVisible ? "" : " hidden";
+    const badgeHtml = group.hasBadge
+      ? `<span id="enrollment-badge" class="sb-badge hidden"></span>`
+      : "";
+    return `<a href="${group.href}" id="${group.linkId}"
+        class="sb-link${alwaysCls}" data-link-id="${group.linkId}" title="${group.label}">
+        <i class="fa-solid ${group.icon} ${group.iconColor} sb-icon"></i>
+        <span class="sb-text">${group.label}</span>
+        ${badgeHtml}
+      </a>`;
+  }
+  // Expandable group — wrapper always visible, children control visibility
+  const childrenHtml = group.children.map(sidebarChild).join("");
+  return `
+    <div class="sb-group" data-group="${group.id}">
+      <button class="sb-group-btn" data-group="${group.id}" aria-expanded="false">
+        <i class="fa-solid ${group.icon} ${group.iconColor} sb-icon"></i>
+        <span class="sb-text">${group.label}</span>
+        <i class="fa-solid fa-chevron-right sb-chevron"></i>
+      </button>
+      <div class="sb-group-children" role="group">
+        ${childrenHtml}
+      </div>
+    </div>`;
 }
 
 function mountSidebar(host) {
-  // Sidebar HTML injected into the fixed #top-nav element
+  const groupsHtml = NAV_GROUPS.map(sidebarGroup).join("");
+
   host.innerHTML = `
     <div class="sb-header">
       <a href="/" class="sb-logo">
@@ -125,57 +268,7 @@ function mountSidebar(host) {
     </div>
 
     <nav id="nav-links" class="sb-nav">
-      <a href="/" id="nav-clients" class="sb-link" title="Clients">
-        <i class="fa-solid fa-display text-sky-400 sb-icon"></i>
-        <span class="sb-text">Clients</span>
-      </a>
-      <a href="/metrics" id="metrics-link" class="sb-link" title="Metrics">
-        <i class="fa-solid fa-chart-line text-emerald-400 sb-icon"></i>
-        <span class="sb-text">Metrics</span>
-      </a>
-      <a href="/logs" id="logs-link" class="sb-link hidden" title="Logs">
-        <i class="fa-solid fa-clipboard-list text-amber-400 sb-icon"></i>
-        <span class="sb-text">Logs</span>
-      </a>
-      <a href="/scripts" id="scripts-link" class="sb-link" title="Scripts">
-        <i class="fa-solid fa-code text-cyan-400 sb-icon"></i>
-        <span class="sb-text">Scripts</span>
-      </a>
-      <a href="/socks5-manager" id="socks5-link" class="sb-link" title="Proxies">
-        <i class="fa-solid fa-network-wired text-sky-400 sb-icon"></i>
-        <span class="sb-text">Proxies</span>
-      </a>
-      <a href="/file-share" id="file-share-link" class="sb-link hidden" title="File Share">
-        <i class="fa-solid fa-share-nodes text-rose-400 sb-icon"></i>
-        <span class="sb-text">File Share</span>
-      </a>
-      <a href="/plugins" id="plugins-link" class="sb-link hidden" title="Plugins">
-        <i class="fa-solid fa-puzzle-piece text-violet-400 sb-icon"></i>
-        <span class="sb-text">Plugins</span>
-      </a>
-      <a href="/build" id="build-link" class="sb-link hidden" title="Builder">
-        <i class="fa-solid fa-hammer text-orange-400 sb-icon"></i>
-        <span class="sb-text">Builder</span>
-      </a>
-      <a href="/sol-publish" id="sol-publish-link" class="sb-link hidden" title="Sol Publish">
-        <i class="fa-solid fa-link-slash text-purple-400 sb-icon"></i>
-        <span class="sb-text">Sol Publish</span>
-      </a>
-      <a href="/notifications" id="notifications-link" class="sb-link hidden" title="Notifications">
-        <i class="fa-solid fa-bell text-yellow-400 sb-icon"></i>
-        <span class="sb-text">Notifications</span>
-      </a>
-      <a href="/users" id="users-link" class="sb-link hidden" title="Users">
-        <i class="fa-solid fa-users text-indigo-400 sb-icon"></i>
-        <span class="sb-text">Users</span>
-      </a>
-      <a href="/purgatory" id="enrollment-link" class="sb-link hidden" title="Purgatory">
-        <i class="fa-solid fa-user-clock text-amber-400 sb-icon"></i>
-        <span class="sb-text">
-          Purgatory
-          <span id="enrollment-badge" class="sb-inline-badge hidden"></span>
-        </span>
-      </a>
+      ${groupsHtml}
     </nav>
 
     <div id="nav-utility" class="sb-utility">
@@ -222,7 +315,8 @@ function mountSidebar(host) {
   backdrop.id = "sb-backdrop";
   document.body.appendChild(backdrop);
 
-  return {
+  // Collect refs
+  const refs = {
     toggle: document.getElementById("nav-toggle"),
     collapseBtn: document.getElementById("sb-collapse-btn"),
     panel: host,
@@ -234,17 +328,21 @@ function mountSidebar(host) {
     accountSettingsBtn: document.getElementById("account-settings-btn"),
     usernameDisplay: document.getElementById("username-display"),
     roleBadge: document.getElementById("role-badge"),
-    usersLink: document.getElementById("users-link"),
-    buildLink: document.getElementById("build-link"),
-    solPublishLink: document.getElementById("sol-publish-link"),
-    pluginsLink: document.getElementById("plugins-link"),
-    scriptsLink: document.getElementById("scripts-link"),
-    logsLink: document.getElementById("logs-link"),
-    notificationsLink: document.getElementById("notifications-link"),
-    enrollmentLink: document.getElementById("enrollment-link"),
     enrollmentBadge: document.getElementById("enrollment-badge"),
-    fileShareLink: document.getElementById("file-share-link"),
   };
+
+  // Convenience refs expected by nav.js
+  refs.usersLink = document.getElementById("users-link");
+  refs.buildLink = document.getElementById("build-link");
+  refs.solPublishLink = document.getElementById("sol-publish-link");
+  refs.pluginsLink = document.getElementById("plugins-link");
+  refs.scriptsLink = document.getElementById("scripts-link");
+  refs.logsLink = document.getElementById("logs-link");
+  refs.notificationsLink = document.getElementById("notifications-link");
+  refs.enrollmentLink = document.getElementById("enrollment-link");
+  refs.fileShareLink = document.getElementById("file-share-link");
+
+  return refs;
 }
 
 export function mountNav(host) {

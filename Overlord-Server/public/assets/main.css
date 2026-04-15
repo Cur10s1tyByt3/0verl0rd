@@ -2196,17 +2196,22 @@ body.sb-collapsed .sb-collapse-btn i {
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
-  border: 1px solid transparent;
+  border: none;
+  outline: none;
   background: transparent;
   cursor: pointer;
   width: 100%;
   text-align: left;
   position: relative;
-  transition: background 0.14s, color 0.14s, border-color 0.14s;
+  transition: background 0.14s, color 0.14s;
 }
 .sb-link:hover {
   background: rgba(255, 255, 255, 0.06);
   color: #e2e8f0;
+}
+.sb-link:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 1px;
 }
 /* Collapsed: center icon, fill the rail */
 body.sb-collapsed .sb-link {
@@ -2245,7 +2250,6 @@ body.sb-collapsed .sb-link .sb-text {
 .sb-link.nav-active {
   background: rgba(99, 102, 241, 0.14);
   color: #e2e8f0;
-  border-color: rgba(99, 102, 241, 0.28);
 }
 .sb-link.nav-active:hover {
   background: rgba(99, 102, 241, 0.2);
@@ -2256,7 +2260,6 @@ body.sb-collapsed .sb-link .sb-text {
 .sb-link--danger:hover {
   background: rgba(239, 68, 68, 0.1);
   color: #fca5a5;
-  border-color: rgba(239, 68, 68, 0.28);
 }
 
 /* ---- Notification bell badge ---- */
@@ -2374,3 +2377,226 @@ body.sb-open #sb-backdrop { display: block; }
 #notify-toggle.text-emerald-200 { color: #a7f3d0; }
 #notify-toggle.text-slate-300   { color: #cbd5e1; }
 #notify-toggle.border-emerald-500\/40 { border-color: rgba(16, 185, 129, 0.4); }
+
+/* ============================================================
+   TOPBAR DROPDOWN MENUS
+   ============================================================ */
+
+.nav-dd-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: center;
+}
+
+.nav-dd-group-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  color: #94a3b8;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.nav-dd-group-btn:hover {
+  background: rgba(51, 65, 85, 0.7);
+  color: #e2e8f0;
+}
+.nav-dd-group-btn[aria-expanded="true"] {
+  background: rgba(51, 65, 85, 0.85);
+  color: #e2e8f0;
+  border-color: rgba(99, 102, 241, 0.3);
+}
+.nav-dd-group-btn i.fa-chevron-down {
+  font-size: 0.6rem;
+  transition: transform 0.15s ease;
+}
+.nav-dd-group-btn[aria-expanded="true"] i.fa-chevron-down {
+  transform: rotate(180deg);
+}
+
+/* Dropdown wrapper */
+.nav-dd-wrapper {
+  position: relative;
+}
+
+/* Dropdown menu */
+.nav-dd-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  min-width: 200px;
+  padding: 6px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.97);
+  border: 1px solid rgba(51, 65, 85, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  z-index: 100;
+}
+.nav-dd-menu.nav-dd-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Dropdown menu item */
+.nav-dd-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 7px;
+  color: #94a3b8;
+  text-decoration: none;
+  font-size: 0.84rem;
+  font-weight: 500;
+  transition: background 0.12s, color 0.12s;
+}
+.nav-dd-item:hover {
+  background: rgba(99, 102, 241, 0.12);
+  color: #e2e8f0;
+}
+.nav-dd-item.nav-active {
+  background: rgba(99, 102, 241, 0.18);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+.nav-dd-item-icon {
+  width: 18px;
+  text-align: center;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+.nav-dd-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #d97706;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+}
+.nav-dd-badge:not(.hidden) {
+  display: inline-flex;
+}
+
+/* ============================================================
+   SIDEBAR TREE GROUPS
+   ============================================================ */
+
+.sb-group {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.sb-group-btn {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  color: #7c8fa3;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  border: none;
+  outline: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  position: relative;
+  transition: background 0.14s, color 0.14s;
+}
+.sb-group-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+}
+.sb-group-btn:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 1px;
+}
+
+.sb-chevron {
+  margin-left: auto;
+  font-size: 0.6rem;
+  transition: transform 0.2s ease;
+  color: #475569;
+}
+.sb-chevron.sb-chevron-open {
+  transform: rotate(90deg);
+  color: #94a3b8;
+}
+
+/* Collapsed sidebar: hide chevron, center icon */
+body.sb-collapsed .sb-chevron {
+  display: none;
+}
+body.sb-collapsed .sb-group-btn {
+  justify-content: center;
+  padding: 12px 0;
+  gap: 0;
+}
+
+/* Tree children container — completely hidden when collapsed */
+.sb-group-children {
+  display: none;
+}
+.sb-group-children.sb-group-open {
+  display: block;
+}
+
+/* Child links — indented */
+.sb-link-child {
+  padding-left: 16px !important;
+  font-size: 0.82rem !important;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+body.sb-collapsed .sb-link-child {
+  padding-left: 0 !important;
+}
+
+/* Badge in sidebar */
+.sb-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #d97706;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sb-badge:not(.hidden) {
+  display: inline-flex;
+}

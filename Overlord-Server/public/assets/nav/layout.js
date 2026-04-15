@@ -3,11 +3,107 @@ import { NAV_MODE_KEY } from "./template.js";
 const LS_KEY = "sb_collapsed";
 const MOBILE_BP = 768;
 
+/* ──────────────────────────────────────────────
+   TOPBAR DROPDOWN LOGIC
+   ────────────────────────────────────────────── */
+
+function initDropdowns(navLinks) {
+  if (!navLinks) return;
+
+  let activeDropdown = null;
+
+  function closeAll() {
+    if (activeDropdown) {
+      const btn = activeDropdown.querySelector(".nav-dd-group-btn");
+      const menu = activeDropdown.querySelector(".nav-dd-menu");
+      if (btn) btn.setAttribute("aria-expanded", "false");
+      if (menu) menu.classList.remove("nav-dd-open");
+      activeDropdown = null;
+    }
+  }
+
+  navLinks.addEventListener("click", (e) => {
+    // If clicking a dropdown menu item (actual link), let it navigate normally
+    const item = e.target.closest(".nav-dd-item");
+    if (item) {
+      closeAll();
+      return; // Don't prevent default — let the link navigate
+    }
+
+    const wrapper = e.target.closest(".nav-dd-wrapper");
+    if (!wrapper) {
+      closeAll();
+      return;
+    }
+    const menu = wrapper.querySelector(".nav-dd-menu");
+    const btn = wrapper.querySelector(".nav-dd-group-btn");
+    if (!menu || !btn) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (activeDropdown === wrapper) {
+      closeAll();
+    } else {
+      closeAll();
+      btn.setAttribute("aria-expanded", "true");
+      menu.classList.add("nav-dd-open");
+      activeDropdown = wrapper;
+    }
+  });
+
+  // Close on outside click
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".nav-dd-wrapper")) {
+      closeAll();
+    }
+  });
+
+  // Close on Escape
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeAll();
+  });
+}
+
+/* ──────────────────────────────────────────────
+   SIDEBAR TREE EXPAND / COLLAPSE
+   ────────────────────────────────────────────── */
+
+function initSidebarTree(navLinks) {
+  if (!navLinks) return;
+
+  navLinks.addEventListener("click", (e) => {
+    const groupBtn = e.target.closest(".sb-group-btn");
+    if (!groupBtn) return;
+
+    const group = groupBtn.closest(".sb-group");
+    if (!group) return;
+
+    const children = group.querySelector(".sb-group-children");
+    const chevron = groupBtn.querySelector(".sb-chevron");
+    if (!children) return;
+
+    const expanded = groupBtn.getAttribute("aria-expanded") === "true";
+    groupBtn.setAttribute("aria-expanded", String(!expanded));
+    children.classList.toggle("sb-group-open", !expanded);
+    if (chevron) {
+      chevron.classList.toggle("sb-chevron-open", !expanded);
+    }
+  });
+}
+
+/* ──────────────────────────────────────────────
+   TOPBAR CONTROLLER (adaptive layout)
+   ────────────────────────────────────────────── */
+
 function createTopbarController(host, refs) {
   const { toggle, panel, navLinks, navUtility } = refs;
   if (!toggle || !panel || !navLinks || !navUtility) {
     return { applyAdaptiveNavLayout: () => {} };
   }
+
+  // Init dropdowns
+  initDropdowns(navLinks);
 
   const navOverflows = () =>
     panel.scrollWidth > panel.clientWidth + 1 || host.scrollWidth > host.clientWidth + 1;
@@ -104,12 +200,19 @@ function createTopbarController(host, refs) {
   return { applyAdaptiveNavLayout };
 }
 
+/* ──────────────────────────────────────────────
+   SIDEBAR CONTROLLER
+   ────────────────────────────────────────────── */
+
 function createSidebarController(host, refs) {
-  const { collapseBtn, toggle } = refs;
+  const { collapseBtn, toggle, panel } = refs;
   const backdrop = document.getElementById("sb-backdrop");
   const navLinks = document.getElementById("nav-links");
 
   document.body.classList.add("sb-ready");
+
+  // Init sidebar tree
+  if (navLinks) initSidebarTree(navLinks);
 
   let collapsed = localStorage.getItem(LS_KEY) === "true";
   if (collapsed) document.body.classList.add("sb-collapsed");

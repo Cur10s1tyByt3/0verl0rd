@@ -32,11 +32,24 @@ if (host) {
     "/user-client-access": "users-link",
     "/notifications": "notifications-link",
     "/file-share": "file-share-link",
+    "/purgatory": "enrollment-link",
   };
   const activeId = activeMap[path];
   if (activeId) {
     const el = document.getElementById(activeId);
-    if (el) el.classList.add("nav-active");
+    if (el) {
+      el.classList.add("nav-active");
+      // Also expand the parent sidebar group if applicable
+      const group = el.closest(".sb-group");
+      if (group) {
+        const btn = group.querySelector(".sb-group-btn");
+        const children = group.querySelector(".sb-group-children");
+        const chevron = btn?.querySelector(".sb-chevron");
+        if (btn) btn.setAttribute("aria-expanded", "true");
+        if (children) children.classList.add("sb-group-open");
+        if (chevron) chevron.classList.add("sb-chevron-open");
+      }
+    }
   }
   if (refs.logoutBtn && !refs.logoutBtn.dataset.boundLogout) {
     refs.logoutBtn.dataset.boundLogout = "true";

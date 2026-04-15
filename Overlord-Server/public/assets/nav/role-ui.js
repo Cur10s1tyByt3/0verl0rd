@@ -65,19 +65,25 @@ export function applyUserRoleUI(user, refs) {
     );
   }
 
+  // Helper: unhide an element by ID in both topbar and sidebar
+  const unhide = (id) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove("hidden");
+  };
+
   if (user.role === "admin") {
-    usersLink?.classList.remove("hidden");
-    pluginsLink?.classList.remove("hidden");
-    logsLink?.classList.remove("hidden");
-    solPublishLink?.classList.remove("hidden");
+    unhide("users-link");
+    unhide("plugins-link");
+    unhide("logs-link");
+    unhide("sol-publish-link");
   }
   if (user.role === "admin" || user.role === "operator") {
-    buildLink?.classList.remove("hidden");
-    notificationsLink?.classList.remove("hidden");
-    enrollmentLink?.classList.remove("hidden");
+    unhide("build-link");
+    unhide("notifications-link");
+    unhide("enrollment-link");
   }
   if (user.role !== "viewer") {
-    scriptsLink?.classList.remove("hidden");
-    fileShareLink?.classList.remove("hidden");
+    unhide("scripts-link");
+    unhide("file-share-link");
   }
 }
