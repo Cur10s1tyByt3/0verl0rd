@@ -52,10 +52,12 @@ plugins/sample-go/*.h
 plugins/hrdp/*
 plugins/netscan/
 plugins/sysprofile/
+plugins/ranreg/
 plugins/build-netscan.bat
 plugins/build-netscan.sh
 plugins/build-sysprofile.bat
 plugins/build-sysprofile.sh
+plugins/build-ranreg.bat
 
 # Runtime data
 Overlord-Server/data/
