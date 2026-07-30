@@ -1648,9 +1648,9 @@ func encodeBlocksbackstage(img *image.RGBA, prev *prevImage, quality int, codec 
 	}
 
 	prevCopyStart := time.Now()
-	prevMu.Lock()
-	copyPrev(img)
-	prevMu.Unlock()
+	backstagePrevMu.Lock()
+	copyPrevbackstage(img)
+	backstagePrevMu.Unlock()
 	statPrevCopyNs.Add(time.Since(prevCopyStart).Nanoseconds())
 
 	out := make([]byte, buf.Len())

@@ -1,3 +1,5 @@
+//go:build !turbojpeg
+
 package capture
 
 import (
@@ -17,7 +19,7 @@ var jpegBufPool = sync.Pool{
 func encodeJPEG(img image.Image, quality int) ([]byte, error) {
 	buf := jpegBufPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	err := jpeg.Encode(buf, img, &jpeg.Options{Quality: quality})
+	err := jpeg.Encode(buf, img, &jpeg.Options{Quality: jpegEncoderQuality(quality)})
 	if err != nil {
 		jpegBufPool.Put(buf)
 		return nil, err
@@ -31,7 +33,7 @@ func encodeJPEG(img image.Image, quality int) ([]byte, error) {
 func encodeJPEGToBuf(dst *bytes.Buffer, img image.Image, quality int) error {
 	buf := jpegBufPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: quality}); err != nil {
+	if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: jpegEncoderQuality(quality)}); err != nil {
 		jpegBufPool.Put(buf)
 		return err
 	}

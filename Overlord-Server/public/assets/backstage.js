@@ -149,7 +149,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let moveFrame = 0;
   let videoDecoder = null;
   let h264TimestampUs = 0;
+  let h264AwaitingKeyframe = true;
+  let h264RecoveryRequestedAt = 0;
   let prefersH264 = typeof VideoDecoder === "function";
+  const maxH264DecodeQueue = 4;
   const inputBackpressureBytes = 256 * 1024;
   let h264ErrorCount = 0;
   let h264RetryTimer = null;
@@ -1114,6 +1117,15 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     }
     videoDecoder = null;
     h264TimestampUs = 0;
+    h264AwaitingKeyframe = true;
+    h264RecoveryRequestedAt = 0;
+  }
+
+  function requestH264DecoderRecovery(reason) {
+    const now = performance.now();
+    if (now - h264RecoveryRequestedAt < 500) return;
+    h264RecoveryRequestedAt = now;
+    sendCmd("backstage_request_keyframe", { reason });
   }
 
   function fallbackToJpegCodec(reason) {
@@ -1189,6 +1201,8 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         },
         error: (err) => {
           console.warn("backstage: h264 decoder error", err);
+          h264AwaitingKeyframe = true;
+          requestH264DecoderRecovery("h264_decoder_error");
         },
       });
       videoDecoder.configure({ codec: "avc1.42E01E", optimizeForLatency: true });
@@ -1416,9 +1430,23 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         fallbackToJpegCodec("WebCodecs decoder unavailable");
         return;
       }
+      const isKeyFrame = isH264KeyFrame(h264Bytes);
+      if (videoDecoder.decodeQueueSize > maxH264DecodeQueue) {
+        videoDecoder.reset();
+        h264TimestampUs = 0;
+        h264AwaitingKeyframe = true;
+        requestH264DecoderRecovery("h264_decoder_backlog");
+      }
+      if (h264AwaitingKeyframe && !isKeyFrame) {
+        requestH264DecoderRecovery("h264_decoder_keyframe_required");
+        return;
+      }
+      if (isKeyFrame) {
+        h264AwaitingKeyframe = false;
+      }
       const frameIntervalUs = Math.floor(1_000_000 / Math.max(1, fps || 25));
       const chunk = new EncodedVideoChunk({
-        type: isH264KeyFrame(h264Bytes) ? "key" : "delta",
+        type: isKeyFrame ? "key" : "delta",
         timestamp: h264TimestampUs,
         data: h264Bytes,
       });
