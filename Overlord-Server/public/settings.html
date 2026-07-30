@@ -1536,16 +1536,16 @@
           </div>
           <div>
             <h2 class="text-lg font-semibold">Export &amp; Import Settings</h2>
-            <p class="text-sm text-slate-400">Backup or restore your Overlord configuration (notifications, security, TLS, appearance, auth tokens).</p>
+            <p class="text-sm text-slate-400">Create or restore a portable server backup without changing its pinned identity.</p>
           </div>
         </div>
 
         <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
           <div class="flex-1 space-y-1">
             <p class="text-sm text-slate-300">
-              <strong>Export</strong> &mdash; Downloads a JSON file with all current settings and auth tokens.
+              <strong>Export</strong> &mdash; Downloads a checksummed ZIP containing the database, settings, identity keys, TLS certificate/private key, plugins, and persistent server files.
             </p>
-            <p class="text-xs text-slate-500">Keep this file secure &mdash; it contains sensitive tokens.</p>
+            <p class="text-xs text-slate-500">Keep this file secure &mdash; it contains private keys, credentials, users, and server data.</p>
           </div>
           <button
             id="export-settings-btn"
@@ -1560,16 +1560,16 @@
         <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
           <div class="flex-1 space-y-1">
             <p class="text-sm text-slate-300">
-              <strong>Import</strong> &mdash; Restore settings from a previously exported JSON file.
+              <strong>Import</strong> &mdash; Validate and stage a portable ZIP backup. Legacy settings JSON files remain supported.
             </p>
-            <p class="text-xs text-slate-500">Auth token changes require a server restart. Environment variables will still take priority.</p>
+            <p class="text-xs text-slate-500">Portable restores are validated now and applied before startup with rollback protection. Explicit environment variables still take priority.</p>
           </div>
           <label
             class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors text-white text-sm font-medium whitespace-nowrap cursor-pointer"
           >
             <i class="fa-solid fa-upload"></i>
             Import Settings
-            <input id="import-settings-file" type="file" accept=".json,application/json" class="hidden" />
+            <input id="import-settings-file" type="file" accept=".zip,application/zip,.json,application/json" class="hidden" />
           </label>
         </div>
 

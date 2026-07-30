@@ -545,7 +545,8 @@ func TestHandleFileUploadHTTP_RewritesUploadPullURLToAgentServer(t *testing.T) {
 	env := &rt.Env{
 		Conn: writer,
 		Cfg: config.Config{
-			ServerURLs: []string{strings.Replace(ts.URL, "http://", "ws://", 1)},
+			ServerURLs:            []string{strings.Replace(ts.URL, "http://", "ws://", 1)},
+			TLSInsecureSkipVerify: true,
 		},
 	}
 

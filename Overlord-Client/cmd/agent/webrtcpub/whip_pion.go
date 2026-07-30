@@ -5,8 +5,6 @@ package webrtcpub
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +16,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	agentTLS "overlord-client/cmd/agent/tlsconfig"
 
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
@@ -133,7 +133,10 @@ func Start(ctx context.Context, kind Kind, opts Options) (*Publisher, error) {
 	}
 	Stop(kind)
 
-	httpClient := buildHTTPClient(opts)
+	httpClient, err := buildHTTPClient(opts)
+	if err != nil {
+		return nil, fmt.Errorf("webrtcpub: invalid TLS configuration: %w", err)
+	}
 
 	mediaEngine := &webrtc.MediaEngine{}
 	if opts.HasVideo {
@@ -379,23 +382,19 @@ func postWhip(ctx context.Context, client *http.Client, whipURL, token, sdp stri
 	return string(body), resource, nil
 }
 
-func buildHTTPClient(opts Options) *http.Client {
-	tlsCfg := &tls.Config{
+func buildHTTPClient(opts Options) (*http.Client, error) {
+	tlsCfg, err := agentTLS.Build(agentTLS.Options{
 		InsecureSkipVerify: opts.TLSInsecureSkipVerify,
-		MinVersion:         tls.VersionTLS12,
-	}
-	if path := strings.TrimSpace(opts.TLSCAPath); path != "" {
-		if pem, err := os.ReadFile(path); err == nil {
-			pool := x509.NewCertPool()
-			if pool.AppendCertsFromPEM(pem) {
-				tlsCfg.RootCAs = pool
-			}
-		}
+		CAPath:             opts.TLSCAPath,
+		SPKIPins:           opts.TLSSPKIPins,
+	})
+	if err != nil {
+		return nil, err
 	}
 	return &http.Client{
 		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: tlsCfg,
 		},
-	}
+	}, nil
 }

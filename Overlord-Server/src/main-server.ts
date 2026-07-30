@@ -561,7 +561,11 @@ async function startServer() {
       getRdSessionCount: sessionManager.getRdSessionCount,
       getFileBrowserSessionCount: sessionManager.getFileBrowserSessionCount,
       getProcessSessionCount: sessionManager.getProcessSessionCount,
+      DATA_DIR,
+      PLUGIN_ROOT,
       tlsCertPath: tls?.certPathUsed,
+      tlsKeyPath: TLS_KEY_PATH,
+      tlsCaPath: TLS_CA_PATH,
       tlsSource: tls?.source,
     },
     assets: {

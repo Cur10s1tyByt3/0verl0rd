@@ -54,6 +54,15 @@ Operators are responsible for securing their deployment. At minimum:
 
 - Restrict network exposure and place internet-facing installations behind a
   properly configured TLS endpoint.
+- Use generated agents with embedded TLS SPKI pins. When TLS terminates at an
+  external proxy, set `OVERLORD_TLS_SPKI_PINS` to the proxy certificate's
+  public-key pin before building agents.
+- Rotate certificate keys with overlapping pins: add the next pin, rebuild and
+  deploy agents, switch the certificate, and remove the old pin only after the
+  fleet has updated.
+- Never enable `OVERLORD_TLS_INSECURE_SKIP_VERIFY` outside isolated
+  development. Unpinned agents now use normal certificate-chain and hostname
+  verification by default.
 - Change or otherwise protect default credentials before exposing the service
   to untrusted networks.
 - Protect `save.json`, databases, certificates, signing keys, agent tokens,
@@ -64,6 +73,12 @@ Operators are responsible for securing their deployment. At minimum:
   operating system, and reverse proxy current.
 - Review plugins and signing keys before installation.
 - Back up persistent data and periodically test restoration.
+
+The Settings → Export / Import backup is a portable, checksummed server
+archive. It includes the self-signed certificate and private key, database,
+runtime identity secrets, plugins, and persistent server data. Restoring it
+before moving agents preserves the server's SPKI identity. Protect the archive
+like a private key and restart the destination server after import.
 
 ## Scope
 
@@ -87,4 +102,3 @@ The following are generally not security vulnerabilities by themselves:
 - Automated scanner output without validation.
 - Social engineering, physical attacks, or attacks against third-party
   services outside the project's control.
-

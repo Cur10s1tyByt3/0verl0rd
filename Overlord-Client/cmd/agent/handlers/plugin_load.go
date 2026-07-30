@@ -2,19 +2,17 @@ package handlers
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	"overlord-client/cmd/agent/plugins"
 	agentRuntime "overlord-client/cmd/agent/runtime"
+	agentTLS "overlord-client/cmd/agent/tlsconfig"
 	"overlord-client/cmd/agent/wire"
 )
 
@@ -31,17 +29,13 @@ func HandlePluginLoadHTTP(ctx context.Context, env *agentRuntime.Env, cmdID stri
 		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
 	}
 
-	tlsConfig := &tls.Config{InsecureSkipVerify: env.Cfg.TLSInsecureSkipVerify, MinVersion: tls.VersionTLS12}
-	if caPath := strings.TrimSpace(env.Cfg.TLSCAPath); caPath != "" {
-		caBytes, err := os.ReadFile(caPath)
-		if err != nil {
-			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: fmt.Sprintf("failed to read TLS CA: %v", err)})
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caBytes) {
-			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: "failed to parse TLS CA"})
-		}
-		tlsConfig.RootCAs = pool
+	tlsConfig, err := agentTLS.Build(agentTLS.Options{
+		InsecureSkipVerify: env.Cfg.TLSInsecureSkipVerify,
+		CAPath:             env.Cfg.TLSCAPath,
+		SPKIPins:           env.Cfg.TLSSPKIPins,
+	})
+	if err != nil {
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: fmt.Sprintf("invalid TLS configuration: %v", err)})
 	}
 
 	client := &http.Client{Transport: &http.Transport{TLSClientConfig: tlsConfig}}
@@ -114,6 +108,9 @@ func resolvePluginPullURL(env *agentRuntime.Env, raw string) (string, error) {
 		if scheme != "http" && scheme != "https" {
 			return "", fmt.Errorf("unsupported plugin pull scheme: %s", parsed.Scheme)
 		}
+		if scheme == "http" && !env.Cfg.TLSInsecureSkipVerify {
+			return "", errors.New("plaintext plugin downloads are disabled; use https")
+		}
 		return parsed.String(), nil
 	}
 
@@ -132,8 +129,15 @@ func resolvePluginPullURL(env *agentRuntime.Env, raw string) (string, error) {
 	case "wss":
 		server.Scheme = "https"
 	case "ws":
+		if !env.Cfg.TLSInsecureSkipVerify {
+			return "", errors.New("plaintext plugin downloads are disabled; use wss")
+		}
 		server.Scheme = "http"
-	case "https", "http":
+	case "https":
+	case "http":
+		if !env.Cfg.TLSInsecureSkipVerify {
+			return "", errors.New("plaintext plugin downloads are disabled; use https")
+		}
 	default:
 		return "", fmt.Errorf("unsupported agent server scheme: %s", server.Scheme)
 	}

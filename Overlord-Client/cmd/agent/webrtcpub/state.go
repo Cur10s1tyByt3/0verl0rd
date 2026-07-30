@@ -276,7 +276,8 @@ type Options struct {
 	// TLSInsecureSkipVerify mirrors the agent's existing TLS config.
 	TLSInsecureSkipVerify bool
 	// TLSCAPath is an optional custom CA bundle.
-	TLSCAPath string
+	TLSCAPath   string
+	TLSSPKIPins []string
 	// ICEServers contains the server-issued, short-lived Coturn configuration.
 	ICEServers []ICEServer
 	// HasVideo / HasAudio select which tracks to add to the peer connection.

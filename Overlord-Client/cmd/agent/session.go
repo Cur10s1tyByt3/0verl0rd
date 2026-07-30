@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -27,6 +26,7 @@ import (
 	"overlord-client/cmd/agent/plugins"
 	rt "overlord-client/cmd/agent/runtime"
 	"overlord-client/cmd/agent/sysinfo"
+	agentTLS "overlord-client/cmd/agent/tlsconfig"
 	"overlord-client/cmd/agent/wire"
 
 	"nhooyr.io/websocket"
@@ -51,7 +51,11 @@ func runClient(cfg config.Config) {
 		}
 	}
 
-	transport := createHTTPTransport(cfg)
+	transport, err := createHTTPTransport(cfg)
+	if err != nil {
+		log.Printf("[TLS] refusing to start with invalid TLS configuration: %v", err)
+		return
+	}
 	currentIndex := cfg.ServerIndex
 	consecutiveFailures := 0
 	var loggedTLS bool
@@ -67,6 +71,12 @@ func runClient(cfg config.Config) {
 		}
 
 		currentServer := cfg.ServerURLs[currentIndex]
+		if strings.HasPrefix(strings.ToLower(currentServer), "ws://") && !cfg.TLSInsecureSkipVerify {
+			log.Printf("[TLS] refusing plaintext WebSocket server %s; use wss://", currentServer)
+			rotateToNextServer(&currentIndex, cfg.ServerURLs)
+			time.Sleep(backoff)
+			continue
+		}
 		ctx, cancel := context.WithCancel(context.Background())
 		url := fmt.Sprintf("%s/api/clients/%s/stream/ws?role=client", currentServer, cfg.ID)
 
@@ -302,38 +312,21 @@ func refreshServerURLsFromRaw(cfg *config.Config) bool {
 	return true
 }
 
-func createHTTPTransport(cfg config.Config) *http.Transport {
-	tlsConfig := &tls.Config{
+func createHTTPTransport(cfg config.Config) (*http.Transport, error) {
+	tlsConfig, err := agentTLS.Build(agentTLS.Options{
 		InsecureSkipVerify: cfg.TLSInsecureSkipVerify,
-		MinVersion:         tls.VersionTLS12,
+		CAPath:             cfg.TLSCAPath,
+		SPKIPins:           cfg.TLSSPKIPins,
+		ClientCertPath:     cfg.TLSClientCert,
+		ClientKeyPath:      cfg.TLSClientKey,
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	if cfg.TLSCAPath != "" {
-		caCert, err := os.ReadFile(cfg.TLSCAPath)
-		if err != nil {
-			log.Printf("[TLS] WARNING: Failed to read CA certificate from %s: %v", cfg.TLSCAPath, err)
-		} else {
-			caCertPool := x509.NewCertPool()
-			if caCertPool.AppendCertsFromPEM(caCert) {
-				tlsConfig.RootCAs = caCertPool
-				log.Printf("[TLS] Loaded custom CA certificate from %s", cfg.TLSCAPath)
-			} else {
-				log.Printf("[TLS] WARNING: Failed to parse CA certificate from %s", cfg.TLSCAPath)
-			}
-		}
-	}
-
-	if cfg.TLSClientCert != "" && cfg.TLSClientKey != "" {
-		cert, err := tls.LoadX509KeyPair(cfg.TLSClientCert, cfg.TLSClientKey)
-		if err != nil {
-			log.Printf("[TLS] WARNING: Failed to load client certificate: %v", err)
-		} else {
-			tlsConfig.Certificates = []tls.Certificate{cert}
-			log.Printf("[TLS] Loaded client certificate for mutual TLS")
-		}
-	}
-
-	if cfg.TLSInsecureSkipVerify {
+	if len(cfg.TLSSPKIPins) > 0 {
+		log.Printf("[TLS] Server identity pinning enabled with %d trusted SPKI pin(s)", len(cfg.TLSSPKIPins))
+	} else if cfg.TLSInsecureSkipVerify {
 		log.Printf("[TLS] WARNING: Certificate verification is DISABLED. This is insecure!")
 	}
 
@@ -343,7 +336,7 @@ func createHTTPTransport(cfg config.Config) *http.Transport {
 		Timeout:   30 * time.Second,
 		KeepAlive: 15 * time.Second,
 	}).DialContext
-	return transport
+	return transport, nil
 }
 
 func classifyDialError(err error) string {

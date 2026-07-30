@@ -1,7 +1,7 @@
 import { authenticateRequest } from "../../auth";
 import { AuditAction, getAuditLogs, logAudit } from "../../auditLog";
 import { logger } from "../../logger";
-import { getConfig, updateSecurityConfig, updateTlsConfig, updateOidcConfig, updateAppearanceConfig, updateChatConfig, getExportableConfig, importFullConfig, updateRegistrationConfig, updateBuildRateLimitConfig, updateThumbnailsConfig, updateInputArchiveConfig, updateFileTransfersConfig } from "../../config";
+import { getConfig, updateSecurityConfig, updateTlsConfig, updateOidcConfig, updateAppearanceConfig, updateChatConfig, importFullConfig, updateRegistrationConfig, updateBuildRateLimitConfig, updateThumbnailsConfig, updateInputArchiveConfig, updateFileTransfersConfig } from "../../config";
 import {
   saveBrandingImage,
   getClientMetricsSummary,
@@ -23,6 +23,13 @@ import {
   startProxy,
   stopProxy,
 } from "../socks5-proxy-manager";
+import { db } from "../../db/connection";
+import {
+  createDatabaseSnapshot,
+  createPortableServerBackup,
+  resolveServerBackupPaths,
+  stagePortableServerRestore,
+} from "../server-backup";
 
 let activeServerProfile: Promise<any> | null = null;
 let jscRuntimePromise: Promise<any> | null | undefined;
@@ -38,7 +45,11 @@ type MiscRouteDeps = {
   getFileBrowserSessionCount: () => number;
   getProcessSessionCount: () => number;
   tlsCertPath?: string;
+  tlsKeyPath?: string;
+  tlsCaPath?: string;
   tlsSource?: "certbot" | "configured" | "self-signed";
+  DATA_DIR?: string;
+  PLUGIN_ROOT?: string;
 };
 
 const BRAND_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -1070,7 +1081,21 @@ export async function handleMiscRoutes(
       return new Response("Forbidden", { status: 403 });
     }
 
-    const exportData = getExportableConfig(deps.SERVER_VERSION);
+    const backupPaths = resolveServerBackupPaths({
+      dataDir: deps.DATA_DIR,
+      pluginRoot: deps.PLUGIN_ROOT,
+      tlsCertPath: deps.tlsCertPath,
+      tlsKeyPath: deps.tlsKeyPath,
+      tlsCaPath: deps.tlsCaPath,
+    });
+    const databaseSnapshot = createDatabaseSnapshot(db);
+    const configSnapshot = Buffer.from(JSON.stringify(getConfig(), null, 2));
+    const exportData = createPortableServerBackup(
+      backupPaths,
+      deps.SERVER_VERSION,
+      databaseSnapshot,
+      configSnapshot,
+    );
 
     logAudit({
       timestamp: Date.now(),
@@ -1082,10 +1107,11 @@ export async function handleMiscRoutes(
     });
 
     const dateStr = new Date().toISOString().slice(0, 10);
-    return new Response(JSON.stringify(exportData, null, 2), {
+    return new Response(Uint8Array.from(exportData), {
       headers: {
-        "Content-Type": "application/json",
-        "Content-Disposition": `attachment; filename="overlord-settings-${dateStr}.json"`,
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="overlord-server-backup-${dateStr}.zip"`,
+        "Cache-Control": "no-store",
         ...deps.CORS_HEADERS,
       },
     });
@@ -1101,6 +1127,49 @@ export async function handleMiscRoutes(
     } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
+    }
+
+    const contentType = String(req.headers.get("content-type") || "").toLowerCase();
+    if (contentType.includes("application/zip") || contentType.includes("application/octet-stream")) {
+      try {
+        const archive = Buffer.from(await req.arrayBuffer());
+        const result = stagePortableServerRestore(
+          archive,
+          resolveServerBackupPaths({
+            dataDir: deps.DATA_DIR,
+            pluginRoot: deps.PLUGIN_ROOT,
+            tlsCertPath: deps.tlsCertPath,
+            tlsKeyPath: deps.tlsKeyPath,
+            tlsCaPath: deps.tlsCaPath,
+          }),
+          deps.SERVER_VERSION,
+        );
+        logAudit({
+          timestamp: Date.now(),
+          username: user.username,
+          ip: deps.requestIP?.(req)?.address || "unknown",
+          action: AuditAction.COMMAND,
+          details: `Staged portable server restore (${result.files} files); restart required`,
+          success: true,
+        });
+        return Response.json({ ok: true, applied: ["portable server restore staged"], ...result }, {
+          headers: deps.CORS_HEADERS,
+        });
+      } catch (error: any) {
+        logAudit({
+          timestamp: Date.now(),
+          username: user.username,
+          ip: deps.requestIP?.(req)?.address || "unknown",
+          action: AuditAction.COMMAND,
+          details: "Portable server restore validation failed",
+          success: false,
+          errorMessage: String(error?.message || error),
+        });
+        return Response.json({ ok: false, error: String(error?.message || "Restore failed") }, {
+          status: 400,
+          headers: deps.CORS_HEADERS,
+        });
+      }
     }
 
     let body: any = {};

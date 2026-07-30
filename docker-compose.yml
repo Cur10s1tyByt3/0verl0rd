@@ -27,6 +27,9 @@ services:
       OVERLORD_TLS_CERT: ${OVERLORD_TLS_CERT:-/app/certs/server.crt}
       OVERLORD_TLS_KEY: ${OVERLORD_TLS_KEY:-/app/certs/server.key}
       OVERLORD_TLS_CA: ${OVERLORD_TLS_CA:-}
+      # Required for generated-agent pinning when TLS is terminated by a proxy.
+      # May contain current,next pins during certificate key rotation.
+      OVERLORD_TLS_SPKI_PINS: ${OVERLORD_TLS_SPKI_PINS:-}
       # Set true only behind a trusted reverse proxy that terminates TLS (for example Render).
       # Default false keeps current behavior: Overlord terminates TLS in-process.
       OVERLORD_TLS_OFFLOAD: ${OVERLORD_TLS_OFFLOAD:-false}

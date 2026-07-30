@@ -103,6 +103,7 @@ func handleWebrtcPublish(ctx context.Context, env *runtime.Env, cmdID string, pa
 		PublishToken:          token,
 		TLSInsecureSkipVerify: env.Cfg.TLSInsecureSkipVerify,
 		TLSCAPath:             env.Cfg.TLSCAPath,
+		TLSSPKIPins:           env.Cfg.TLSSPKIPins,
 		ICEServers:            parseICEServers(payload["iceServers"]),
 		HasVideo:              hasVideo,
 		HasAudio:              hasAudio,
@@ -309,7 +310,17 @@ func buildWhipURL(env *runtime.Env, whipPath string) (string, error) {
 	case "wss":
 		base.Scheme = "https"
 	case "ws":
+		if !env.Cfg.TLSInsecureSkipVerify {
+			return "", fmt.Errorf("plaintext WebRTC signaling is disabled; use wss")
+		}
 		base.Scheme = "http"
+	case "http":
+		if !env.Cfg.TLSInsecureSkipVerify {
+			return "", fmt.Errorf("plaintext WebRTC signaling is disabled; use https")
+		}
+	case "https":
+	default:
+		return "", fmt.Errorf("unsupported WebRTC signaling scheme: %s", base.Scheme)
 	}
 	if !strings.HasPrefix(whipPath, "/") {
 		whipPath = "/" + whipPath

@@ -1,6 +1,6 @@
 import { certificatesExist, generateSelfSignedCert, getLocalIPs, isOpenSSLAvailable } from "../certGenerator";
 import { logger } from "../logger";
-import { X509Certificate } from "crypto";
+import { X509Certificate, createHash } from "crypto";
 import path from "path";
 
 type TlsBootstrapParams = {
@@ -22,6 +22,39 @@ type TlsBootstrapResult = {
   certPathUsed: string;
   source: "certbot" | "configured" | "self-signed";
 };
+
+let activeTlsSpkiPins: string[] = [];
+
+function normalizeSpkiPins(value: string | undefined): string[] {
+  if (!value) return [];
+  return [...new Set(value.split(",").map((pin) =>
+    pin.trim().replace(/^sha256\//i, "")
+  ).filter((pin) =>
+    /^[A-Za-z0-9+/]{43}=$/.test(pin)
+  ))];
+}
+
+export function computeCertificateSpkiPin(certificatePem: string): string {
+  const certificate = new X509Certificate(certificatePem);
+  const spki = certificate.publicKey.export({ type: "spki", format: "der" });
+  return createHash("sha256").update(spki).digest("base64");
+}
+
+function publishActiveTlsPins(certificatePem: string): void {
+  activeTlsSpkiPins = [
+    computeCertificateSpkiPin(certificatePem),
+    ...normalizeSpkiPins(process.env.OVERLORD_TLS_SPKI_PINS),
+  ].filter((pin, index, pins) => pins.indexOf(pin) === index);
+  logger.info(`[TLS] Active SPKI pin: sha256/${activeTlsSpkiPins[0]}`);
+  if (activeTlsSpkiPins.length > 1) {
+    logger.info(`[TLS] ${activeTlsSpkiPins.length - 1} additional SPKI rotation pin(s) configured`);
+  }
+}
+
+export function getActiveTlsSpkiPins(): string[] {
+  if (activeTlsSpkiPins.length > 0) return [...activeTlsSpkiPins];
+  return normalizeSpkiPins(process.env.OVERLORD_TLS_SPKI_PINS);
+}
 
 export async function prepareTlsOptions(params: TlsBootstrapParams): Promise<TlsBootstrapResult> {
   logger.info("[TLS] TLS/HTTPS is always enabled for security");
@@ -57,6 +90,7 @@ export async function prepareTlsOptions(params: TlsBootstrapParams): Promise<Tls
     if (await caFile.exists()) {
       tlsOptions.ca = await caFile.text();
     }
+    publishActiveTlsPins(tlsOptions.cert!);
 
     return {
       tlsOptions,
@@ -128,6 +162,7 @@ export async function prepareTlsOptions(params: TlsBootstrapParams): Promise<Tls
         }
       } catch { }
     }
+    publishActiveTlsPins(tlsOptions.cert!);
 
     return {
       tlsOptions,

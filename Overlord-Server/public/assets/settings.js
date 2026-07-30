@@ -2018,7 +2018,7 @@ async function exportSettings() {
     const blob = await res.blob();
     const disposition = res.headers.get("Content-Disposition") || "";
     const filenameMatch = disposition.match(/filename="?([^"]+)"?/);
-    const filename = filenameMatch ? filenameMatch[1] : "overlord-settings.json";
+    const filename = filenameMatch ? filenameMatch[1] : "overlord-server-backup.zip";
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -2046,35 +2046,39 @@ async function importSettings(event) {
 
   event.target.value = "";
 
-  if (file.size > 512 * 1024) {
-    showExportImportMessage("File too large (max 512 KB).", "error");
+  if (file.size > 1024 * 1024 * 1024) {
+    showExportImportMessage("File too large (max 1 GB).", "error");
     return;
   }
 
-  let data;
-  try {
-    const text = await file.text();
-    data = JSON.parse(text);
-  } catch {
-    showExportImportMessage("Invalid JSON file.", "error");
-    return;
+  const isLegacyJson = file.name.toLowerCase().endsWith(".json") || file.type === "application/json";
+  let requestBody;
+  let contentType;
+  if (isLegacyJson) {
+    try {
+      const data = JSON.parse(await file.text());
+      if (!data || typeof data !== "object") throw new Error();
+      requestBody = JSON.stringify(data);
+      contentType = "application/json";
+    } catch {
+      showExportImportMessage("Invalid legacy settings JSON file.", "error");
+      return;
+    }
+  } else {
+    requestBody = await file.arrayBuffer();
+    contentType = "application/zip";
   }
 
-  if (!data || typeof data !== "object") {
-    showExportImportMessage("File does not contain a valid settings object.", "error");
-    return;
-  }
-
-  if (!confirm("Import settings from this file? This will overwrite your current configuration.")) {
+  if (!confirm("Stage this server restore? On the next restart it will replace the current database, identity keys, TLS certificate, plugins, and persistent server data.")) {
     return;
   }
 
   try {
     const res = await fetch("/api/settings/import", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": contentType },
       credentials: "include",
-      body: JSON.stringify(data),
+      body: requestBody,
     });
 
     const result = await res.json().catch(() => ({}));
@@ -2086,7 +2090,8 @@ async function importSettings(event) {
     const appliedStr = result.applied?.length ? result.applied.join(", ") : "nothing";
     const warningStr = result.warnings?.length ? " \u26A0 " + result.warnings.join(" ") : "";
     const msgType = result.warnings?.length ? "warning" : "ok";
-    showExportImportMessage(`Imported: ${appliedStr}.${warningStr}`, msgType);
+    const restartStr = result.restartRequired ? " Restart the server to apply the restore." : "";
+    showExportImportMessage(`Imported: ${appliedStr}.${restartStr}${warningStr}`, msgType);
 
     await loadSecurityPolicy();
     await loadTlsSettings();

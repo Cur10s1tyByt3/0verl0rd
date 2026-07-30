@@ -576,27 +576,6 @@ async function loadCurrentUser() {
           usersLink?.classList.remove("hidden");
         }
 
-        if (currentUser.role === "admin" && !localStorage.getItem("overlord_settings_exported")) {
-          localStorage.setItem("overlord_settings_exported", "1");
-          try {
-            const expRes = await fetch("/api/settings/export", { credentials: "include" });
-            if (expRes.ok) {
-              const blob = await expRes.blob();
-              const disposition = expRes.headers.get("Content-Disposition") || "";
-              const match = disposition.match(/filename="?([^"]+)"?/);
-              const filename = match ? match[1] : "overlord-settings.json";
-              const dlUrl = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = dlUrl;
-              a.download = filename;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              URL.revokeObjectURL(dlUrl);
-            }
-          } catch {}
-        }
-
         if (currentUser.role === "admin" || currentUser.role === "operator" || currentUser.canBuild) {
           buildLink?.classList.remove("hidden");
         }
