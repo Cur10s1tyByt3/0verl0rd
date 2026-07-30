@@ -6,12 +6,16 @@ import (
 	"strings"
 
 	"overlord-client/cmd/agent/runtime"
+	"overlord-client/cmd/agent/wire"
 )
 
 func HandleHelloAck(_ context.Context, env *runtime.Env, envelope map[string]interface{}) error {
 	log.Printf("hello ack received")
 	if env == nil || envelope == nil {
 		return nil
+	}
+	if version := toInt(envelope["protocolVersion"]); version > 0 {
+		log.Printf("hello ack: negotiated wire protocol v%d (agent v%d)", version, wire.WireProtocolVersion)
 	}
 
 	var keywords []string

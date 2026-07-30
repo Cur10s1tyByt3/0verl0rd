@@ -634,21 +634,23 @@ func runSession(ctx context.Context, cancel context.CancelFunc, conn *websocket.
 	}
 
 	hello := wire.Hello{
-		Type:        "hello",
-		ID:          cfg.ID,
-		HWID:        cfg.HWID,
-		Host:        rt.Hostname(),
-		OS:          osVal,
-		Arch:        archVal,
-		Version:     cfg.Version,
-		User:        rt.CurrentUser(),
-		Monitors:    capture.MonitorCount(),
-		MonitorInfo: toWireMonitorInfo(capture.MonitorInfos()),
-		Country:     cfg.Country,
-		BuildTag:    cfg.BuildTag,
-		PublicKey:   publicKeyB64,
-		Signature:   signatureB64,
-		InMemory:    isRunningInMemory(),
+		Type:            "hello",
+		ID:              cfg.ID,
+		HWID:            cfg.HWID,
+		Host:            rt.Hostname(),
+		OS:              osVal,
+		Arch:            archVal,
+		Version:         cfg.Version,
+		User:            rt.CurrentUser(),
+		Monitors:        capture.MonitorCount(),
+		MonitorInfo:     toWireMonitorInfo(capture.MonitorInfos()),
+		Country:         cfg.Country,
+		BuildTag:        cfg.BuildTag,
+		PublicKey:       publicKeyB64,
+		Signature:       signatureB64,
+		InMemory:        isRunningInMemory(),
+		ProtocolVersion: wire.WireProtocolVersion,
+		CommandVersions: wire.SupportedCommandVersionRanges(),
 	}
 
 	hw := sysinfo.Collect()

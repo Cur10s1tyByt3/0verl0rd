@@ -1,6 +1,6 @@
 {
   "name": "overlord-server",
-  "version": "2.6.1",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -20,6 +20,8 @@
     "watch:css": "tailwindcss -i ./src/styles.css -o ./public/assets/tailwind.css --watch=always",
     "minify": "bun run scripts/minify-public.ts",
     "bench:client-db": "bun run scripts/client-db-stress.ts",
+    "protocol:generate": "bun ../scripts/generate-wire-protocol.ts",
+    "protocol:check": "bun ../scripts/generate-wire-protocol.ts --check",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -8,6 +8,7 @@ import (
 
 	"overlord-client/cmd/agent/capture"
 	"overlord-client/cmd/agent/runtime"
+	"overlord-client/cmd/agent/wire"
 )
 
 type Dispatcher struct {
@@ -31,6 +32,10 @@ func (d *Dispatcher) Dispatch(ctx context.Context, envelope map[string]interface
 		log.Printf("dispatcher: missing type (keys=%v)", maps.Keys(envelope))
 		return nil
 	}
+	if !wire.IsServerToAgentMessageType(msgType) {
+		log.Printf("dispatcher: unknown message type=%v", msgType)
+		return nil
+	}
 	switch msgType {
 	case "hello_ack":
 		return HandleHelloAck(ctx, d.Env, envelope)
@@ -43,6 +48,40 @@ func (d *Dispatcher) Dispatch(ctx context.Context, envelope map[string]interface
 		return nil
 	case "command":
 		cmdType, _ := envelope["commandType"].(string)
+		if !wire.IsCommandType(cmdType) {
+			log.Printf("dispatcher: unknown command type=%s", cmdType)
+			return nil
+		}
+		commandVersion := toInt(envelope["commandVersion"])
+		if commandVersion <= 0 {
+			commandVersion = 1
+		}
+		envelope["commandVersion"] = commandVersion
+		if !wire.IsSupportedCommandVersion(cmdType, commandVersion) {
+			cmdID, _ := envelope["id"].(string)
+			command := wire.CommandType(cmdType)
+			supported := wire.CommandVersionSupport[command]
+			log.Printf(
+				"dispatcher: unsupported command version type=%s version=%d supported=%d-%d",
+				cmdType,
+				commandVersion,
+				supported.Min,
+				supported.Max,
+			)
+			if d.Env == nil || d.Env.Conn == nil {
+				return nil
+			}
+			return wire.WriteMsg(ctx, d.Env.Conn, wire.CommandResult{
+				Type:              "command_result",
+				CommandID:         cmdID,
+				CommandType:       command,
+				CommandVersion:    commandVersion,
+				OK:                false,
+				Message:           fmt.Sprintf("unsupported %s command version %d", cmdType, commandVersion),
+				ErrorCode:         "unsupported_command_version",
+				SupportedVersions: &supported,
+			})
+		}
 		if !isInputCommand(cmdType) {
 			log.Printf("dispatcher: handling command type=%s", cmdType)
 		}
@@ -62,7 +101,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, envelope map[string]interface
 		}
 		return nil
 	default:
-		log.Printf("dispatcher: unknown message type=%v", msgType)
+		log.Printf("dispatcher: unhandled contract message type=%v", msgType)
 		return nil
 	}
 }

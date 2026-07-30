@@ -28,9 +28,14 @@ jobs:
           filters: |
             server:
               - 'Overlord-Server/**'
+              - 'Overlord-Client/cmd/agent/wire/wire_contract_generated.go'
+              - 'protocol/**'
+              - 'scripts/generate-wire-protocol.ts'
               - '.github/workflows/tests.yml'
             client:
               - 'Overlord-Client/**'
+              - 'protocol/**'
+              - 'scripts/generate-wire-protocol.ts'
               - 'go.work'
               - 'go.work.sum'
 
@@ -59,6 +64,9 @@ jobs:
 
       - name: Typecheck server
         run: bun run typecheck
+
+      - name: Verify generated wire protocol
+        run: bun run protocol:check
 
       - name: Run server tests
         run: bun run test

@@ -55,6 +55,11 @@ export type ClientInfo = {
   groupName?: string | null;
   groupColor?: string | null;
   notificationsMuted?: boolean;
+  protocolVersion?: number;
+  commandVersions?: Partial<Record<
+    import("./generated/wire-contract").CommandType,
+    import("./generated/wire-contract").CommandVersionRange
+  >>;
 };
 
 export type ListFilters = {

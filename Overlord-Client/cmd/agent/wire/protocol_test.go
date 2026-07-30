@@ -206,10 +206,11 @@ func TestPingPongMarshaling(t *testing.T) {
 
 func TestCommandMarshaling(t *testing.T) {
 	cmd := Command{
-		Type:        "command",
-		CommandType: "test_command",
-		ID:          "cmd-123",
-		Payload:     map[string]interface{}{"key": "value"},
+		Type:           "command",
+		CommandType:    "process_list",
+		CommandVersion: 1,
+		ID:             "cmd-123",
+		Payload:        map[string]interface{}{"key": "value"},
 	}
 
 	data, err := msgpack.Marshal(cmd)
@@ -227,6 +228,9 @@ func TestCommandMarshaling(t *testing.T) {
 	}
 	if decoded.ID != cmd.ID {
 		t.Errorf("ID mismatch: got %s, want %s", decoded.ID, cmd.ID)
+	}
+	if decoded.CommandVersion != cmd.CommandVersion {
+		t.Errorf("CommandVersion mismatch: got %d, want %d", decoded.CommandVersion, cmd.CommandVersion)
 	}
 }
 

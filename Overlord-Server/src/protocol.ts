@@ -1,25 +1,16 @@
 import { encode, decode } from "@msgpack/msgpack";
-
-export type MessageKind =
-  | "hello"
-  | "hello_ack"
-  | "ping"
-  | "pong"
-  | "command"
-  | "command_result"
-  | "desktop_encoder_capabilities"
-  | "desktop_stream_stats"
-  | "desktop_cursor"
-  | "client_logs_result"
-  | "screenshot_result"
-  | "frame"
-  | "status"
-  | "plugin_event"
-  | "notification"
-  | "webcam_devices"
-  | "notification_config"
-  | "enrollment_challenge"
-  | "enrollment_status";
+import {
+  getImplicitCommandVersion,
+  isCommandType,
+  type CommandType,
+  type CommandVersionRange,
+  type MessageKind,
+} from "./generated/wire-contract";
+export type {
+  CommandType,
+  CommandVersionRange,
+  MessageKind,
+} from "./generated/wire-contract";
 
 export type Hello = {
   type: "hello";
@@ -48,6 +39,8 @@ export type Hello = {
   publicIP?: string;
   lastCrashReason?: string;
   lastCrashDetail?: string;
+  protocolVersion?: number;
+  commandVersions?: Partial<Record<CommandType, CommandVersionRange>>;
 };
 
 export type EnrollmentChallenge = {
@@ -63,6 +56,8 @@ export type EnrollmentStatusMsg = {
 export type HelloAck = {
   type: "hello_ack";
   id: string;
+  protocolVersion?: number;
+  commandVersions?: Partial<Record<CommandType, number>>;
   commands?: Command[];
   notification?: {
     keywords: string[];
@@ -73,81 +68,10 @@ export type HelloAck = {
 export type Ping = { type: "ping"; ts?: number };
 export type Pong = { type: "pong"; ts?: number };
 
-export type CommandType =
-  | "input"
-  | "remote_start"
-  | "remote_stop"
-  | "webcam_start"
-  | "webcam_stop"
-  | "webcam_list"
-  | "webcam_select"
-  | "webcam_set_fps"
-  | "disconnect"
-  | "reconnect"
-  | "screenshot"
-  | "ping"
-  | "console_start"
-  | "console_input"
-  | "console_stop"
-  | "console_resize"
-  | "file_list"
-  | "file_request_access"
-  | "file_download"
-  | "file_upload"
-  | "file_delete"
-  | "file_mkdir"
-  | "file_zip"
-  | "file_read"
-  | "file_write"
-  | "file_search"
-  | "file_copy"
-  | "file_move"
-  | "file_chmod"
-  | "file_execute"
-  | "silent_exec"
-  | "voice_session_start"
-  | "voice_session_stop"
-  | "voice_downlink"
-  | "voice_capabilities"
-  | "client_logs_request"
-  | "desktop_audio_start"
-  | "desktop_audio_stop"
-  | "process_list"
-  | "process_kill"
-  | "plugin_load"
-  | "plugin_load_http"
-  | "plugin_unload"
-  | "agent_update"
-  | "clipboard_set"
-  | "clipboard_sync_start"
-  | "clipboard_sync_stop"
-  | "desktop_start"
-  | "desktop_stop"
-  | "desktop_select_display"
-  | "desktop_enable_mouse"
-  | "desktop_enable_keyboard"
-  | "desktop_set_fps"
-  | "desktop_set_bitrate"
-  | "darwin_request_permissions"
-  | "webrtc_publish"
-  | "webrtc_stop"
-  | "webrtc_p2p_offer"
-  | "webrtc_p2p_ice"
-  | "webrtc_p2p_stop"
-  | "script_exec"
-  | "uninstall"
-  | "elevate"
-  | "file_upload_http"
-  | "winre_probe"
-  | "winre_install"
-  | "winre_uninstall"
-  | "file_icon"
-  | "file_thumb"
-  | "file_dirsize";
-
 export type Command = {
   type: "command";
   commandType: CommandType;
+  commandVersion?: number;
   payload?: unknown;
   id?: string;
 };
@@ -155,8 +79,12 @@ export type Command = {
 export type CommandResult = {
   type: "command_result";
   commandId?: string;
+  commandType?: CommandType;
+  commandVersion?: number;
   ok: boolean;
   message?: string;
+  errorCode?: "unsupported_command_version" | string;
+  supportedVersions?: CommandVersionRange;
 };
 
 export type DesktopCodecCapability = {
@@ -579,6 +507,14 @@ export type WireMessage =
   | EnrollmentStatusMsg;
 
 export function encodeMessage(msg: WireMessage): Uint8Array {
+  if (msg.type === "command") {
+    if (!isCommandType(msg.commandType)) {
+      throw new Error(`Unknown command type: ${String(msg.commandType)}`);
+    }
+    const commandVersion =
+      msg.commandVersion ?? getImplicitCommandVersion(msg.commandType);
+    return encode({ ...msg, commandVersion });
+  }
   return encode(msg);
 }
 

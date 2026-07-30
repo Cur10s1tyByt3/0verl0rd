@@ -1,33 +1,35 @@
 package wire
 
 type Hello struct {
-	Type            string          `msgpack:"type"`
-	ID              string          `msgpack:"id"`
-	HWID            string          `msgpack:"hwid"`
-	Host            string          `msgpack:"host"`
-	OS              string          `msgpack:"os"`
-	Arch            string          `msgpack:"arch"`
-	HostArch        string          `msgpack:"hostArch,omitempty"`
-	Version         string          `msgpack:"version"`
-	User            string          `msgpack:"user"`
-	Monitors        int             `msgpack:"monitors"`
-	MonitorInfo     []MonitorInfo   `msgpack:"monitorInfo,omitempty"`
-	Country         string          `msgpack:"country,omitempty"`
-	BuildTag        string          `msgpack:"buildTag,omitempty"`
-	PublicKey       string          `msgpack:"publicKey,omitempty"`
-	Signature       string          `msgpack:"signature,omitempty"`
-	InMemory        bool            `msgpack:"inMemory,omitempty"`
-	CPU             string          `msgpack:"cpu,omitempty"`
-	GPU             string          `msgpack:"gpu,omitempty"`
-	RAM             string          `msgpack:"ram,omitempty"`
-	BatteryPercent  *int            `msgpack:"batteryPercent,omitempty"`
-	BatteryCharging *bool           `msgpack:"batteryCharging,omitempty"`
-	IsAdmin         bool            `msgpack:"isAdmin,omitempty"`
-	Elevation       string          `msgpack:"elevation,omitempty"`
-	Permissions     map[string]bool `msgpack:"permissions,omitempty"`
-	PublicIP        string          `msgpack:"publicIP,omitempty"`
-	LastCrashReason string          `msgpack:"lastCrashReason,omitempty"`
-	LastCrashDetail string          `msgpack:"lastCrashDetail,omitempty"`
+	Type            string                         `msgpack:"type"`
+	ID              string                         `msgpack:"id"`
+	HWID            string                         `msgpack:"hwid"`
+	Host            string                         `msgpack:"host"`
+	OS              string                         `msgpack:"os"`
+	Arch            string                         `msgpack:"arch"`
+	HostArch        string                         `msgpack:"hostArch,omitempty"`
+	Version         string                         `msgpack:"version"`
+	User            string                         `msgpack:"user"`
+	Monitors        int                            `msgpack:"monitors"`
+	MonitorInfo     []MonitorInfo                  `msgpack:"monitorInfo,omitempty"`
+	Country         string                         `msgpack:"country,omitempty"`
+	BuildTag        string                         `msgpack:"buildTag,omitempty"`
+	PublicKey       string                         `msgpack:"publicKey,omitempty"`
+	Signature       string                         `msgpack:"signature,omitempty"`
+	InMemory        bool                           `msgpack:"inMemory,omitempty"`
+	CPU             string                         `msgpack:"cpu,omitempty"`
+	GPU             string                         `msgpack:"gpu,omitempty"`
+	RAM             string                         `msgpack:"ram,omitempty"`
+	BatteryPercent  *int                           `msgpack:"batteryPercent,omitempty"`
+	BatteryCharging *bool                          `msgpack:"batteryCharging,omitempty"`
+	IsAdmin         bool                           `msgpack:"isAdmin,omitempty"`
+	Elevation       string                         `msgpack:"elevation,omitempty"`
+	Permissions     map[string]bool                `msgpack:"permissions,omitempty"`
+	PublicIP        string                         `msgpack:"publicIP,omitempty"`
+	LastCrashReason string                         `msgpack:"lastCrashReason,omitempty"`
+	LastCrashDetail string                         `msgpack:"lastCrashDetail,omitempty"`
+	ProtocolVersion int                            `msgpack:"protocolVersion,omitempty"`
+	CommandVersions map[string]CommandVersionRange `msgpack:"commandVersions,omitempty"`
 }
 
 type EnrollmentChallenge struct {
@@ -56,17 +58,22 @@ type Pong struct {
 }
 
 type Command struct {
-	Type        string      `msgpack:"type"`
-	CommandType string      `msgpack:"commandType"`
-	Payload     interface{} `msgpack:"payload,omitempty"`
-	ID          string      `msgpack:"id,omitempty"`
+	Type           string      `msgpack:"type"`
+	CommandType    CommandType `msgpack:"commandType"`
+	CommandVersion int         `msgpack:"commandVersion,omitempty"`
+	Payload        interface{} `msgpack:"payload,omitempty"`
+	ID             string      `msgpack:"id,omitempty"`
 }
 
 type CommandResult struct {
-	Type      string `msgpack:"type"`
-	CommandID string `msgpack:"commandId,omitempty"`
-	OK        bool   `msgpack:"ok"`
-	Message   string `msgpack:"message,omitempty"`
+	Type              string               `msgpack:"type"`
+	CommandID         string               `msgpack:"commandId,omitempty"`
+	CommandType       CommandType          `msgpack:"commandType,omitempty"`
+	CommandVersion    int                  `msgpack:"commandVersion,omitempty"`
+	OK                bool                 `msgpack:"ok"`
+	Message           string               `msgpack:"message,omitempty"`
+	ErrorCode         string               `msgpack:"errorCode,omitempty"`
+	SupportedVersions *CommandVersionRange `msgpack:"supportedVersions,omitempty"`
 }
 
 type DesktopEncoderProfile struct {

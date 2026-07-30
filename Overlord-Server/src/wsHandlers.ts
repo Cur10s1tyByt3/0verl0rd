@@ -1,4 +1,5 @@
 import { encodeMessage, type Hello, type Ping, type WireMessage } from "./protocol";
+import { sanitizeCommandVersionRanges } from "./command-compatibility";
 
 let _geoip: typeof import("geoip-lite");
 async function getGeoip() {
@@ -86,6 +87,11 @@ export async function handleHello(
   info.arch = sanitizeInfoString(payload.arch, 32);
   info.hostArch = sanitizeInfoString((payload as any).hostArch, 32) || info.arch;
   info.version = sanitizeInfoString(payload.version, 64);
+  const rawProtocolVersion = Number((payload as any).protocolVersion);
+  info.protocolVersion = Number.isInteger(rawProtocolVersion) && rawProtocolVersion > 0
+    ? Math.min(rawProtocolVersion, 65_535)
+    : 1;
+  info.commandVersions = sanitizeCommandVersionRanges((payload as any).commandVersions);
   info.user = sanitizeInfoString(payload.user);
   info.monitors = sanitizeMonitorCount(payload.monitors) ?? info.monitors;
   const cleanMonitorInfo = sanitizeJsonField((payload as any).monitorInfo, {

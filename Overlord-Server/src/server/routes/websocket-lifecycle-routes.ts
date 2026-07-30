@@ -14,6 +14,8 @@ import { getConfig } from "../../config";
 import { logger } from "../../logger";
 import { metrics } from "../../metrics";
 import { decodeMessage, encodeMessage, type WireMessage, type Hello, type Ping } from "../../protocol";
+import { WIRE_PROTOCOL_VERSION } from "../../generated/wire-contract";
+import { getNegotiatedCommandVersions } from "../../command-compatibility";
 import * as sessionManager from "../../sessions/sessionManager";
 import type { SocketData } from "../../sessions/types";
 import type { ClientInfo } from "../../types";
@@ -705,6 +707,8 @@ export async function handleWebSocketMessage(
             encodeMessage({
               type: "hello_ack",
               id: resolvedId,
+              protocolVersion: WIRE_PROTOCOL_VERSION,
+              commandVersions: getNegotiatedCommandVersions(infoObj),
               notification: {
                 keywords: notificationConfig.keywords || [],
                 minIntervalMs: notificationConfig.minIntervalMs || 8000,

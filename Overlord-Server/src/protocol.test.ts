@@ -5,6 +5,7 @@ import {
   type Frame,
   type Hello,
   type Ping,
+  type Command,
 } from "./protocol";
 
 const sampleHello: Hello = {
@@ -37,6 +38,17 @@ describe("protocol encode/decode", () => {
 
     expect(decoded.type).toBe("ping");
     expect(decoded.ts).toBe(123);
+  });
+
+  test("adds the unambiguous v1 command version to legacy call sites", () => {
+    const command: Command = {
+      type: "command",
+      commandType: "process_list",
+      id: "command-123",
+    };
+
+    const decoded = decodeMessage(encodeMessage(command)) as Command;
+    expect(decoded.commandVersion).toBe(1);
   });
 
   test("round trips h264 frame metadata", () => {

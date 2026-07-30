@@ -36,6 +36,7 @@ import { clearThumbnail } from "../../thumbnails";
 import { handleClientCommandRoute } from "./client-command-routes";
 import { handleClientGroupRoutes } from "./client-group-routes";
 import { decryptClientLogBlob, extractSecureLogBlobs } from "../client-log-crypto";
+import { getCommandCompatibilityCatalog } from "../../command-compatibility";
 
 type RequestIpProvider = {
   requestIP: (req: Request) => { address?: string } | null | undefined;
@@ -68,7 +69,15 @@ function mergeLiveClientState(result: any) {
     items: (result.items || []).map((item: any) => {
       const live = clientManager.getClient(item.id);
       return live
-        ? { ...item, online: true, lastSeen: live.lastSeen, pingMs: live.pingMs ?? item.pingMs }
+        ? {
+            ...item,
+            online: true,
+            lastSeen: live.lastSeen,
+            pingMs: live.pingMs ?? item.pingMs,
+            protocolVersion: live.protocolVersion ?? 1,
+            commandVersions: live.commandVersions,
+            commandCompatibility: getCommandCompatibilityCatalog(live),
+          }
         : item;
     }),
   };
