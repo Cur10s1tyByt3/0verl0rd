@@ -43,7 +43,7 @@ export function purgeExpiredMacosSdkUploads(now = Date.now()): void {
     const dir = path.join(root, entry.name);
     const metadata = readMetadata(dir);
     if (!metadata || (!metadata.claimed && now - metadata.createdAt > UPLOAD_TTL_MS)) {
-      try { fs.rmdirSync(dir, { recursive: true }); } catch {}
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
     }
   }
 }
@@ -83,7 +83,7 @@ export async function stageMacosSdkUpload(req: Request, userId: number): Promise
     return metadata;
   } catch (error) {
     writer.destroy();
-    try { fs.rmdirSync(dir, { recursive: true }); } catch {}
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
     throw error;
   }
 }
@@ -96,7 +96,7 @@ export function claimMacosSdkUpload(id: unknown, userId: number): ClaimedMacosSd
     throw new Error("macOS SDK upload was not found, expired, or has already been used");
   }
   if (Date.now() - metadata.createdAt > UPLOAD_TTL_MS) {
-    try { fs.rmdirSync(dir, { recursive: true }); } catch {}
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
     throw new Error("macOS SDK upload expired; please upload it again");
   }
   metadata.claimed = true;
@@ -179,5 +179,5 @@ export function cleanupMacosSdkUpload(uploadDir: string | undefined): void {
   const resolved = path.resolve(uploadDir);
   const root = path.resolve(uploadRoot());
   if (path.dirname(resolved) !== root) return;
-  try { fs.rmdirSync(resolved, { recursive: true }); } catch {}
+  try { fs.rmSync(resolved, { recursive: true, force: true }); } catch {}
 }

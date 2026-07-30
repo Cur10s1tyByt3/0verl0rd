@@ -12,6 +12,12 @@ The server is TypeScript on Node/Bun. The client is Go. Operators talk to the se
 
 Docker is the easiest way to run it.
 
+> [!IMPORTANT]
+> Use Overlord only on systems you own or are explicitly authorized to
+> administer. Review the [Acceptable Use Policy](ACCEPTABLE_USE.md) before
+> deployment. Report vulnerabilities privately according to the
+> [Security Policy](SECURITY.md).
+
 ---
 
 - [Quick Start (Docker)](#quick-start-docker)
