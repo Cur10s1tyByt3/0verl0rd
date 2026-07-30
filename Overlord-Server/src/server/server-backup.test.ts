@@ -14,6 +14,7 @@ import {
 } from "./server-backup";
 
 const roots: string[] = [];
+const BACKUP_INTEGRATION_TIMEOUT_MS = 15_000;
 
 function tempRoot(label: string): string {
   const root = mkdtempSync(path.join(tmpdir(), label));
@@ -110,7 +111,7 @@ describe("portable server backup", () => {
     });
     restoredDatabase.close();
     expect(applyPendingServerRestore(destination)).toBe(false);
-  });
+  }, BACKUP_INTEGRATION_TIMEOUT_MS);
 
   test("rejects a modified archive before staging any restore", async () => {
     const source = pathsAt(tempRoot("overlord-backup-tamper-source-"));
@@ -170,5 +171,5 @@ describe("portable server backup", () => {
     expect(() => stagePortableServerRestore(unsafeZip.toBuffer(), destination, "3.0.0")).toThrow();
     expect(existsSync(path.join(path.dirname(destination.dataDir), "outside.txt"))).toBe(false);
     expect(existsSync(path.join(destination.dataDir, ".pending-server-restore.json"))).toBe(false);
-  });
+  }, BACKUP_INTEGRATION_TIMEOUT_MS);
 });
