@@ -125,7 +125,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const CANVAS_TRANSPORT_PREF_VERSION = 1;
 
   function getWebrtcMode() {
-    return webrtcMode ? String(webrtcMode.value || "off") : "off";
+    return "off";
   }
 
   function syncInputEnableState() {
@@ -151,7 +151,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let h264TimestampUs = 0;
   let h264AwaitingKeyframe = true;
   let h264RecoveryRequestedAt = 0;
-  let prefersH264 = typeof VideoDecoder === "function";
+  let prefersH264 = false;
   const maxH264DecodeQueue = 4;
   const inputBackpressureBytes = 256 * 1024;
   let h264ErrorCount = 0;
@@ -182,15 +182,13 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     savedDisplay = Number.isFinite(Number(settings.display)) ? Number(settings.display) : savedDisplay;
     setSelectValue(backstageResolutionSelect, settings.resolution);
     setSelectValue(targetFpsSelect, settings.targetFps);
-    setSelectValue(webrtcMode, settings.transportPreferenceVersion === CANVAS_TRANSPORT_PREF_VERSION ? settings.webrtcMode : "off");
+    setSelectValue(webrtcMode, "off");
     if (qualitySlider && settings.quality !== undefined) qualitySlider.value = String(settings.quality);
     if (mouseCtrl && typeof settings.mouse === "boolean") mouseCtrl.checked = settings.mouse;
     if (kbdCtrl && typeof settings.keyboard === "boolean") kbdCtrl.checked = settings.keyboard;
     if (clipboardSyncCtrl && typeof settings.clipboardSync === "boolean") clipboardSyncCtrl.checked = settings.clipboardSync;
     if (uiaCtrl && typeof settings.uia === "boolean") uiaCtrl.checked = settings.uia;
-    if (typeof settings.preferH264 === "boolean") {
-      prefersH264 = settings.preferH264 && typeof VideoDecoder === "function";
-    }
+    prefersH264 = false;
     const cloneToggle = document.getElementById("backstageCloneToggle");
     const cloneLiteToggle = document.getElementById("backstageCloneLiteToggle");
     const killIfRunningToggle = document.getElementById("backstageKillIfRunningToggle");
@@ -208,8 +206,8 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       resolution: backstageResolutionSelect?.value || "1080",
       targetFps: Number(targetFpsSelect?.value || 120),
       quality: Number(qualitySlider?.value || 90),
-      preferH264: !!prefersH264,
-      webrtcMode: getWebrtcMode(),
+      preferH264: false,
+      webrtcMode: "off",
       transportPreferenceVersion: CANVAS_TRANSPORT_PREF_VERSION,
       mouse: !!mouseCtrl?.checked,
       keyboard: !!kbdCtrl?.checked,
@@ -225,8 +223,12 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const sharedSettingsSaver = createSharedUiSettingsSaver("backstage", readSharedSettings);
 
   if (codecH264) {
-    codecH264.checked = prefersH264;
-    codecH264.disabled = typeof VideoDecoder !== "function";
+    codecH264.checked = false;
+    codecH264.disabled = true;
+  }
+  if (webrtcMode) {
+    webrtcMode.value = "off";
+    webrtcMode.disabled = true;
   }
 
   function setCodecModeLabel(mode, detail) {
@@ -235,7 +237,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     codecMode.textContent = `Codec: ${String(mode || "auto").toUpperCase()}${suffix}`;
   }
 
-  setCodecModeLabel(prefersH264 ? "h264" : "jpeg", "preferred");
+  setCodecModeLabel("jpeg", "enforced");
   setStreamState("connecting", "Connecting");
 
   function updateFpsDisplay(agentValue) {
@@ -1061,7 +1063,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
   function pushQuality(val) {
     const q = Number(val) || 90;
-    const codec = q >= 100 ? "raw" : (prefersH264 ? "h264" : "jpeg");
+    const codec = "jpeg";
     console.debug("backstage: pushQuality val=", val, "q=", q, "codec=", codec);
     setCodecModeLabel(codec, "requested");
     sendCmd("backstage_set_quality", { quality: q, codec });
@@ -1084,12 +1086,6 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   }
 
   function pushTransportQuality(mode) {
-    if (mode === "relayed" || mode === "p2p") {
-      const q = Number(qualitySlider?.value) || 90;
-      setCodecModeLabel("h264", "webrtc");
-      sendCmd("backstage_set_quality", { quality: q, codec: "h264", source: "webrtc" });
-      return;
-    }
     if (qualitySlider) {
       pushQuality(qualitySlider.value);
     }
@@ -1097,10 +1093,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
   if (codecH264) {
     codecH264.addEventListener("change", function () {
-      prefersH264 = !!codecH264.checked && typeof VideoDecoder === "function";
-      if (!prefersH264) {
-        destroyVideoDecoder();
-      }
+      prefersH264 = false;
+      codecH264.checked = false;
+      destroyVideoDecoder();
       if (qualitySlider) {
         pushQuality(qualitySlider.value);
       }

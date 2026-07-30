@@ -77,6 +77,20 @@ func TestDesktopAndBackstageCodecSelectionsAreIndependent(t *testing.T) {
 	}
 }
 
+func TestBackstageCodecIsAlwaysJPEG(t *testing.T) {
+	t.Cleanup(resetCodecSelectionForTest)
+
+	for _, requested := range []string{"", "raw", "rgba", "h264", "hevc", "invalid-codec"} {
+		SetBackstageQualityAndCodec(73, requested)
+		if got := backstageCodec(); got != "jpeg" {
+			t.Fatalf("backstage codec = %q after requesting %q, want jpeg", got, requested)
+		}
+	}
+	if got := backstageJPEGQuality(); got != 73 {
+		t.Fatalf("backstage quality = %d, want 73", got)
+	}
+}
+
 func TestSwitchingToH264RequestsRecoveryPoint(t *testing.T) {
 	if !h264Available() {
 		t.Skip("h264 is unavailable in this build")

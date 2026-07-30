@@ -911,7 +911,7 @@ type backstageStreamingState = {
 };
 
 function defaultbackstageStreamingState(): backstageStreamingState {
-  return { isStreaming: false, virtualMode: false, display: 0, quality: 90, codec: "", maxFps: 120, lastFps: 0 };
+  return { isStreaming: false, virtualMode: false, display: 0, quality: 90, codec: "jpeg", maxFps: 120, lastFps: 0 };
 }
 
 export const backstageStreamingState = new Map<string, backstageStreamingState>();
@@ -1279,26 +1279,9 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
           sendbackstageCommand(target, "backstage_stop", {});
           state.isStreaming = false;
           logger.debug(`[backstage] restarting stream to change virtual_mode=${state.virtualMode} -> ${virtualMode}`);
-        }
+      }
       if (!state.isStreaming) {
-        if ((payload as any).webrtc === true) {
-          const streamPath = webrtcStreamPathFor(clientId, "backstage");
-          const token = issueWebrtcPublishToken(clientId);
-          sendbackstageCommand(target, "webrtc_publish", {
-            streamPath,
-            whipPath: `/api/webrtc/${streamPath}/whip`,
-            token,
-            kind: "backstage",
-            hasVideo: true,
-            hasAudio: false,
-            iceServers: issueTurnIceServers(`${clientId}:backstage:whip`),
-          });
-          safeSendViewer(ws, {
-            type: "webrtc_ready",
-            streamPath,
-            whepPath: `/api/webrtc/${streamPath}/whep`,
-          });
-        }
+        sendbackstageCommand(target, "backstage_set_quality", { quality: state.quality, codec: "jpeg" });
         sendbackstageCommand(target, "backstage_set_fps", { fps: clampDesktopFps(state.maxFps) });
         sendbackstageCommand(target, "backstage_start", {
           autoStartExplorer: false,
@@ -1341,9 +1324,9 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
     }
     case "backstage_set_quality": {
       const newQuality = Number(payload.quality) || 90;
-      const newCodec = String(payload.codec || "").toLowerCase();
-		sendbackstageCommand(target, "backstage_set_quality", { quality: newQuality, codec: newCodec });
-		if (state.quality !== newQuality || state.codec !== newCodec) {
+      const newCodec = "jpeg";
+      sendbackstageCommand(target, "backstage_set_quality", { quality: newQuality, codec: newCodec });
+      if (state.quality !== newQuality || state.codec !== newCodec) {
         state.quality = newQuality;
         state.codec = newCodec;
         backstageStreamingState.set(clientId, state);
@@ -1512,24 +1495,10 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
       break;
     }
     case "webrtc_p2p_offer": {
-      const sdp = typeof (payload as any).sdp === "string" ? (payload as any).sdp : "";
-      if (!sdp) break;
-      const sessionId = createP2PSession(ws, clientId, "backstage");
-      sendbackstageCommand(target, "webrtc_p2p_offer", { sessionId, sdp, kind: "backstage", hasVideo: true, hasAudio: false, iceServers: issueTurnIceServers(`${clientId}:backstage:${sessionId}`) });
+      safeSendViewer(ws, { type: "error", reason: "Backstage supports JPEG canvas transport only" });
       break;
     }
     case "webrtc_p2p_ice": {
-      const sessionId = getP2PSessionIdForViewer(ws);
-      if (!sessionId) break;
-      const candidate = typeof (payload as any).candidate === "string" ? (payload as any).candidate : "";
-      if (!candidate) break;
-      sendbackstageCommand(target, "webrtc_p2p_ice", {
-        sessionId,
-        kind: "backstage",
-        candidate,
-        sdpMid: typeof (payload as any).sdpMid === "string" ? (payload as any).sdpMid : "",
-        sdpMLineIndex: Number((payload as any).sdpMLineIndex) || 0,
-      });
       break;
     }
     case "webrtc_p2p_stop": {

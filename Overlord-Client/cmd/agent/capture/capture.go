@@ -1736,11 +1736,7 @@ func desktopCodec() string {
 }
 
 func backstageCodec() string {
-	codec := selectedCodec(&backstageOverrideCodec)
-	if codec == "hevc" {
-		return "jpeg"
-	}
-	return codec
+	return "jpeg"
 }
 
 func SetDesktopQualityAndCodec(quality int, codec string) {
@@ -1792,36 +1788,15 @@ func SetDesktopQualityAndCodec(quality int, codec string) {
 	}
 }
 
-func SetBackstageQualityAndCodec(quality int, codec string) {
-	previousCodec := backstageCodec()
+func SetBackstageQualityAndCodec(quality int, _ string) {
 	if quality > 0 {
 		if quality > 100 {
 			quality = 100
 		}
 		backstageOverrideQuality.Store(int64(quality))
 	}
-	s := strings.ToLower(strings.TrimSpace(codec))
-	if s == "h264" && !h264Available() {
-		detail := h264AvailabilityDetail()
-		log.Printf("capture: requested backstage codec=h264 but unavailable (%s); forcing codec=jpeg", detail)
-		s = "jpeg"
-	}
-	switch s {
-	case "raw", "rgba", "jpeg", "h264":
-		backstageOverrideCodec.Store(s)
-		backstageH264WarnOnce = sync.Once{}
-		if s != "h264" {
-			resetH264Encoderbackstage()
-		}
-		if previousCodec != s && s == "h264" {
-			backstageLastKeyframe.Store(0)
-			webrtcpub.RequestKeyframe(webrtcpub.Kindbackstage)
-		}
-	case "":
-	default:
-		backstageOverrideCodec.Store("jpeg")
-		resetH264Encoderbackstage()
-	}
+	backstageOverrideCodec.Store("jpeg")
+	resetH264Encoderbackstage()
 }
 
 func Nowbackstage(ctx context.Context, env *rt.Env) error {

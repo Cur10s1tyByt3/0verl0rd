@@ -152,10 +152,8 @@
                 </div>
                 <div class="flex items-center gap-2 mb-2">
                   <label class="text-sm text-slate-300 w-20" for="webrtcMode">Transport</label>
-                  <select id="webrtcMode" class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100" title="Streaming transport. P2P: browser to agent direct, server only relays signaling. Relayed: through MediaMTX.">
-                    <option value="off" selected>Canvas</option>
-                    <option value="p2p">WebRTC P2P</option>
-                    <option value="relayed">WebRTC Relayed</option>
+                  <select id="webrtcMode" class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100" title="Backstage uses JPEG over canvas." disabled>
+                    <option value="off" selected>JPEG Canvas</option>
                   </select>
                 </div>
                 <div class="flex items-center gap-2 mb-2">
@@ -171,10 +169,10 @@
                   </select>
                 </div>
                 <div class="flex items-center justify-between gap-2">
-                  <label class="flex items-center gap-2 text-sm text-slate-200" title="Prefer H.264 when available; disable to force JPEG">
-                    <input type="checkbox" id="codecH264" checked /> H.264
+                  <label class="flex items-center gap-2 text-sm text-slate-200" title="Backstage is restricted to JPEG">
+                    <input type="checkbox" id="codecH264" disabled /> H.264 disabled
                   </label>
-                  <span id="codecMode" class="pill pill-ghost text-slate-100 text-xs">Codec: auto</span>
+                  <span id="codecMode" class="pill pill-ghost text-slate-100 text-xs">Codec: JPEG</span>
                 </div>
               </div>
 
