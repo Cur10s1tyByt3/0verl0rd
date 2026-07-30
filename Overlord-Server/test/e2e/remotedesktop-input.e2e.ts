@@ -19,14 +19,19 @@ test("WebRTC input stays inactive until start and then forwards mouse and keyboa
       readyState = FakeWebSocket.OPEN;
       bufferedAmount = 0;
       binaryType: BinaryType = "blob";
+      private readonly isRemoteDesktopControl: boolean;
 
-      constructor(_url: string | URL) {
+      constructor(url: string | URL) {
         super();
-        Object.defineProperty(window, "__rdSocket", { value: this, configurable: true });
+        this.isRemoteDesktopControl = new URL(String(url), window.location.href).pathname.endsWith("/rd/ws");
+        if (this.isRemoteDesktopControl) {
+          Object.defineProperty(window, "__rdSocket", { value: this, configurable: true });
+        }
         queueMicrotask(() => this.dispatchEvent(new Event("open")));
       }
 
       send(data: ArrayBuffer | ArrayBufferView | Blob | string) {
+        if (!this.isRemoteDesktopControl) return;
         if (data instanceof ArrayBuffer) sent.push(data);
         else if (ArrayBuffer.isView(data)) {
           sent.push(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer);
@@ -67,6 +72,9 @@ test("WebRTC input stays inactive until start and then forwards mouse and keyboa
   await expect(page.locator("#requestKeyframeBtn")).toBeDisabled();
 
   await page.evaluate(() => {
+    // Other page features may open sockets after the RD control connection.
+    // They must not replace the socket used for injected control messages.
+    new WebSocket("/api/clients/webrtc-input-test/desktop-audio/ws");
     const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;
     sent.length = 0;
     const mouseCtrl = document.querySelector<HTMLInputElement>("#mouseCtrl")!;

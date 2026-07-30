@@ -20,9 +20,12 @@ test("Canvas presents only the latest decoded video frame per browser refresh", 
       bufferedAmount = 0;
       binaryType: BinaryType = "blob";
 
-      constructor(_url: string | URL) {
+      constructor(url: string | URL) {
         super();
-        Object.defineProperty(window, "__rdSocket", { value: this, configurable: true });
+        const isRemoteDesktopControl = new URL(String(url), window.location.href).pathname.endsWith("/rd/ws");
+        if (isRemoteDesktopControl) {
+          Object.defineProperty(window, "__rdSocket", { value: this, configurable: true });
+        }
         queueMicrotask(() => this.dispatchEvent(new Event("open")));
       }
 
