@@ -99,17 +99,20 @@ services:
     ports:
       - "3478:3478/udp"
       - "3478:3478/tcp"
-      - "49160-49200:49160-49200/udp"
+      # Stay below Windows' default dynamic/excluded UDP range (49152+).
+      - "${OVERLORD_TURN_MIN_PORT:-40000}-${OVERLORD_TURN_MAX_PORT:-40040}:${OVERLORD_TURN_MIN_PORT:-40000}-${OVERLORD_TURN_MAX_PORT:-40040}/udp"
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
         secret="$$(cat /run/overlord-turn/secret)"
         external=""
         if [ -n "$${OVERLORD_TURN_EXTERNAL_IP:-}" ]; then external="--external-ip=$${OVERLORD_TURN_EXTERNAL_IP}"; fi
-        exec turnserver --fingerprint --use-auth-secret --static-auth-secret="$$secret" --realm="$${OVERLORD_TURN_REALM:-overlord}" --listening-port=3478 --min-port=49160 --max-port=49200 --no-tls --no-dtls --no-multicast-peers --log-file=stdout $$external
+        exec turnserver --fingerprint --use-auth-secret --static-auth-secret="$$secret" --realm="$${OVERLORD_TURN_REALM:-overlord}" --listening-port=3478 --min-port="$${OVERLORD_TURN_MIN_PORT}" --max-port="$${OVERLORD_TURN_MAX_PORT}" --no-tls --no-dtls --no-multicast-peers --log-file=stdout $$external
     environment:
       OVERLORD_TURN_REALM: ${OVERLORD_TURN_REALM:-overlord}
       OVERLORD_TURN_EXTERNAL_IP: ${OVERLORD_TURN_EXTERNAL_IP:-127.0.0.1}
+      OVERLORD_TURN_MIN_PORT: ${OVERLORD_TURN_MIN_PORT:-40000}
+      OVERLORD_TURN_MAX_PORT: ${OVERLORD_TURN_MAX_PORT:-40040}
     volumes:
       - overlord-turn-secret:/run/overlord-turn:ro
     depends_on:

@@ -42,7 +42,8 @@ func (b *qsvD3D11TextureBackend) Encode(req h264D3D11TextureRequest) ([]byte, er
 		b.device, b.inputWidth, b.inputHeight = req.Device, req.InputWidth, req.InputHeight
 		b.encodeWidth, b.encodeHeight, b.fps, b.dxgiFormat = req.EncodeWidth, req.EncodeHeight, req.FPS, req.DXGIFormat
 	}
-	forceIDR := req.ForceIDR || b.forceIDR.Swap(false)
+	pendingIDR := b.forceIDR.Swap(false)
+	forceIDR := req.ForceIDR || pendingIDR
 	for attempts := 0; attempts < 2; attempts++ {
 		result, size, err := b.encoder.Encode(req.Texture, forceIDR, b.output)
 		if err != nil {

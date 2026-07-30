@@ -108,19 +108,41 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 
+	codec := desktopCodec()
+	directCanvasVideo := (codec == "h264" || codec == "hevc") &&
+		(codec != "h264" || !useDesktopSoftwareH264()) &&
+		useDesktopDuplication() &&
+		!(codec == "h264" && webrtcpub.IsActive(webrtcpub.KindDesktop))
+	directSlotAcquired := false
+	if directCanvasVideo {
+		if !AcquireFrameSlot() {
+			return nil
+		}
+		directSlotAcquired = true
+	}
+
 	if frame, captureDur, encodeDur, used, err := tryBuildDirectH264Frame(display); used {
 		if err != nil {
+			if directSlotAcquired {
+				ReleaseFrameSlot()
+				directSlotAcquired = false
+			}
 			suppressDesktopHardwareH264(err)
 			log.Printf("capture: direct video encode failed: %v; falling back to the software H.264 path", err)
 		} else {
 			emitDesktopCursor(ctx, env, display, frame.Header.Width, frame.Header.Height)
 			if len(frame.Data) == 0 {
+				if directSlotAcquired {
+					ReleaseFrameSlot()
+				}
 				consecutiveCaptureFails.Store(0)
 				return nil
 			}
 			consecutiveCaptureFails.Store(0)
-			return sendCompletedFrame(ctx, env, frame, display, t0, captureDur, encodeDur)
+			return sendCompletedFrame(ctx, env, frame, display, t0, captureDur, encodeDur, directSlotAcquired)
 		}
+	} else if directSlotAcquired {
+		ReleaseFrameSlot()
 	}
 
 	img, err := safeCaptureDisplay(display)
@@ -247,7 +269,7 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 	return err
 }
 
-func sendCompletedFrame(ctx context.Context, env *rt.Env, frame wire.Frame, display int, t0 time.Time, captureDur, encodeDur time.Duration) error {
+func sendCompletedFrame(ctx context.Context, env *rt.Env, frame wire.Frame, display int, t0 time.Time, captureDur, encodeDur time.Duration, slotAcquired bool) error {
 	now := time.Now()
 	fps := frameFPS(now)
 	if fps <= 0 {
@@ -255,6 +277,9 @@ func sendCompletedFrame(ctx context.Context, env *rt.Env, frame wire.Frame, disp
 	}
 	frame.Header.FPS = fps
 	if ctx.Err() != nil {
+		if slotAcquired {
+			ReleaseFrameSlot()
+		}
 		return nil
 	}
 	if frame.Header.Format == "h264" && webrtcpub.IsActive(webrtcpub.KindDesktop) {
@@ -274,10 +299,16 @@ func sendCompletedFrame(ctx context.Context, env *rt.Env, frame wire.Frame, disp
 		statTotalNs.Add(totalDur.Nanoseconds())
 		statBytes.Add(int64(len(frame.Data)))
 		emitDesktopStreamStats(ctx, env, frame, fps, captureDur, encodeDur, sendDur, totalDur, "webrtc")
+		if slotAcquired {
+			ReleaseFrameSlot()
+		}
 		return nil
 	}
-	if !AcquireFrameSlot() {
-		return nil
+	if !slotAcquired {
+		if !AcquireFrameSlot() {
+			return nil
+		}
+		slotAcquired = true
 	}
 	sendStart := time.Now()
 	err := wire.WriteMsg(ctx, env.Conn, frame)
@@ -675,6 +706,8 @@ func SetDesktopSoftwareH264(enabled bool) {
 	}
 	desktopHardwareFallbackUntil.Store(0)
 	resetH264Encoder()
+	lastKeyframe.Store(0)
+	webrtcpub.RequestKeyframe(webrtcpub.KindDesktop)
 	requestFullFrames(2)
 	log.Printf("capture: desktop software h264 %v", enabled)
 }
@@ -796,6 +829,25 @@ const (
 	backstageChangeThresh = 1
 )
 
+var videoKeyframeEvery = configuredVideoKeyframeInterval()
+
+func configuredVideoKeyframeInterval() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("OVERLORD_VIDEO_KEYFRAME_INTERVAL"))
+	if raw == "" || strings.EqualFold(raw, "off") || raw == "0" {
+		return 0
+	}
+	if interval, err := time.ParseDuration(raw); err == nil {
+		if interval > 0 {
+			return interval
+		}
+		return 0
+	}
+	if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	return 0
+}
+
 func buildFrame(img *image.RGBA, display int, quality int) (wire.Frame, time.Duration, error) {
 	encStart := time.Now()
 	width := img.Bounds().Dx()
@@ -808,14 +860,21 @@ func buildFrame(img *image.RGBA, display int, quality int) (wire.Frame, time.Dur
 			log.Printf("capture: hevc skipped for odd dimensions (%dx%d), falling back to h264/jpeg", width, height)
 			codec = "h264"
 		} else {
-			if webrtcpub.ConsumeKeyframeRequest(webrtcpub.KindDesktop) {
+			requestedKeyframe := webrtcpub.ConsumeKeyframeRequest(webrtcpub.KindDesktop)
+			if requestedKeyframe || lastKeyframe.Load() == 0 ||
+				(videoKeyframeEvery > 0 && now.Sub(time.Unix(0, lastKeyframe.Load())) >= videoKeyframeEvery) {
 				resetHEVCEncoder()
 			}
 			hevcBytes, err := encodeHEVCFrame(img)
 			if err == nil && len(hevcBytes) > 0 {
-				lastKeyframe.Store(now.UnixNano())
+				if retainKeyframeRequestUntilOutput(webrtcpub.KindDesktop, requestedKeyframe, "hevc", hevcBytes) {
+					lastKeyframe.Store(now.UnixNano())
+				}
 				statFullFrames.Add(1)
 				return wire.Frame{Type: "frame", Header: wire.FrameHeader{Monitor: display, FPS: 0, Format: "hevc"}, Data: hevcBytes}, time.Since(encStart), nil
+			}
+			if requestedKeyframe {
+				webrtcpub.RequestKeyframe(webrtcpub.KindDesktop)
 			}
 			hevcWarnOnce.Do(func() {
 				log.Printf("capture: hevc encode unavailable, falling back to h264/jpeg: %v (%s)", err, hevcAvailabilityDetail())
@@ -836,14 +895,21 @@ func buildFrame(img *image.RGBA, display int, quality int) (wire.Frame, time.Dur
 			log.Printf("capture: h264 skipped for odd dimensions (%dx%d), falling back to jpeg", width, height)
 			codec = "jpeg"
 		} else {
-			if webrtcpub.ConsumeKeyframeRequest(webrtcpub.KindDesktop) {
+			requestedKeyframe := webrtcpub.ConsumeKeyframeRequest(webrtcpub.KindDesktop)
+			if requestedKeyframe || lastKeyframe.Load() == 0 ||
+				(videoKeyframeEvery > 0 && now.Sub(time.Unix(0, lastKeyframe.Load())) >= videoKeyframeEvery) {
 				resetH264Encoder()
 			}
 			h264Bytes, err := encodeH264Frame(img)
 			if err == nil && len(h264Bytes) > 0 {
-				lastKeyframe.Store(now.UnixNano())
+				if retainKeyframeRequestUntilOutput(webrtcpub.KindDesktop, requestedKeyframe, "h264", h264Bytes) {
+					lastKeyframe.Store(now.UnixNano())
+				}
 				statFullFrames.Add(1)
 				return wire.Frame{Type: "frame", Header: wire.FrameHeader{Monitor: display, FPS: 0, Format: "h264"}, Data: h264Bytes}, time.Since(encStart), nil
+			}
+			if requestedKeyframe {
+				webrtcpub.RequestKeyframe(webrtcpub.KindDesktop)
 			}
 			h264WarnOnce.Do(func() {
 				detail := h264AvailabilityDetail()
@@ -941,15 +1007,22 @@ func buildFramebackstage(img *image.RGBA, display int, quality int) (wire.Frame,
 			log.Printf("backstage capture: h264 skipped for odd dimensions (%dx%d), falling back to jpeg", width, height)
 			codec = "jpeg"
 		} else {
-			if webrtcpub.ConsumeKeyframeRequest(webrtcpub.Kindbackstage) {
+			requestedKeyframe := webrtcpub.ConsumeKeyframeRequest(webrtcpub.Kindbackstage)
+			if requestedKeyframe || backstageLastKeyframe.Load() == 0 ||
+				(videoKeyframeEvery > 0 && now.Sub(time.Unix(0, backstageLastKeyframe.Load())) >= videoKeyframeEvery) {
 				resetH264Encoderbackstage()
 			}
 			h264Bytes, err := encodeH264Framebackstage(img)
 			if err == nil && len(h264Bytes) > 0 {
-				backstageLastKeyframe.Store(now.UnixNano())
+				if retainKeyframeRequestUntilOutput(webrtcpub.Kindbackstage, requestedKeyframe, "h264", h264Bytes) {
+					backstageLastKeyframe.Store(now.UnixNano())
+				}
 				statFullFrames.Add(1)
 				frame := wire.Frame{Type: "frame", Header: wire.FrameHeader{Monitor: display, FPS: 0, Format: "h264", Backstage: true}, Data: h264Bytes}
 				return frame, time.Since(encStart), nil
+			}
+			if requestedKeyframe {
+				webrtcpub.RequestKeyframe(webrtcpub.Kindbackstage)
 			}
 			backstageH264WarnOnce.Do(func() {
 				detail := h264AvailabilityDetail()
@@ -1671,6 +1744,7 @@ func backstageCodec() string {
 }
 
 func SetDesktopQualityAndCodec(quality int, codec string) {
+	previousCodec := desktopCodec()
 	if quality > 0 {
 		if quality > 100 {
 			quality = 100
@@ -1706,6 +1780,10 @@ func SetDesktopQualityAndCodec(quality int, codec string) {
 		if s != "hevc" {
 			resetHEVCEncoder()
 		}
+		if previousCodec != s && (s == "h264" || s == "hevc") {
+			lastKeyframe.Store(0)
+			webrtcpub.RequestKeyframe(webrtcpub.KindDesktop)
+		}
 	case "":
 	default:
 		desktopOverrideCodec.Store("jpeg")
@@ -1715,6 +1793,7 @@ func SetDesktopQualityAndCodec(quality int, codec string) {
 }
 
 func SetBackstageQualityAndCodec(quality int, codec string) {
+	previousCodec := backstageCodec()
 	if quality > 0 {
 		if quality > 100 {
 			quality = 100
@@ -1733,6 +1812,10 @@ func SetBackstageQualityAndCodec(quality int, codec string) {
 		backstageH264WarnOnce = sync.Once{}
 		if s != "h264" {
 			resetH264Encoderbackstage()
+		}
+		if previousCodec != s && s == "h264" {
+			backstageLastKeyframe.Store(0)
+			webrtcpub.RequestKeyframe(webrtcpub.Kindbackstage)
 		}
 	case "":
 	default:

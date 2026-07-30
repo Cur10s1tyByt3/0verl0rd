@@ -26,7 +26,7 @@ export async function showCertBannerIfNeeded(anchor) {
     } catch { }
   }
 
-  const os = detectOS();
+  const os = getCertificateTrustGuide();
 
   const banner = document.createElement("div");
   banner.id = "cert-trust-banner";
@@ -45,7 +45,7 @@ export async function showCertBannerIfNeeded(anchor) {
       </p>
       <div class="flex flex-wrap items-center gap-2">
         <a href="/api/cert/download"
-           download="overlord-ca.crt"
+           download="overlord-server.crt"
            class="inline-flex items-center gap-1.5 rounded bg-amber-600 hover:bg-amber-500
                   px-3 py-1 text-xs font-medium text-white transition-colors">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2"
@@ -80,13 +80,13 @@ export async function showCertBannerIfNeeded(anchor) {
   });
 }
 
-function detectOS() {
+export function getCertificateTrustGuide() {
   const ua = navigator.userAgent.toLowerCase();
   if (ua.includes("win")) {
     return {
       label: "Windows",
       instructions:
-`1. Double-click the downloaded <strong>overlord-ca.crt</strong> file.
+`1. Double-click the downloaded <strong>overlord-server.crt</strong> file.
 2. Click <strong>Install Certificate...</strong>
 3. Choose <strong>Current User</strong> or <strong>Local Machine</strong>.
 4. Select <strong>"Place all certificates in the following store"</strong>.
@@ -99,7 +99,7 @@ function detectOS() {
     return {
       label: "macOS",
       instructions:
-`1. Double-click the downloaded <strong>overlord-ca.crt</strong> file — it opens in Keychain Access.
+`1. Double-click the downloaded <strong>overlord-server.crt</strong> file — it opens in Keychain Access.
 2. If prompted, add it to the <strong>login</strong> or <strong>System</strong> keychain.
 3. Find the certificate in the list, double-click it.
 4. Expand <strong>Trust</strong> and set <strong>"When using this certificate"</strong> to <strong>Always Trust</strong>.
@@ -111,11 +111,11 @@ function detectOS() {
     label: "Linux",
     instructions:
 `<strong>Debian / Ubuntu:</strong>
-  sudo cp overlord-ca.crt /usr/local/share/ca-certificates/overlord-ca.crt
+  sudo cp overlord-server.crt /usr/local/share/ca-certificates/overlord-server.crt
   sudo update-ca-certificates
 
 <strong>Fedora / RHEL:</strong>
-  sudo cp overlord-ca.crt /etc/pki/ca-trust/source/anchors/overlord-ca.crt
+  sudo cp overlord-server.crt /etc/pki/ca-trust/source/anchors/overlord-server.crt
   sudo update-ca-trust
 
 Then <strong>restart your browser</strong>.

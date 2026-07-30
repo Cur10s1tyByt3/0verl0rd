@@ -146,12 +146,12 @@ describe("remote desktop viewer control", () => {
 
     handleRemoteDesktopViewerMessage(viewerSocket, JSON.stringify({
       type: "desktop_request_keyframe",
-      reason: "viewer_frame_gap",
+      reason: "h264_decoder_keyframe_required",
     }));
     const automaticCommand = agentCommands(agentWs)
       .filter((msg) => msg.commandType === "desktop_request_keyframe")
       .at(-1);
-    expect(automaticCommand?.payload).toEqual({ reason: "viewer_frame_gap" });
+    expect(automaticCommand?.payload).toEqual({ reason: "h264_decoder_keyframe_required" });
   });
 
   test("requests HEVC recovery after a screenshot only while streaming", () => {
@@ -381,9 +381,39 @@ describe("remote desktop viewer control", () => {
       { format: "h264", fps: 60, width: 2560, height: 1440 },
     );
     expect(pressuredAck).toBe(false);
+    for (let frameNumber = 0; frameNumber < 3; frameNumber++) {
+      const additionalAck = (globalThis as any).__rdBroadcast(
+        clientId,
+        new Uint8Array([7 + frameNumber]),
+        { format: "h264", fps: 60, width: 2560, height: 1440 },
+      );
+      expect(additionalAck).toBe(false);
+    }
 
     handleRemoteDesktopViewerMessage(viewer as any, JSON.stringify({ type: "desktop_decode_pressure", active: false }));
-    expect(agentCommands(agentWs).filter((msg) => msg.type === "frame_ack")).toHaveLength(1);
+    expect(agentCommands(agentWs).filter((msg) => msg.type === "frame_ack")).toHaveLength(4);
+  });
+
+  test("coalesces keyframe requests while a viewer remains backpressured", () => {
+    const clientId = `rd-backpressure-${Date.now().toString(36)}`;
+    const { agentWs } = createClient(clientId);
+    const viewer = createMockWs({ clientId });
+    viewer.getBufferedAmount = () => 2 * 1024 * 1024;
+    handleRemoteDesktopViewerOpen(viewer as any);
+
+    for (let frame = 0; frame < 3; frame++) {
+      const shouldAck = (globalThis as any).__rdBroadcast(
+        clientId,
+        new Uint8Array([frame]),
+        { format: "h264", fps: 60, width: 1920, height: 1080 },
+      );
+      expect(shouldAck).toBe(true);
+    }
+
+    const requests = agentCommands(agentWs)
+      .filter((msg) => msg.commandType === "desktop_request_keyframe");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.payload?.reason).toBe("viewer_backpressure");
   });
 });
 

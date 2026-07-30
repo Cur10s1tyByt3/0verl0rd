@@ -123,6 +123,9 @@ func probeDesktopEncoderCapabilities(display int, bounds image.Rectangle) Deskto
 		for _, probe := range probes {
 			maxFPS := 0
 			for _, fps := range fpsOptions {
+				if fps > desktopProfileFPSCeiling(size.height) {
+					continue
+				}
 				req := h264D3D11TextureRequest{
 					Device: unsafe.Pointer(device), Texture: unsafe.Pointer(texture),
 					InputWidth: nativeWidth, InputHeight: nativeHeight,
@@ -140,7 +143,7 @@ func probeDesktopEncoderCapabilities(display int, bounds image.Rectangle) Deskto
 				continue
 			}
 			for _, fps := range fpsOptions {
-				if fps <= maxFPS {
+				if fps <= maxFPS && fps <= desktopProfileFPSCeiling(size.height) {
 					key := desktopProfileKey(size.width, size.height, fps)
 					providersByProfile[key] = appendUniqueString(providersByProfile[key], probe.name)
 				}
@@ -252,6 +255,20 @@ func safeDesktopProfiles(nativeWidth, nativeHeight int) []DesktopEncoderProfile 
 		}
 	}
 	return profiles
+}
+
+// The probe repeatedly encodes an unchanged synthetic texture and excludes
+// capture, conversion, transport, and browser decode. Bound its advertised
+// result to practical end-to-end desktop profiles.
+func desktopProfileFPSCeiling(height int) int {
+	switch {
+	case height <= 1080:
+		return 240
+	case height <= 1440:
+		return 120
+	default:
+		return 60
+	}
 }
 
 func desktopProfileKey(width, height, fps int) string {

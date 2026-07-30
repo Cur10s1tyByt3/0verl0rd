@@ -93,6 +93,9 @@ func TestCaptureDisplayDXGI(t *testing.T) {
 
 func TestDirectVideoKeyframeDue(t *testing.T) {
 	now := (10 * time.Second).Nanoseconds()
+	previousInterval := videoKeyframeEvery
+	videoKeyframeEvery = 5 * time.Second
+	defer func() { videoKeyframeEvery = previousInterval }()
 
 	tests := []struct {
 		name      string
@@ -102,7 +105,8 @@ func TestDirectVideoKeyframeDue(t *testing.T) {
 	}{
 		{name: "explicit request", requested: true, last: now, want: true},
 		{name: "first frame", last: 0, want: true},
-		{name: "periodic keyframes disabled", last: now - (30 * time.Second).Nanoseconds(), want: false},
+		{name: "periodic keyframe due", last: now - (30 * time.Second).Nanoseconds(), want: true},
+		{name: "periodic keyframe not due", last: now - time.Second.Nanoseconds(), want: false},
 	}
 
 	for _, test := range tests {
@@ -111,5 +115,10 @@ func TestDirectVideoKeyframeDue(t *testing.T) {
 				t.Fatalf("directVideoKeyframeDue() = %v, want %v", got, test.want)
 			}
 		})
+	}
+
+	videoKeyframeEvery = 0
+	if directVideoKeyframeDue(false, now, now-(30*time.Second).Nanoseconds()) {
+		t.Fatal("periodic keyframe fired while the interval was disabled")
 	}
 }

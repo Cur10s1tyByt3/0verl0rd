@@ -378,7 +378,10 @@ OVERLORD_TURN_EXTERNAL_IP=203.0.113.10
 Allow and forward these inbound ports to the Coturn host:
 
 - `3478/udp` and `3478/tcp` for STUN and TURN client connections.
-- `49160-49200/udp` for TURN relay allocations.
+- `49160-49200/udp` for TURN relay allocations with the Linux Compose file.
+- `40000-40040/udp` with `docker-compose.windows.yml`, avoiding Windows'
+  commonly excluded dynamic UDP range. Override it with
+  `OVERLORD_TURN_MIN_PORT` and `OVERLORD_TURN_MAX_PORT` if necessary.
 
 The bundled setup supports ordinary TURN over UDP and TCP. It intentionally does not enable `turns:` until a trusted Coturn TLS certificate and public hostname are configured.
 

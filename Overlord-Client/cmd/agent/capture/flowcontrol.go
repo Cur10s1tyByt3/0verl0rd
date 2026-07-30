@@ -57,8 +57,10 @@ func SetFrameFlowTargetFPS(fps int) {
 	limit := defaultMaxInFlightFrames
 	switch {
 	case fps >= 180:
-		limit = 8
+		limit = 12
 	case fps >= 120:
+		limit = 8
+	case fps >= 60:
 		limit = 4
 	}
 	if env := strings.TrimSpace(os.Getenv("OVERLORD_DESKTOP_IN_FLIGHT_FRAMES")); env != "" {

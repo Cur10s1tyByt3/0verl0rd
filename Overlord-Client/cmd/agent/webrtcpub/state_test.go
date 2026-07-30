@@ -4,6 +4,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"overlord-client/cmd/agent/h264util"
 )
 
 type blockingVideoWriter struct {
@@ -25,7 +27,15 @@ func (w *blockingVideoWriter) WriteH264(frame []byte, _ time.Duration) error {
 	return nil
 }
 
-func TestWriteH264DoesNotBlockAndKeepsLatestPendingFrame(t *testing.T) {
+func annexBDelta(value byte) []byte {
+	return []byte{0, 0, 0, 1, 0x41, value}
+}
+
+func annexBKey(value byte) []byte {
+	return []byte{0, 0, 0, 1, 0x67, 1, 0, 0, 1, 0x68, 1, 0, 0, 1, 0x65, value}
+}
+
+func TestWriteH264DoesNotBlockAndRequestsRecoveryAfterDroppingDelta(t *testing.T) {
 	kind := Kind("queue-test")
 	id := "slow-writer"
 	writer := &blockingVideoWriter{
@@ -34,8 +44,9 @@ func TestWriteH264DoesNotBlockAndKeepsLatestPendingFrame(t *testing.T) {
 	}
 	registerVideoWriter(kind, id, writer)
 	defer unregisterWriter(kind, id)
+	_ = ConsumeKeyframeRequest(kind)
 
-	if err := WriteH264(kind, []byte{1}, time.Millisecond); err != nil {
+	if err := WriteH264(kind, annexBDelta(1), time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -45,11 +56,16 @@ func TestWriteH264DoesNotBlockAndKeepsLatestPendingFrame(t *testing.T) {
 	}
 
 	started := time.Now()
-	_ = WriteH264(kind, []byte{2}, time.Millisecond)
-	_ = WriteH264(kind, []byte{3}, time.Millisecond)
+	for frame := 2; frame <= maxPendingVideoFrames+2; frame++ {
+		_ = WriteH264(kind, annexBDelta(byte(frame)), time.Millisecond)
+	}
 	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
 		t.Fatalf("capture path blocked for %s", elapsed)
 	}
+	if !ConsumeKeyframeRequest(kind) {
+		t.Fatal("dropping a predictive frame did not request a keyframe")
+	}
+	_ = WriteH264(kind, annexBKey(9), time.Millisecond)
 	close(writer.release)
 
 	deadline := time.Now().Add(time.Second)
@@ -58,14 +74,14 @@ func TestWriteH264DoesNotBlockAndKeepsLatestPendingFrame(t *testing.T) {
 		frames := append([][]byte(nil), writer.frames...)
 		writer.mu.Unlock()
 		if len(frames) >= 2 {
-			if frames[0][0] != 1 || frames[1][0] != 3 {
-				t.Fatalf("expected first and latest frames, got %v", frames)
+			if frames[0][len(frames[0])-1] != 1 || !h264util.IsIDR(frames[1]) {
+				t.Fatalf("expected first frame followed by recovery IDR, got %v", frames)
 			}
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatal("latest pending frame was not delivered")
+	t.Fatal("recovery keyframe was not delivered")
 }
 
 func TestKeyframeRequestsAreIsolatedByStreamKind(t *testing.T) {

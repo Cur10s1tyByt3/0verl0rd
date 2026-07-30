@@ -788,6 +788,46 @@
             Your permissions do not allow TLS setting changes.
           </div>
 
+          <div class="rounded-lg border border-cyan-800/70 bg-cyan-950/20 px-4 py-4 space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div class="flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <p class="text-sm font-medium text-cyan-100">Active server certificate</p>
+                  <span id="tls-active-cert-source" class="rounded-full border border-slate-600 bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+                    Checking…
+                  </span>
+                </div>
+                <p class="mt-1 text-xs text-slate-400">
+                  Download and trust this certificate when a locally generated certificate causes HTTPS or WebSocket trust errors.
+                </p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <a
+                  id="tls-download-cert-btn"
+                  href="/api/cert/download"
+                  download="overlord-server.crt"
+                  class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-cyan-700 hover:bg-cyan-600 transition-colors text-white text-sm font-medium"
+                >
+                  <i class="fa-solid fa-download"></i>Download Certificate
+                </a>
+                <button
+                  type="button"
+                  id="tls-trust-help-btn"
+                  class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-600 bg-slate-800 hover:bg-slate-700 transition-colors text-slate-100 text-sm font-medium"
+                >
+                  <i class="fa-solid fa-shield-halved"></i>Trust Instructions
+                </button>
+              </div>
+            </div>
+            <div
+              id="tls-trust-instructions"
+              class="hidden rounded-lg border border-slate-700 bg-slate-950/80 p-3 text-xs text-slate-300 leading-relaxed whitespace-pre-line"
+            ></div>
+            <p class="text-xs text-amber-300/90">
+              Browsers cannot install trusted certificates automatically. Your operating system will require confirmation, and the browser must be restarted afterward.
+            </p>
+          </div>
+
           <label class="flex items-center gap-2 text-sm">
             <input id="tls-certbot-enabled" type="checkbox" class="h-4 w-4" />
             <span>Use certbot certificates in production runtime (NODE_ENV=production)</span>

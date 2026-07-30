@@ -22,7 +22,6 @@ function acceptsGzip(req: Request): boolean {
 }
 
 const STATIC_ASSET_CACHE = "public, max-age=31536000, immutable";
-const MUTABLE_ASSET_CACHE = "public, max-age=86400, stale-while-revalidate=604800";
 const NO_CACHE = "no-cache";
 const MAX_GZIP_CACHE_ENTRIES = 128;
 const MAX_GZIP_CACHE_BYTES = 16 * 1024 * 1024;
@@ -35,16 +34,16 @@ type GzipCacheEntry = {
 const gzipAssetCache = new Map<string, GzipCacheEntry>();
 let gzipAssetCacheBytes = 0;
 
-function assetCacheControl(relativePath: string): string {
+export function assetCacheControl(relativePath: string): string {
   if (relativePath === "custom.css") return NO_CACHE;
   if (relativePath === "notification-sw.js") return NO_CACHE;
-  if (relativePath.endsWith(".min.js") || relativePath.endsWith(".min.css")) {
-    return STATIC_ASSET_CACHE;
-  }
   if (/\.(ico|png|jpg|jpeg|gif|webp|woff2?|ttf|eot|svg)$/.test(relativePath)) {
     return STATIC_ASSET_CACHE;
   }
-  return MUTABLE_ASSET_CACHE;
+  // Script and stylesheet filenames are stable across releases. Revalidate
+  // them so a rebuilt Docker image cannot leave the previous UI cached for a
+  // day (or stale-served for a week). ETags keep unchanged requests cheap.
+  return NO_CACHE;
 }
 
 function toExactArrayBuffer(bytes: Uint8Array): ArrayBuffer {

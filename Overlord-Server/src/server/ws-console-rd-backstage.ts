@@ -138,6 +138,7 @@ type FrameBroadcastResult = {
   sent: boolean;
   dropped: boolean;
   viewers: number;
+  sentViewers: Set<ServerWebSocket<SocketData>>;
 };
 
 function broadcastFrameToViewers(
@@ -148,6 +149,7 @@ function broadcastFrameToViewers(
   let sent = false;
   let dropped = false;
   let viewers = 0;
+  const sentViewers = new Set<ServerWebSocket<SocketData>>();
   const t0 = performance.now();
   const byteLen = buf.length;
   for (const session of sessions) {
@@ -161,6 +163,7 @@ function broadcastFrameToViewers(
       session.viewer.send(buf);
       metrics.recordBytesSent(byteLen);
       sent = true;
+      sentViewers.add(session.viewer);
     } catch (err) {
       logger.error("[rd] viewer frame send failed", err);
     }
@@ -172,14 +175,15 @@ function broadcastFrameToViewers(
     rdSendStats.sendMs += elapsed;
   }
   logRdSend(header);
-  return { sent, dropped, viewers };
+  return { sent, dropped, viewers, sentViewers };
 }
 
 const rdSendStats = { lastLog: 0, frames: 0, sendMs: 0, bytes: 0 };
 const rdDebugFrameLogAt = new Map<string, number>();
-const rdCanvasFrameAckPending = new Map<string, string>();
+const rdCanvasFrameAckPending = new Map<string, { sessionId: string; count: number }>();
+const rdBackpressureKeyframeAt = new Map<string, number>();
+const RD_BACKPRESSURE_KEYFRAME_INTERVAL_MS = 1_000;
 const AUTOMATIC_DESKTOP_KEYFRAME_REASONS: Record<string, true> = {
-  viewer_frame_gap: true,
   h264_decoder_keyframe_required: true,
   hevc_decoder_keyframe_required: true,
 };
@@ -487,6 +491,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
         .filter(s => s.id !== ws.data.sessionId);
       logger.debug(`[rd-debug] desktop_stop requested client=${clientId} session=${ws.data.sessionId || ""} otherViewers=${otherViewers.length} state=${JSON.stringify(state)}`);
       if (otherViewers.length === 0) {
+        rdBackpressureKeyframeAt.delete(clientId);
         stopRemoteDesktopRecording(clientId, "desktop stopped");
         sendDesktopCommand(target, "desktop_stop", {});
         sendDesktopCommand(target, "webrtc_stop", { kind: "desktop" });
@@ -863,23 +868,32 @@ function broadcastRemoteDesktopFrame(clientId: string, bytes: Uint8Array, header
   const result = broadcastFrameToViewers(sessions, buf, header);
   if (result.sent) {
     const controller = sessions.find((session) =>
+      result.sentViewers.has(session.viewer) &&
       (session.viewer.data as any).rdCanvasFlowControl === true &&
       (session.viewer.data as any).rdCanvasBackpressure === true
     );
     if (controller?.viewer.data.sessionId) {
-      rdCanvasFrameAckPending.set(clientId, controller.viewer.data.sessionId);
+      const sessionId = controller.viewer.data.sessionId;
+      const pending = rdCanvasFrameAckPending.get(clientId);
+      rdCanvasFrameAckPending.set(clientId, {
+        sessionId,
+        count: pending?.sessionId === sessionId ? pending.count + 1 : 1,
+      });
     }
   }
   if (result.dropped) {
     const target = clientManager.getClient(clientId);
-    if (target) {
+    const now = Date.now();
+    const lastRequestAt = rdBackpressureKeyframeAt.get(clientId) || 0;
+    if (target && now - lastRequestAt >= RD_BACKPRESSURE_KEYFRAME_INTERVAL_MS) {
+      rdBackpressureKeyframeAt.set(clientId, now);
       sendDesktopCommand(target, "desktop_request_keyframe", {
         reason: "viewer_backpressure",
         format: String(header?.format || ""),
       });
     }
   }
-  return (result.sent && !rdCanvasFrameAckPending.has(clientId)) || result.viewers === 0;
+  return ((result.sent || result.dropped) && !rdCanvasFrameAckPending.has(clientId)) || result.viewers === 0;
 }
 
 (globalThis as any).__rdBroadcast = (clientId: string, bytes: Uint8Array, header?: any): boolean => {
@@ -1588,13 +1602,16 @@ export function handleDesktopEncoderCapabilities(clientId: string, payload: any)
 }
 
 function releaseCanvasFrameAck(clientId: string, sessionId?: string): boolean {
-  const controllerSessionId = rdCanvasFrameAckPending.get(clientId);
-  if (!controllerSessionId || (sessionId && controllerSessionId !== sessionId)) return false;
+  const pending = rdCanvasFrameAckPending.get(clientId);
+  if (!pending || (sessionId && pending.sessionId !== sessionId)) return false;
   rdCanvasFrameAckPending.delete(clientId);
   const target = clientManager.getClient(clientId);
   if (!target) return false;
   try {
-    target.ws.send(encodeMessage({ type: "frame_ack" }));
+    const ack = encodeMessage({ type: "frame_ack" });
+    for (let i = 0; i < pending.count; i++) {
+      target.ws.send(ack);
+    }
     return true;
   } catch (err) {
     logger.debug(`[rd] canvas frame ack failed client=${clientId}: ${(err as Error).message}`);

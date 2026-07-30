@@ -13,7 +13,7 @@ func directVideoKeyframeDue(requested bool, nowNs, lastKeyframeNs int64) bool {
 	if requested || lastKeyframeNs == 0 {
 		return true
 	}
-	return keyframeEvery > 0 && time.Duration(nowNs-lastKeyframeNs) >= keyframeEvery
+	return videoKeyframeEvery > 0 && time.Duration(nowNs-lastKeyframeNs) >= videoKeyframeEvery
 }
 
 func tryBuildDirectH264Frame(display int) (wire.Frame, time.Duration, time.Duration, bool, error) {
@@ -22,8 +22,9 @@ func tryBuildDirectH264Frame(display int) (wire.Frame, time.Duration, time.Durat
 		return wire.Frame{}, 0, 0, false, nil
 	}
 	now := time.Now()
+	requestedKeyframe := webrtcpub.ConsumeKeyframeRequest(webrtcpub.KindDesktop)
 	forceKeyframe := directVideoKeyframeDue(
-		webrtcpub.ConsumeKeyframeRequest(webrtcpub.KindDesktop),
+		requestedKeyframe,
 		now.UnixNano(),
 		lastKeyframe.Load(),
 	)
@@ -38,12 +39,18 @@ func tryBuildDirectH264Frame(display int) (wire.Frame, time.Duration, time.Durat
 		data, width, height, captureDur, encodeDur, used, err = captureDisplayDXGIH264(display, forceKeyframe)
 	}
 	if !used || err != nil {
+		if requestedKeyframe {
+			webrtcpub.RequestKeyframe(webrtcpub.KindDesktop)
+		}
 		return wire.Frame{}, captureDur, encodeDur, used, err
 	}
 	if len(data) == 0 {
+		if requestedKeyframe {
+			webrtcpub.RequestKeyframe(webrtcpub.KindDesktop)
+		}
 		return wire.Frame{}, captureDur, encodeDur, true, nil
 	}
-	if forceKeyframe {
+	if retainKeyframeRequestUntilOutput(webrtcpub.KindDesktop, requestedKeyframe, codec, data) {
 		lastKeyframe.Store(now.UnixNano())
 	}
 	statFullFrames.Add(1)

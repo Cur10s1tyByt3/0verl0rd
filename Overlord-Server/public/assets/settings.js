@@ -6,6 +6,7 @@ import {
   requestDesktopNotificationPermission,
 } from "./notify-client.js";
 import { escapeHtml, formatBytes as formatSharedBytes, formatDate as formatSharedDate } from "./format.js";
+import { getCertificateTrustGuide } from "./cert-banner.js";
 
 const PREF_REFRESH_KEY = "overlord_refresh_interval_seconds";
 const NAV_MODE_KEY = "sb_mode";
@@ -81,6 +82,10 @@ const tlsCertbotDomainInput = document.getElementById("tls-certbot-domain");
 const tlsCertbotCertFileInput = document.getElementById("tls-certbot-cert-file");
 const tlsCertbotKeyFileInput = document.getElementById("tls-certbot-key-file");
 const tlsCertbotCaFileInput = document.getElementById("tls-certbot-ca-file");
+const tlsActiveCertSource = document.getElementById("tls-active-cert-source");
+const tlsDownloadCertBtn = document.getElementById("tls-download-cert-btn");
+const tlsTrustHelpBtn = document.getElementById("tls-trust-help-btn");
+const tlsTrustInstructions = document.getElementById("tls-trust-instructions");
 
 const oidcForm = document.getElementById("oidc-form");
 const oidcPermissionNote = document.getElementById("oidc-permission-note");
@@ -457,6 +462,45 @@ function applyTlsForm() {
   tlsCertbotCaFileInput.value = certbot.caFileName || "chain.pem";
 }
 
+tlsTrustHelpBtn?.addEventListener("click", () => {
+  tlsTrustInstructions?.classList.toggle("hidden");
+});
+
+async function loadActiveTlsCertificate() {
+  const guide = getCertificateTrustGuide();
+  if (tlsTrustHelpBtn) {
+    tlsTrustHelpBtn.innerHTML = `<i class="fa-solid fa-shield-halved"></i>Trust on ${guide.label}`;
+  }
+  if (tlsTrustInstructions) {
+    tlsTrustInstructions.innerHTML = guide.instructions;
+  }
+
+  try {
+    const res = await fetch("/api/cert/info", { credentials: "include" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const source = String(data.source || "unknown");
+    if (tlsActiveCertSource) {
+      tlsActiveCertSource.textContent = source === "self-signed"
+        ? "Self-signed"
+        : source === "certbot"
+          ? "Certbot / Let's Encrypt"
+          : source === "configured"
+            ? "Configured certificate"
+            : "Unknown source";
+      tlsActiveCertSource.classList.toggle("border-amber-600", source === "self-signed");
+      tlsActiveCertSource.classList.toggle("bg-amber-950", source === "self-signed");
+      tlsActiveCertSource.classList.toggle("text-amber-200", source === "self-signed");
+    }
+  } catch {
+    if (tlsActiveCertSource) tlsActiveCertSource.textContent = "Unavailable";
+    if (tlsDownloadCertBtn) {
+      tlsDownloadCertBtn.setAttribute("aria-disabled", "true");
+      tlsDownloadCertBtn.classList.add("pointer-events-none", "opacity-50");
+    }
+  }
+}
+
 async function loadTlsSettings() {
   if (!currentUser) return;
 
@@ -489,6 +533,7 @@ async function loadTlsSettings() {
   tlsConfig = data.tls || null;
   applyTlsForm();
   setTlsFormDisabled(false);
+  await loadActiveTlsCertificate();
 }
 
 function listToCsv(value) {

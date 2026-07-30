@@ -153,6 +153,8 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let pendingFrame = null;
   let videoDecoder = null;
   let videoDecoderConfigKey = "";
+  let pendingDecodedVideoFrame = null;
+  let decodedVideoPresentationFrame = 0;
   const disabledDecoderCodecs = new Set();
   let h264StreamCodec = "";
   let canvasDecodePressure = false;
@@ -167,6 +169,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let h264KeyframeErrorStreak = 0;
   let h264RecoveryAttempts = 0;
   let h264LastDecodeWarnAt = 0;
+  let h264WaitingForKeyframe = true;
   const H264_LOW_FPS_THRESHOLD = 6;
   const H264_FALLBACK_WARMUP_MS = 10000;
   const H264_MIN_FRAMES_BEFORE_FALLBACK = 120;
@@ -175,9 +178,8 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const H264_MAX_RECOVERY_ATTEMPTS = 1;
   const H264_DECODE_WARN_THROTTLE_MS = 2000;
   const inputBackpressureBytes = 256 * 1024;
-  const VIEWER_FRAME_GAP_KEYFRAME_MS = 500;
   const VIEWER_FRAME_GAP_KEYFRAME_THROTTLE_MS = 1000;
-  let lastViewerFrameGapKeyframeAt = 0;
+  let lastViewerKeyframeRequestAt = 0;
   const diagnostics = {
     agent: null,
     network: null,
@@ -240,6 +242,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     h264FirstFrameAt = 0;
     h264FramesSeen = 0;
     h264KeyframeErrorStreak = 0;
+    h264WaitingForKeyframe = true;
   }
 
   /* ── Remote Desktop Audio (system audio from client) ── */
@@ -1139,6 +1142,15 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     } else if ((finite(media.lossPercent) ?? 0) > 3 || (finite(network.rttMs) ?? 0) > 150 || (finite(media.jitterMs) ?? 0) > 35) {
       summary = "Network conditions are causing delay";
       severity = "bad";
+    } else if (
+      mode === "off" &&
+      fps != null &&
+      viewerRate != null &&
+      viewerRate < fps * 0.8 &&
+      diagnostics.coalescedFrames > 0
+    ) {
+      summary = `Display is presenting ${Math.round(viewerRate)} of ${Math.round(fps)} decoded FPS`;
+      severity = "warn";
     } else if ((queue ?? 0) > 2 || (renderMs != null && renderMs > frameBudget)) {
       summary = "Viewer render queue is backing up";
       severity = "warn";
@@ -1969,7 +1981,8 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     pushBitrate();
     desiredStreaming = true;
     lastFrameAt = 0;
-    lastViewerFrameGapKeyframeAt = 0;
+    lastViewerKeyframeRequestAt = 0;
+    diagnostics.coalescedFrames = 0;
     firstFrameLogged = false;
     resetH264SessionState();
     setStreamState("starting", "Starting stream");
@@ -2322,17 +2335,8 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
   function markFrameReceived() {
     const now = performance.now();
-    const frameGapMs = lastFrameAt ? now - lastFrameAt : 0;
     lastFrameAt = now;
     clearOfflineTimer();
-    if (
-      desiredStreaming &&
-      frameGapMs >= VIEWER_FRAME_GAP_KEYFRAME_MS &&
-      (!lastViewerFrameGapKeyframeAt || now - lastViewerFrameGapKeyframeAt >= VIEWER_FRAME_GAP_KEYFRAME_THROTTLE_MS)
-    ) {
-      lastViewerFrameGapKeyframeAt = now;
-      sendCmd("desktop_request_keyframe", { reason: "viewer_frame_gap" });
-    }
     if (!firstFrameLogged) {
       firstFrameLogged = true;
       rdDebug("first frame received", {
@@ -2394,6 +2398,14 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
   function destroyVideoDecoder() {
     updateCanvasDecodePressure(true);
+    if (decodedVideoPresentationFrame) {
+      cancelAnimationFrame(decodedVideoPresentationFrame);
+      decodedVideoPresentationFrame = 0;
+    }
+    if (pendingDecodedVideoFrame) {
+      pendingDecodedVideoFrame.frame.close();
+      pendingDecodedVideoFrame = null;
+    }
     if (videoDecoder) {
       try {
         videoDecoder.close();
@@ -2404,6 +2416,47 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     videoDecoder = null;
     videoDecoderConfigKey = "";
     resetH264RuntimeState();
+  }
+
+  function presentLatestDecodedVideoFrame() {
+    decodedVideoPresentationFrame = 0;
+    const pending = pendingDecodedVideoFrame;
+    pendingDecodedVideoFrame = null;
+    if (!pending) return;
+
+    const { frame, timing, width, height } = pending;
+    if (width > 0 && height > 0 && (canvas.width !== width || canvas.height !== height)) {
+      canvas.width = width;
+      canvas.height = height;
+      frameWidth = width;
+      frameHeight = height;
+    }
+    try {
+      ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+    } finally {
+      frame.close();
+    }
+
+    const renderedAt = performance.now();
+    if (timing) {
+      diagnostics.renderMs = smoothed(diagnostics.renderMs, Math.max(0, renderedAt - timing.receivedAt));
+    }
+    diagnostics.width = width;
+    diagnostics.height = height;
+    updateFpsDisplay();
+  }
+
+  function queueDecodedVideoFrame(frame, timing) {
+    const width = frame.displayWidth || frame.codedWidth || frameWidth;
+    const height = frame.displayHeight || frame.codedHeight || frameHeight;
+    if (pendingDecodedVideoFrame) {
+      pendingDecodedVideoFrame.frame.close();
+      diagnostics.coalescedFrames += 1;
+    }
+    pendingDecodedVideoFrame = { frame, timing, width, height };
+    if (!decodedVideoPresentationFrame) {
+      decodedVideoPresentationFrame = requestAnimationFrame(presentLatestDecodedVideoFrame);
+    }
   }
 
   function normalizeFallbackReason(reason) {
@@ -2458,6 +2511,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
     h264RecoveryAttempts += 1;
     h264KeyframeErrorStreak = 0;
+    destroyVideoDecoder();
 
     console.warn("rd: h264 decode stuck waiting for keyframe; auto-restarting stream once", {
       reason,
@@ -2578,34 +2632,24 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         output: (frame) => {
           const outputStartedAt = performance.now();
           const timing = h264PendingTimings.shift();
-          const width = frame.displayWidth || frame.codedWidth || frameWidth;
-          const height = frame.displayHeight || frame.codedHeight || frameHeight;
-          if (width > 0 && height > 0 && (canvas.width !== width || canvas.height !== height)) {
-            canvas.width = width;
-            canvas.height = height;
-            frameWidth = width;
-            frameHeight = height;
-          }
-          try {
-            ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
-          } finally {
-            frame.close();
-          }
-          const renderedAt = performance.now();
+          h264KeyframeErrorStreak = 0;
           if (timing) {
             diagnostics.decodeMs = smoothed(diagnostics.decodeMs, Math.max(0, outputStartedAt - timing.decodeStartedAt));
-            diagnostics.renderMs = smoothed(diagnostics.renderMs, Math.max(0, renderedAt - timing.receivedAt));
           }
           diagnostics.decodeQueue = videoDecoder?.decodeQueueSize || h264PendingTimings.length;
-          diagnostics.width = width;
-          diagnostics.height = height;
-          updateFpsDisplay();
+          queueDecodedVideoFrame(frame, timing);
           updateCanvasDecodePressure();
         },
         error: (err) => {
           console.warn(`rd: ${codecName} decoder error`, err);
+          if (codecName === "h264") h264WaitingForKeyframe = true;
           updateCanvasDecodePressure(true);
-          setTimeout(() => fallbackFromVideoCodec(codecName, err), 0);
+          setTimeout(() => {
+            if (codecName === "h264" && tryRecoverH264Stream("h264_async_decoder_error")) {
+              return;
+            }
+            fallbackFromVideoCodec(codecName, err);
+          }, 0);
         },
       });
       videoDecoder.addEventListener("dequeue", () => {
@@ -2795,6 +2839,23 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       h264FramesSeen += 1;
 
       const isKey = codecName === "hevc" ? isHEVCKeyFrame(videoBytes) : isH264KeyFrame(videoBytes);
+      if (codecName === "h264" && h264WaitingForKeyframe && !isKey) {
+        h264KeyframeErrorStreak += 1;
+        const now = performance.now();
+        if (!lastViewerKeyframeRequestAt || now - lastViewerKeyframeRequestAt >= VIEWER_FRAME_GAP_KEYFRAME_THROTTLE_MS) {
+          lastViewerKeyframeRequestAt = now;
+          sendCmd("desktop_request_keyframe", { reason: "h264_decoder_keyframe_required" });
+        }
+        if (h264KeyframeErrorStreak >= H264_KEYFRAME_ERROR_RESTART_THRESHOLD) {
+          const restarted = tryRecoverH264Stream("h264_keyframe_timeout");
+          if (!restarted) fallbackToJpegCodec("h264_keyframe_timeout_loop");
+        }
+        updateCanvasDecodePressure(true);
+        return;
+      }
+      if (codecName === "h264" && isKey) {
+        h264WaitingForKeyframe = false;
+      }
 
       // If software H264 encode on the agent cannot keep up, automatically
       // fall back to JPEG blocks for a smoother interactive stream.
@@ -2827,10 +2888,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         videoDecoder.decode(chunk);
         diagnostics.decodeQueue = videoDecoder.decodeQueueSize;
         updateCanvasDecodePressure();
-        h264KeyframeErrorStreak = 0;
       } catch (err) {
         h264PendingTimings.pop();
         if (isKeyframeRequiredError(err)) {
+          if (codecName === "h264") h264WaitingForKeyframe = true;
           h264KeyframeErrorStreak += 1;
           const now = Date.now();
           if (now - h264LastDecodeWarnAt >= H264_DECODE_WARN_THROTTLE_MS) {

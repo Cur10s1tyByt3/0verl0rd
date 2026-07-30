@@ -9,6 +9,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"overlord-client/cmd/agent/webrtcpub"
 )
 
 func resetCodecSelectionForTest() {
@@ -18,6 +21,8 @@ func resetCodecSelectionForTest() {
 	backstageOverrideCodec.Store("")
 	desktopOverrideQuality.Store(0)
 	backstageOverrideQuality.Store(0)
+	_ = webrtcpub.ConsumeKeyframeRequest(webrtcpub.KindDesktop)
+	_ = webrtcpub.ConsumeKeyframeRequest(webrtcpub.Kindbackstage)
 }
 
 func TestSetQualityAndCodec_H264FallbackDependsOnAvailability(t *testing.T) {
@@ -69,6 +74,27 @@ func TestDesktopAndBackstageCodecSelectionsAreIndependent(t *testing.T) {
 	}
 	if got := backstageJPEGQuality(); got != 65 {
 		t.Fatalf("backstage quality = %d, want 65", got)
+	}
+}
+
+func TestSwitchingToH264RequestsRecoveryPoint(t *testing.T) {
+	if !h264Available() {
+		t.Skip("h264 is unavailable in this build")
+	}
+	t.Cleanup(resetCodecSelectionForTest)
+	resetCodecSelectionForTest()
+
+	SetDesktopQualityAndCodec(80, "jpeg")
+	_ = webrtcpub.ConsumeKeyframeRequest(webrtcpub.KindDesktop)
+	lastKeyframe.Store(time.Now().UnixNano())
+
+	SetDesktopQualityAndCodec(80, "h264")
+
+	if lastKeyframe.Load() != 0 {
+		t.Fatal("codec transition did not invalidate the previous keyframe timestamp")
+	}
+	if !webrtcpub.ConsumeKeyframeRequest(webrtcpub.KindDesktop) {
+		t.Fatal("codec transition did not request an H.264 recovery point")
 	}
 }
 

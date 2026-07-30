@@ -4,6 +4,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"overlord-client/cmd/agent/h264util"
 )
 
 type Kind string
@@ -28,30 +30,64 @@ type writerEntry struct {
 	audio AudioWriter
 }
 
-type latestVideoWriter struct {
-	writer  VideoWriter
-	mu      sync.Mutex
-	pending []byte
-	dur     time.Duration
-	closed  bool
-	wake    chan struct{}
+const maxPendingVideoFrames = 6
+
+type queuedVideoFrame struct {
+	data []byte
+	dur  time.Duration
+	key  bool
 }
 
-func newLatestVideoWriter(writer VideoWriter) *latestVideoWriter {
-	queued := &latestVideoWriter{writer: writer, wake: make(chan struct{}, 1)}
+type latestVideoWriter struct {
+	writer        VideoWriter
+	kind          Kind
+	mu            sync.Mutex
+	pending       []queuedVideoFrame
+	needsKeyframe bool
+	closed        bool
+	wake          chan struct{}
+}
+
+func newLatestVideoWriter(kind Kind, writer VideoWriter) *latestVideoWriter {
+	queued := &latestVideoWriter{writer: writer, kind: kind, wake: make(chan struct{}, 1)}
 	go queued.run()
 	return queued
 }
 
 func (w *latestVideoWriter) enqueue(frame []byte, dur time.Duration) {
+	isKey := h264util.IsIDR(frame)
 	w.mu.Lock()
 	if w.closed {
 		w.mu.Unlock()
 		return
 	}
-	w.pending = frame
-	w.dur = dur
+	if w.needsKeyframe && !isKey {
+		w.mu.Unlock()
+		RequestKeyframe(w.kind)
+		return
+	}
+
+	requestKeyframe := false
+	if len(w.pending) >= maxPendingVideoFrames {
+		w.pending = nil
+		w.needsKeyframe = true
+		requestKeyframe = true
+		if !isKey {
+			w.mu.Unlock()
+			RequestKeyframe(w.kind)
+			return
+		}
+	}
+	if isKey && w.needsKeyframe {
+		w.pending = nil
+		w.needsKeyframe = false
+		requestKeyframe = false
+	}
+	w.pending = append(w.pending, queuedVideoFrame{data: frame, dur: dur, key: isKey})
 	w.mu.Unlock()
+	if requestKeyframe {
+		RequestKeyframe(w.kind)
+	}
 	select {
 	case w.wake <- struct{}{}:
 	default:
@@ -77,13 +113,26 @@ func (w *latestVideoWriter) run() {
 				w.mu.Unlock()
 				return
 			}
-			frame, dur := w.pending, w.dur
-			w.pending = nil
-			w.mu.Unlock()
-			if len(frame) == 0 {
+			if len(w.pending) == 0 {
+				w.mu.Unlock()
 				break
 			}
-			_ = w.writer.WriteH264(frame, dur)
+			frame := w.pending[0]
+			w.pending[0] = queuedVideoFrame{}
+			w.pending = w.pending[1:]
+			w.mu.Unlock()
+			err := w.writer.WriteH264(frame.data, frame.dur)
+			requestKeyframe := false
+			w.mu.Lock()
+			if err != nil {
+				w.pending = nil
+				w.needsKeyframe = true
+				requestKeyframe = true
+			}
+			w.mu.Unlock()
+			if requestKeyframe {
+				RequestKeyframe(w.kind)
+			}
 		}
 	}
 }
@@ -107,7 +156,7 @@ func registerVideoWriter(kind Kind, id string, w VideoWriter) {
 	if entry.video != nil {
 		entry.video.close()
 	}
-	entry.video = newLatestVideoWriter(w)
+	entry.video = newLatestVideoWriter(kind, w)
 	bucket[id] = entry
 	writersMu.Unlock()
 	RequestKeyframe(kind)

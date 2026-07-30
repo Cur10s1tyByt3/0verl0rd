@@ -47,7 +47,7 @@ func drainRTCP(sender *webrtc.RTPSender, kind Kind) {
 	}
 }
 
-const h264SDPFmtpLine = "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640034"
+const h264SDPFmtpLine = "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d0034"
 
 var rtcpKeyframeLogOnce sync.Once
 var (

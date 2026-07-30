@@ -281,18 +281,30 @@ func (s *virtualDuplicationState) captureDirectH264() (wire.Frame, time.Duration
 
 func (s *virtualDuplicationState) encodeCachedDirectH264(capStart time.Time, width, height int) (wire.Frame, time.Duration, time.Duration, bool, error) {
 	fps := activeH264FPSForStream("backstage")
+	now := time.Now()
+	requestedKeyframe := webrtcpub.ConsumeKeyframeRequest(webrtcpub.Kindbackstage)
+	forceKeyframe := directVideoKeyframeDue(requestedKeyframe, now.UnixNano(), backstageLastKeyframe.Load())
 	encStart := time.Now()
 	out, _, err := encodeH264D3D11Texture("backstage", h264D3D11TextureRequest{
 		Device: unsafe.Pointer(s.device), Texture: unsafe.Pointer(s.h264LastTex),
 		InputWidth: width, InputHeight: height, EncodeWidth: width, EncodeHeight: height,
-		FPS: fps, DXGIFormat: s.h264LastDesc.Format, ForceIDR: webrtcpub.ConsumeKeyframeRequest(webrtcpub.Kindbackstage),
+		FPS: fps, DXGIFormat: s.h264LastDesc.Format, ForceIDR: forceKeyframe,
 	})
 	encodeDur := time.Since(encStart)
 	if err != nil {
+		if requestedKeyframe {
+			webrtcpub.RequestKeyframe(webrtcpub.Kindbackstage)
+		}
 		return wire.Frame{}, time.Since(capStart), encodeDur, true, err
 	}
 	if len(out) == 0 {
+		if requestedKeyframe {
+			webrtcpub.RequestKeyframe(webrtcpub.Kindbackstage)
+		}
 		return wire.Frame{}, time.Since(capStart), encodeDur, true, nil
+	}
+	if retainKeyframeRequestUntilOutput(webrtcpub.Kindbackstage, requestedKeyframe, "h264", out) {
+		backstageLastKeyframe.Store(now.UnixNano())
 	}
 	return wire.Frame{Type: "frame", Header: wire.FrameHeader{Monitor: 0, FPS: 0, Format: "h264", Backstage: true}, Data: out}, time.Since(capStart), encodeDur, true, nil
 }

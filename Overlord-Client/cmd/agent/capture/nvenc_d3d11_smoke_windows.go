@@ -122,9 +122,14 @@ static void nvenc_configure_h264_stream(NV_ENC_CONFIG *cfg, int fps) {
 	(void)fps;
 	cfg->gopLength = NVENC_INFINITE_GOPLENGTH;
 	cfg->frameIntervalP = 1;
+	// The low-latency presets otherwise constrain an IDR to roughly the same
+	// bit budget as a P-frame. That makes recovery frames visibly pulse or
+	// smear under motion. Allow IDRs a larger transient budget while keeping
+	// the normal one-frame VBV/CBR latency behavior.
+	cfg->rcParams.lowDelayKeyFrameScale = 4;
 	cfg->encodeCodecConfig.h264Config.idrPeriod = NVENC_INFINITE_GOPLENGTH;
 	cfg->encodeCodecConfig.h264Config.repeatSPSPPS = 1;
-	cfg->encodeCodecConfig.h264Config.level = NV_ENC_LEVEL_H264_52;
+	cfg->encodeCodecConfig.h264Config.level = NV_ENC_LEVEL_AUTOSELECT;
 	cfg->encodeCodecConfig.h264Config.h264VUIParameters.videoSignalTypePresentFlag = 1;
 	cfg->encodeCodecConfig.h264Config.h264VUIParameters.videoFormat = NV_ENC_VUI_VIDEO_FORMAT_UNSPECIFIED;
 	cfg->encodeCodecConfig.h264Config.h264VUIParameters.videoFullRangeFlag = 0;
@@ -393,7 +398,7 @@ static nvenc_d3d11_texture_create_result nvenc_create_d3d11_texture_encoder(ID3D
 		nvenc_release_texture_encoder(enc);
 		return out;
 	}
-	preset.presetCfg.profileGUID = codec == 1 ? NV_ENC_HEVC_PROFILE_MAIN_GUID : NV_ENC_H264_PROFILE_HIGH_GUID;
+	preset.presetCfg.profileGUID = codec == 1 ? NV_ENC_HEVC_PROFILE_MAIN_GUID : NV_ENC_H264_PROFILE_MAIN_GUID;
 	preset.presetCfg.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
 	preset.presetCfg.rcParams.averageBitRate = (uint32_t)bitrate;
 	preset.presetCfg.rcParams.maxBitRate = (uint32_t)bitrate;
@@ -703,7 +708,7 @@ static nvenc_d3d11_create_result nvenc_create_d3d11_encoder(int width, int heigh
 		nvenc_release_encoder(enc);
 		return out;
 	}
-	preset.presetCfg.profileGUID = codec == 1 ? NV_ENC_HEVC_PROFILE_MAIN_GUID : NV_ENC_H264_PROFILE_HIGH_GUID;
+	preset.presetCfg.profileGUID = codec == 1 ? NV_ENC_HEVC_PROFILE_MAIN_GUID : NV_ENC_H264_PROFILE_MAIN_GUID;
 	preset.presetCfg.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
 	preset.presetCfg.rcParams.averageBitRate = (uint32_t)bitrate;
 	preset.presetCfg.rcParams.maxBitRate = (uint32_t)bitrate;
@@ -1160,7 +1165,7 @@ static nvenc_d3d11_smoke_result run_nvenc_d3d11_smoke_c(int width, int height, i
 		return out;
 	}
 
-	preset.presetCfg.profileGUID = NV_ENC_H264_PROFILE_HIGH_GUID;
+	preset.presetCfg.profileGUID = NV_ENC_H264_PROFILE_MAIN_GUID;
 	preset.presetCfg.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
 	preset.presetCfg.rcParams.averageBitRate = (uint32_t)bitrate;
 	preset.presetCfg.rcParams.maxBitRate = (uint32_t)bitrate;
@@ -1961,7 +1966,8 @@ func encodeNativeH264D3D11Texture(stream string, device, texture unsafe.Pointer,
 		}
 		state.encoder = enc
 	}
-	return state.encoder.EncodeTexture(texture, forceIDR || state.forceIDR.Swap(false))
+	pendingIDR := state.forceIDR.Swap(false)
+	return state.encoder.EncodeTexture(texture, forceIDR || pendingIDR)
 }
 
 func requestNativeH264D3D11TextureKeyframe(stream string) {
@@ -1997,7 +2003,8 @@ func encodeNativeHEVCD3D11Texture(device, texture unsafe.Pointer, inputWidth, in
 		}
 		nativeTextureHEVCEnc = enc
 	}
-	return nativeTextureHEVCEnc.EncodeTexture(texture, forceIDR || nativeTextureHEVCForceIDR.Swap(false))
+	pendingIDR := nativeTextureHEVCForceIDR.Swap(false)
+	return nativeTextureHEVCEnc.EncodeTexture(texture, forceIDR || pendingIDR)
 }
 
 func requestNativeHEVCD3D11TextureKeyframe() {

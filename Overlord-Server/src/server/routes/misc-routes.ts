@@ -1380,7 +1380,9 @@ export async function handleMiscRoutes(
         return new Response(file, {
           headers: {
             "Content-Type": "application/x-pem-file",
-            "Content-Disposition": 'attachment; filename="overlord-ca.crt"',
+            "Content-Disposition": 'attachment; filename="overlord-server.crt"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
             ...deps.CORS_HEADERS,
           },
         });
