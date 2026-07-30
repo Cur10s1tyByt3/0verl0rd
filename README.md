@@ -10,7 +10,8 @@ Hello, I made this project for fun.
 
 The server is TypeScript on Node/Bun. The client is Go. Operators talk to the server through a web panel or the Electron desktop app, and agents connect over encrypted WebSockets.
 
-Docker is the easiest way to run it.
+On Linux, Docker is the easiest way to run it. On Windows, a native
+bare-metal installation is strongly recommended instead of Docker Desktop.
 
 > [!IMPORTANT]
 > Use Overlord only on systems you own or are explicitly authorized to
@@ -20,11 +21,12 @@ Docker is the easiest way to run it.
 
 ---
 
-- [Quick Start (Docker)](#quick-start-docker)
-  - [Windows](#windows)
+- [Platform Recommendation](#platform-recommendation)
+- [Docker Quick Start (Recommended on Linux)](#docker-quick-start-recommended-on-linux)
+  - [Windows (not recommended)](#windows-not-recommended)
   - [Linux](#linux)
   - [macOS](#macos)
-- [No Docker (.bat / .sh)](#no-docker-bat--sh)
+- [Native Bare-Metal Installation](#native-bare-metal-installation)
 - [Production Package Scripts](#production-package-scripts)
 - [WebRTC Streaming](#webrtc-streaming)
 - [OIDC / SSO Login](#oidc--sso-login)
@@ -33,9 +35,32 @@ Docker is the easiest way to run it.
 
 ---
 
-## Quick Start (Docker)
+## Platform Recommendation
 
-Pick your OS below. Each section is self-contained: install Docker, get the project, start it.
+> [!WARNING]
+> **Do not use Docker Desktop for a normal Windows deployment.** Linux
+> containers on Windows run through a WSL2/Hyper-V virtual machine. This is
+> substantially slower than running Overlord directly on Windows or on a
+> Linux host, and the extra virtualization/networking layer provides fewer
+> host-integration features.
+
+For the best experience, choose one of these:
+
+1. **Linux host:** run the provided Docker Compose deployment (recommended),
+   or use the native Linux scripts.
+2. **Windows host:** run Overlord directly on Windows using the
+   [native/bare-metal scripts](#native-bare-metal-installation).
+
+The Windows Docker Compose file remains available for compatibility and
+testing, but it is not the recommended Windows installation method.
+
+---
+
+## Docker Quick Start (Recommended on Linux)
+
+Docker is recommended on a Linux host. The macOS and Windows instructions are
+provided for compatibility and local testing; Windows users should prefer a
+native installation or move the server to Linux.
 
 > Windows and macOS use `docker-compose.windows.yml`. Linux uses the default `docker-compose.yml` (host networking).
 
@@ -43,10 +68,16 @@ After the first start, open `https://localhost:5173`. Default login is `admin` /
 
 ---
 
-### Windows
+### Windows (not recommended)
+
+> [!CAUTION]
+> Docker Desktop on Windows is virtualized, noticeably slower, and exposes
+> fewer Overlord features than a native Windows or Linux installation. Prefer
+> [Windows bare metal](#windows-recommended), or deploy the server on Linux
+> using the [Linux Docker instructions](#linux).
 
 <details>
-<summary>Step-by-step: Windows</summary>
+<summary>Compatibility/testing only: Windows Docker Desktop</summary>
 <br>
 
 **1. Install Docker Desktop**
@@ -270,16 +301,21 @@ docker compose -f docker-compose.windows.yml down
 
 ---
 
-## No Docker (.bat / .sh)
+## Native Bare-Metal Installation
 
-If you don't want Docker, use the included scripts.
+Use the included scripts to run without Docker. This is the recommended
+installation method on Windows.
 
 Prerequisites:
 
 - Bun in PATH
 - Go 1.21+ in PATH
 
-### Windows
+### Windows (recommended)
+
+> [!TIP]
+> This native Windows path avoids Docker Desktop's Linux VM and provides the
+> best Windows performance and feature availability.
 
 Development mode (starts server + client):
 
