@@ -110,10 +110,14 @@ RUN if [ -f dist-clients/BackstageCapture.x64.dll ]; then \
       echo "WARNING: BackstageCapture DLL not available (build with MSVC on Windows)"; \
     fi
 
-# Tailwind CSS, vendored frontend assets, minified public assets, and bundled Bun server runtime.
-RUN bun run build:public:prod \
-    && bun run build:bundle \
-    && test "$(wc -l < ./public/index.html)" -lt 20 \
+# Keep production build phases separate so BuildKit reports the exact slow or
+# failing phase and can cache each completed phase independently.
+RUN bun run build:css
+RUN bun run vendor
+RUN MINIFY_CONCURRENCY=4 bun run minify
+RUN bun run build:bundle
+
+RUN test "$(wc -l < ./public/index.html)" -lt 20 \
     && test "$(wc -l < ./public/assets/main.js)" -lt 50 \
     && test -s ./public/assets/tailwind.css \
     && test -d ./public/vendor/fontawesome \

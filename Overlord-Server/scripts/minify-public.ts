@@ -34,6 +34,10 @@ const htmlOpts = {
 type Stats = { js: number; css: number; html: number; savedBytes: number };
 const stats: Stats = { js: 0, css: 0, html: 0, savedBytes: 0 };
 let failures = 0;
+const requestedConcurrency = Number.parseInt(process.env.MINIFY_CONCURRENCY || "", 10);
+const minifyConcurrency = Number.isFinite(requestedConcurrency) && requestedConcurrency > 0
+  ? requestedConcurrency
+  : 4;
 
 async function collectFiles(dir: string, exts: Set<string>): Promise<string[]> {
   const results: string[] = [];
@@ -86,28 +90,48 @@ async function minifyHTML(filePath: string) {
   stats.html++;
 }
 
+async function runPool<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, Math.max(1, items.length)) },
+    async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex++];
+        await worker(item);
+      }
+    },
+  );
+  await Promise.all(workers);
+}
+
 // Collect all files
 const jsFiles = await collectFiles(path.join(publicDir, "assets"), new Set([".js"]));
 const cssFiles = await collectFiles(path.join(publicDir, "assets"), new Set([".css"]));
 const htmlFiles = await collectFiles(publicDir, new Set([".html"]));
 
-console.log(`Minifying ${jsFiles.length} JS, ${cssFiles.length} CSS, ${htmlFiles.length} HTML files...`);
+console.log(
+  `Minifying ${jsFiles.length} JS, ${cssFiles.length} CSS, ${htmlFiles.length} HTML files ` +
+  `(concurrency=${minifyConcurrency})...`,
+);
 
-// Process in parallel batches
-await Promise.all([
-  ...jsFiles.map((f) => minifyJS(f).catch((e) => {
+const jobs = [
+  ...jsFiles.map((file) => ({ kind: "JS", file, minify: minifyJS })),
+  ...cssFiles.map((file) => ({ kind: "CSS", file, minify: minifyCSS })),
+  ...htmlFiles.map((file) => ({ kind: "HTML", file, minify: minifyHTML })),
+];
+await runPool(jobs, minifyConcurrency, async ({ kind, file, minify }) => {
+  try {
+    await minify(file);
+  } catch (e) {
     failures++;
-    console.error(`JS error ${f}: ${e.message}`);
-  })),
-  ...cssFiles.map((f) => minifyCSS(f).catch((e) => {
-    failures++;
-    console.error(`CSS error ${f}: ${e.message}`);
-  })),
-  ...htmlFiles.map((f) => minifyHTML(f).catch((e) => {
-    failures++;
-    console.error(`HTML error ${f}: ${e.message}`);
-  })),
-]);
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`${kind} error ${file}: ${message}`);
+  }
+});
 
 console.log(
   `Done: ${stats.js} JS, ${stats.css} CSS, ${stats.html} HTML — saved ${(stats.savedBytes / 1024).toFixed(1)} KB`,

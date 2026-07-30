@@ -361,15 +361,20 @@ rmSync(ansiTmp, { force: true });
 console.log("Downloading countries GeoJSON ...");
 const geojsonDest = path.join(VENDOR, "geo-countries", "countries.geojson");
 ensureDir(path.dirname(geojsonDest));
+const geojsonController = new AbortController();
+const geojsonTimeout = setTimeout(() => geojsonController.abort(), 15_000);
 try {
   const resp = await fetch(
     "https://cdn.jsdelivr.net/gh/datasets/geo-countries@master/data/countries.geojson",
+    { signal: geojsonController.signal },
   );
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   await Bun.write(geojsonDest, resp);
   console.log("  GeoJSON saved (" + ((await Bun.file(geojsonDest).size) / 1024 / 1024).toFixed(1) + " MB)");
 } catch (err) {
   console.warn("  WARNING: Could not download GeoJSON. Map features may not work offline.", err);
+} finally {
+  clearTimeout(geojsonTimeout);
 }
 
 /* ── done ─────────────────────────────────────────────────────────── */
