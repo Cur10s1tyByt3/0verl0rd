@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { $ } from "bun";
+import AdmZip from "adm-zip";
 import { ensureDataDir } from "../paths";
 import { logger } from "../logger";
 
@@ -42,7 +43,54 @@ async function findSystemSgn(): Promise<string | null> {
   return null;
 }
 
-type AssetInfo = { tag: string; downloadUrl: string; assetName: string };
+type SgnArchiveFormat = "zip" | "tar.gz";
+type ReleaseAsset = { name: string; browser_download_url: string };
+type AssetInfo = {
+  tag: string;
+  downloadUrl: string;
+  assetName: string;
+  archiveFormat: SgnArchiveFormat;
+};
+
+export function selectSgnReleaseAsset(
+  assets: ReleaseAsset[],
+  platform = process.platform,
+  arch = process.arch,
+): Omit<AssetInfo, "tag"> | null {
+  const target = platform === "win32" && arch === "x64"
+    ? { triple: "x86_64-pc-windows-msvc", format: "zip" as const }
+    : platform === "linux" && arch === "x64"
+    ? { triple: "x86_64-unknown-linux-musl", format: "tar.gz" as const }
+    : platform === "darwin" && arch === "arm64"
+    ? { triple: "aarch64-apple-darwin", format: "tar.gz" as const }
+    : null;
+
+  if (target) {
+    const expectedName = `sgn-${target.triple}.${target.format}`.toLowerCase();
+    const exact = assets.find((asset) => asset.name.toLowerCase() === expectedName);
+    if (exact) {
+      return {
+        downloadUrl: exact.browser_download_url,
+        assetName: exact.name,
+        archiveFormat: target.format,
+      };
+    }
+  }
+
+  const osTag = platform === "win32" ? "windows" : platform === "darwin" ? "macos" : "linux";
+  const archTag = arch === "x64" ? "amd64" : arch === "ia32" ? "386" : arch;
+  const legacy = assets.find((asset) => {
+    const name = asset.name.toLowerCase();
+    return name.startsWith(`sgn_${osTag}_${archTag}`) && name.endsWith(".zip");
+  });
+  return legacy
+    ? {
+        downloadUrl: legacy.browser_download_url,
+        assetName: legacy.name,
+        archiveFormat: "zip",
+      }
+    : null;
+}
 
 async function fetchLatest(): Promise<AssetInfo | null> {
   try {
@@ -53,53 +101,48 @@ async function fetchLatest(): Promise<AssetInfo | null> {
     if (!res.ok) return null;
     const data = await res.json() as any;
     const tag: string = data.tag_name;
-    const assets: { name: string; browser_download_url: string }[] = data.assets ?? [];
-
-    // SGN release is named sgn_<os>_<arch>_<version>.zip
-    const osTag = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
-    const archTag = process.arch === "x64" ? "amd64" : process.arch === "ia32" ? "386" : process.arch;
-
-    const exact = assets.find(a => {
-      const n = a.name.toLowerCase();
-      return n.startsWith(`sgn_${osTag}_${archTag}`) && n.endsWith(".zip");
-    });
-    if (exact) return { tag, downloadUrl: exact.browser_download_url, assetName: exact.name };
-
-    const looseOs = assets.find(a => a.name.toLowerCase().includes(`_${osTag}_`) && a.name.endsWith(".zip"));
-    if (looseOs) return { tag, downloadUrl: looseOs.browser_download_url, assetName: looseOs.name };
-
-    return null;
+    const selected = selectSgnReleaseAsset(data.assets ?? []);
+    return selected ? { tag, ...selected } : null;
   } catch {
     return null;
   }
 }
 
-async function downloadAndExtract(url: string, dest: string): Promise<boolean> {
+async function downloadAndExtract(
+  url: string,
+  dest: string,
+  archiveFormat: SgnArchiveFormat,
+): Promise<boolean> {
   try {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     const res = await fetch(url);
     if (!res.ok) return false;
     const buf = await res.arrayBuffer();
-    const tmpZip = dest + ".tmp.zip";
-    fs.writeFileSync(tmpZip, Buffer.from(buf));
+    const tmpArchive = `${dest}.tmp.${archiveFormat === "zip" ? "zip" : "tar.gz"}`;
+    const tmpBinary = `${dest}.tmp.bin`;
+    fs.writeFileSync(tmpArchive, Buffer.from(buf));
     try {
-      const destDir = path.dirname(dest);
       const binName = process.platform === "win32" ? "sgn.exe" : "sgn";
-      const r = await $`unzip -o -j ${tmpZip} -d ${destDir}`.nothrow().quiet();
-      if (r.exitCode !== 0) return false;
-      const extracted = path.join(destDir, binName);
-      if (!fs.existsSync(extracted)) {
-        const entries = fs.readdirSync(destDir);
-        const found = entries.find(e => e.toLowerCase().startsWith("sgn") && !e.endsWith(".version") && !e.endsWith(".tmp.zip"));
-        if (!found) return false;
-        fs.renameSync(path.join(destDir, found), dest);
-      } else if (extracted !== dest) {
-        fs.renameSync(extracted, dest);
+      if (archiveFormat === "zip") {
+        const zip = new AdmZip(tmpArchive);
+        const entry = zip.getEntries().find((candidate) =>
+          !candidate.isDirectory &&
+          path.basename(candidate.entryName).toLowerCase() === binName.toLowerCase()
+        );
+        if (!entry) return false;
+        fs.writeFileSync(tmpBinary, entry.getData());
+      } else {
+        const result = await $`tar -xOzf ${tmpArchive} sgn`.nothrow().quiet();
+        if (result.exitCode !== 0 || result.stdout.length === 0) return false;
+        fs.writeFileSync(tmpBinary, result.stdout);
       }
-      try { fs.chmodSync(dest, 0o755); } catch {}
+
+      try { fs.chmodSync(tmpBinary, 0o755); } catch {}
+      fs.renameSync(tmpBinary, dest);
       return true;
     } finally {
-      try { fs.unlinkSync(tmpZip); } catch {}
+      try { fs.unlinkSync(tmpArchive); } catch {}
+      try { fs.unlinkSync(tmpBinary); } catch {}
     }
   } catch {
     return false;
@@ -149,7 +192,7 @@ export async function ensureSgn(
   }
 
   log(`SGN: downloading ${latest.assetName}…`);
-  const ok = await downloadAndExtract(latest.downloadUrl, bin);
+  const ok = await downloadAndExtract(latest.downloadUrl, bin, latest.archiveFormat);
   if (!ok) {
     if (binExists) {
       log(`SGN: download failed — using cached ${cached?.tag ?? "unknown"}`, "warn");

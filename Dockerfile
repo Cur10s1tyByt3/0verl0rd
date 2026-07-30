@@ -61,22 +61,23 @@ RUN DONUT_TAG=$(curl -sSf "https://api.github.com/repos/TheWover/donut/releases/
         echo "WARNING: Donut pre-fetch failed — will fall back to system PATH or download on first use"; \
     fi
 
-# Pre-fetch the latest SGN (Shikata Ga Nai) polymorphic encoder.
-# Used post-Donut to encode raw shellcode for AV/EDR evasion. The runtime
-# sgn-manager will re-check GitHub daily and update automatically; this
-# step just ensures a working binary is available offline / on first use.
+# Pre-fetch the latest Rust SGN (Shikata Ga Nai) binary. The Rust releases use
+# target-triple tarballs instead of the legacy sgn_linux_amd64_*.zip naming.
+# The runtime sgn-manager re-checks GitHub daily; this provides an offline
+# binary for supported Docker architectures on first start.
 RUN SGN_ASSET=$(curl -sSf "https://api.github.com/repos/EgeBalci/sgn/releases/latest" \
-        | grep -oE '"browser_download_url":[[:space:]]*"[^"]*sgn_linux_amd64[^"]*\.zip"' \
+        | grep -oE '"browser_download_url":[[:space:]]*"[^"]*sgn-x86_64-unknown-linux-musl\.tar\.gz"' \
         | head -1 | cut -d'"' -f4) \
-    && if [ -n "${SGN_ASSET}" ] && curl -sSfL "${SGN_ASSET}" -o /tmp/sgn.zip \
-       && unzip -j -o /tmp/sgn.zip -d /usr/local/bin >/dev/null 2>&1 \
+    && if [ "${TARGETARCH:-amd64}" = "amd64" ] \
+       && [ -n "${SGN_ASSET}" ] \
+       && curl -sSfL "${SGN_ASSET}" \
+          | tar -xzf - -C /usr/local/bin sgn \
        && [ -f /usr/local/bin/sgn ]; then \
         chmod +x /usr/local/bin/sgn; \
         echo "SGN pre-installed from ${SGN_ASSET}"; \
     else \
-        echo "WARNING: SGN pre-fetch failed — will fall back to system PATH or download on first use"; \
-    fi \
-    && rm -f /tmp/sgn.zip
+        echo "WARNING: SGN Rust binary is unavailable for ${TARGETARCH:-unknown} — will fall back to system PATH or runtime download"; \
+    fi
 
 # Full bun install (includes devDeps needed for tailwind / vendor / minify steps)
 COPY Overlord-Server/package.json Overlord-Server/bun.lock* ./
