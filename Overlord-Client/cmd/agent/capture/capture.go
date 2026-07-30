@@ -111,7 +111,7 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 	codec := desktopCodec()
 	directCanvasVideo := (codec == "h264" || codec == "hevc") &&
 		(codec != "h264" || !useDesktopSoftwareH264()) &&
-		useDesktopDuplication() &&
+		directDesktopVideoEnabled() &&
 		!(codec == "h264" && webrtcpub.IsActive(webrtcpub.KindDesktop))
 	directSlotAcquired := false
 	if directCanvasVideo {

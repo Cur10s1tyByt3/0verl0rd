@@ -16,6 +16,10 @@ func directVideoKeyframeDue(requested bool, nowNs, lastKeyframeNs int64) bool {
 	return videoKeyframeEvery > 0 && time.Duration(nowNs-lastKeyframeNs) >= videoKeyframeEvery
 }
 
+func directDesktopVideoEnabled() bool {
+	return useDesktopDuplication()
+}
+
 func tryBuildDirectH264Frame(display int) (wire.Frame, time.Duration, time.Duration, bool, error) {
 	codec := desktopCodec()
 	if (codec != "h264" && codec != "hevc") || (codec == "h264" && useDesktopSoftwareH264()) || !useDesktopDuplication() {
