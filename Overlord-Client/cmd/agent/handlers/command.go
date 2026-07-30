@@ -80,6 +80,7 @@ type backstageInputEvent struct {
 	button  int
 	delta   int32
 	vk      uint16
+	text    string
 }
 
 type voiceRuntime struct {
@@ -233,7 +234,7 @@ func ensurebackstageInputWorker() {
 						log.Printf("backstage input worker: mouse_wheel failed: %v", err)
 					}
 				case BackstageInputKeyDown:
-					if err := capture.BackstageInputKeyDown(ev.vk); err != nil {
+					if err := capture.BackstageInputKeyDown(ev.vk, ev.text); err != nil {
 						log.Printf("backstage input worker: key_down vk=%d failed: %v", ev.vk, err)
 					}
 				case BackstageInputKeyUp:
@@ -1736,9 +1737,13 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		}
 		payload, _ := envelope["payload"].(map[string]interface{})
 		code := ""
+		text := ""
 		if payload != nil {
 			if v, ok := payload["code"].(string); ok {
 				code = v
+			}
+			if v, ok := payload["text"].(string); ok {
+				text = v
 			}
 		}
 		if vk := keyCodeToVKbackstage(code); vk != 0 {
@@ -1750,7 +1755,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 				capture.VirtualInputKeyDown(vk)
 				return nil
 			}
-			enqueuebackstageInput(backstageInputEvent{kind: BackstageInputKeyDown, vk: vk})
+			enqueuebackstageInput(backstageInputEvent{kind: BackstageInputKeyDown, vk: vk, text: text})
 		}
 		return nil
 	case "backstage_key_up":

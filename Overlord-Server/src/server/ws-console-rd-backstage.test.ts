@@ -418,6 +418,34 @@ describe("remote desktop viewer control", () => {
 });
 
 describe("backstage viewer control", () => {
+  test("forwards browser-resolved Unicode text with backstage key presses", () => {
+    const clientId = `backstage-unicode-${Date.now().toString(36)}`;
+    const { agentWs } = createClient(clientId);
+    const viewer = createMockWs({ role: "backstage_viewer", clientId });
+
+    handlebackstageViewerOpen(viewer as any);
+    backstageStreamingState.set(clientId, {
+      isStreaming: true,
+      virtualMode: false,
+      display: 0,
+      quality: 90,
+      codec: "",
+      maxFps: 120,
+      lastFps: 0,
+    });
+
+    handlebackstageViewerMessage(viewer as any, JSON.stringify({
+      type: "backstage_key_down",
+      key: "ж",
+      code: "KeyS",
+      text: "ж",
+    }));
+
+    const command = agentCommands(agentWs)
+      .find((msg) => msg.commandType === "backstage_key_down");
+    expect(command?.payload).toEqual({ key: "ж", code: "KeyS", text: "ж" });
+  });
+
   test("forwards backstage_stop even when server stream state is stale", () => {
     const clientId = `backstage-stale-stop-${Date.now().toString(36)}`;
     const { agentWs } = createClient(clientId);

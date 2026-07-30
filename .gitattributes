@@ -4,6 +4,8 @@
 # Force LF line endings for Go source files
 *.go text eol=lf
 
+Overlord-Server/src/generated/wire-contract.ts text eol=lf
+
 # Force CRLF for Windows batch files
 *.bat text eol=crlf
 

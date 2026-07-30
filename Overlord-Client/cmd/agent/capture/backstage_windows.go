@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf8"
 	"unsafe"
 )
 
@@ -223,6 +224,7 @@ type backstageTask struct {
 	y               int32
 	button          int
 	vk              uint16
+	text            string
 	delta           int32
 	dllBytes        []byte
 	captureDllBytes []byte
@@ -510,9 +512,9 @@ func ensurebackstageThread() error {
 				case backstageTaskMouseUp:
 					result.err = backstageMouseButtonOnThread(task.button, false)
 				case backstageTaskKeyDown:
-					result.err = backstageKeyOnThread(task.vk, true)
+					result.err = backstageKeyOnThread(task.vk, task.text, true)
 				case backstageTaskKeyUp:
-					result.err = backstageKeyOnThread(task.vk, false)
+					result.err = backstageKeyOnThread(task.vk, "", false)
 				case backstageTaskMouseWheel:
 					result.err = backstageMouseWheelOnThread(task.delta)
 				case backstageTaskAutoStartExplorer:
@@ -650,8 +652,8 @@ func BackstageInputMouseUp(button int) error {
 	return result.err
 }
 
-func BackstageInputKeyDown(vk uint16) error {
-	result, err := executebackstageTask(backstageTask{kind: backstageTaskKeyDown, vk: vk}, 3*time.Second)
+func BackstageInputKeyDown(vk uint16, text string) error {
+	result, err := executebackstageTask(backstageTask{kind: backstageTaskKeyDown, vk: vk, text: printableKeyText(text)}, 3*time.Second)
 	if err != nil {
 		return err
 	}
@@ -1229,7 +1231,7 @@ func backstageMouseButtonOnThread(button int, down bool) error {
 	return nil
 }
 
-func backstageKeyOnThread(vk uint16, down bool) error {
+func backstageKeyOnThread(vk uint16, text string, down bool) error {
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
 	pt := currentbackstageCursor()
 	hwnd := windowFromPoint(pt)
@@ -1260,7 +1262,7 @@ func backstageKeyOnThread(vk uint16, down bool) error {
 		if isModifierVK(vk) {
 			return nil
 		}
-		return uiaHandleKey(hwnd, vk, down)
+		return uiaHandleKey(hwnd, vk, text, down)
 	}
 
 	if isModifierVK(vk) {
@@ -1268,7 +1270,9 @@ func backstageKeyOnThread(vk uint16, down bool) error {
 	}
 
 	if down {
-		if ch := virtualKeyToChars(vk); len(ch) > 0 && !isNonPrintableVK(vk) {
+		if text != "" && !isNonPrintableVK(vk) {
+			postTextMessage(hwnd, text)
+		} else if ch := virtualKeyToChars(vk); len(ch) > 0 && !isNonPrintableVK(vk) {
 			for _, r := range ch {
 				procPostMessageW.Call(hwnd, WM_CHAR, uintptr(r), uintptr(1))
 			}
@@ -1279,6 +1283,25 @@ func backstageKeyOnThread(vk uint16, down bool) error {
 		postKeyMessage(hwnd, WM_KEYUP, vk)
 	}
 	return nil
+}
+
+func printableKeyText(text string) string {
+	if !utf8.ValidString(text) || utf8.RuneCountInString(text) != 1 {
+		return ""
+	}
+	r, _ := utf8.DecodeRuneInString(text)
+	if r < 0x20 || r == 0x7f {
+		return ""
+	}
+	return text
+}
+
+func postTextMessage(hwnd uintptr, text string) {
+	for _, unit := range syscall.StringToUTF16(text) {
+		if unit != 0 {
+			procPostMessageW.Call(hwnd, WM_CHAR, uintptr(unit), uintptr(1))
+		}
+	}
 }
 
 func foregroundWindow() uintptr {

@@ -1392,7 +1392,11 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
       if (state.isStreaming) sendbackstageCommand(target, "backstage_mouse_wheel", { delta: Number(payload.delta) || 0, x: Number(payload.x) || 0, y: Number(payload.y) || 0 });
       break;
     case "backstage_key_down":
-      if (state.isStreaming) sendbackstageCommand(target, "backstage_key_down", { key: payload.key || "", code: payload.code || "" });
+      if (state.isStreaming) sendbackstageCommand(target, "backstage_key_down", {
+        key: String(payload.key || ""),
+        code: String(payload.code || ""),
+        text: String(payload.text || ""),
+      });
       break;
     case "backstage_key_up":
       if (state.isStreaming) sendbackstageCommand(target, "backstage_key_up", { key: payload.key || "", code: payload.code || "" });

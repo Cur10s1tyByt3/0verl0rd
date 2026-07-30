@@ -1740,7 +1740,16 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const kbdCapture = createKeyboardCapture({
     container: canvasContainer,
     sendKeyDown: (e) => {
-      if (desiredStreaming) sendCmd("backstage_key_down", { key: e.key, code: e.code });
+      if (!desiredStreaming) return;
+      const altGraph = typeof e.getModifierState === "function" && e.getModifierState("AltGraph");
+      const printable = typeof e.key === "string"
+        && Array.from(e.key).length === 1
+        && (!e.ctrlKey && !e.metaKey && !e.altKey || altGraph);
+      sendCmd("backstage_key_down", {
+        key: e.key,
+        code: e.code,
+        text: printable ? e.key : "",
+      });
     },
     sendKeyUp: (e) => {
       if (desiredStreaming) sendCmd("backstage_key_up", { key: e.key, code: e.code });

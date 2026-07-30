@@ -274,7 +274,8 @@ func IsServerToAgentMessageType(value string) bool {
 async function emit(path: string, content: string): Promise<void> {
   if (checkOnly) {
     const current = await Bun.file(path).text().catch(() => "");
-    if (current !== content) {
+    const normalizeLineEndings = (value: string) => value.replace(/\r\n/g, "\n");
+    if (normalizeLineEndings(current) !== normalizeLineEndings(content)) {
       console.error(`Generated artifact is stale: ${path}`);
       process.exitCode = 1;
     }

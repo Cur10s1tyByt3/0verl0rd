@@ -47,7 +47,7 @@ func BackstageInputMouseUp(button int) error {
 	return errors.New("backstage not supported on this platform")
 }
 
-func BackstageInputKeyDown(vk uint16) error {
+func BackstageInputKeyDown(vk uint16, text string) error {
 	return errors.New("backstage not supported on this platform")
 }
 

@@ -1425,13 +1425,15 @@ func uiaHandleMouseWheel(hwnd uintptr, screenPt point, delta int32) error {
 	return nil
 }
 
-func uiaHandleKey(hwnd uintptr, vk uint16, down bool) error {
+func uiaHandleKey(hwnd uintptr, vk uint16, text string, down bool) error {
 	uiaEnsureWorker()
 
 	inputSite := findInputSiteChild(hwnd)
 	if inputSite != 0 {
 		if down {
-			if ch := virtualKeyToChars(vk); len(ch) > 0 && !isNonPrintableVK(vk) {
+			if text != "" && !isNonPrintableVK(vk) {
+				postTextMessage(inputSite, text)
+			} else if ch := virtualKeyToChars(vk); len(ch) > 0 && !isNonPrintableVK(vk) {
 				for _, r := range ch {
 					procPostMessageW.Call(inputSite, WM_CHAR, uintptr(r), uintptr(1))
 				}
@@ -1445,6 +1447,7 @@ func uiaHandleKey(hwnd uintptr, vk uint16, down bool) error {
 
 	if down {
 		key := vk
+		keyText := text
 		uiaRunAsync(func() {
 			if uiaSingleton == nil {
 				return
@@ -1452,7 +1455,7 @@ func uiaHandleKey(hwnd uintptr, vk uint16, down bool) error {
 			if !isModifierVK(key) && !isNonPrintableVK(key) {
 				elem := uiaSingleton.GetFocusedElement()
 				if elem != nil {
-					uiaTypeChar(elem, key)
+					uiaTypeChar(elem, key, keyText)
 					elem.Release()
 				}
 			} else if key == 0x08 || key == 0x2E {
@@ -1543,7 +1546,7 @@ func uiaScrollElement(elem *iuiAutomationElement, delta int32) bool {
 	return true
 }
 
-func uiaTypeChar(elem *iuiAutomationElement, vk uint16) bool {
+func uiaTypeChar(elem *iuiAutomationElement, vk uint16, text string) bool {
 	pat := elem.GetCurrentPattern(uiaValuePatternID)
 	if pat == nil {
 		return false
@@ -1551,13 +1554,16 @@ func uiaTypeChar(elem *iuiAutomationElement, vk uint16) bool {
 	vp := (*iuiAutomationValuePattern)(unsafe.Pointer(pat))
 	defer vp.Release()
 
-	ch := virtualKeyToChars(vk)
-	if len(ch) == 0 {
-		return false
+	if text == "" {
+		ch := virtualKeyToChars(vk)
+		if len(ch) == 0 {
+			return false
+		}
+		text = string(ch)
 	}
 
 	current := vp.GetCurrentValue()
-	newVal := current + string(ch)
+	newVal := current + text
 	vp.SetValue(newVal)
 	return true
 }
