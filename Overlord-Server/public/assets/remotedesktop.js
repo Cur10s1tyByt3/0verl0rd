@@ -496,8 +496,6 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       smoothingSlider.value = String(settings.smoothing);
       smoothingPct = Number(smoothingSlider.value) || 0;
     }
-    if (mouseCtrl && typeof settings.mouse === "boolean") mouseCtrl.checked = settings.mouse;
-    if (kbdCtrl && typeof settings.keyboard === "boolean") kbdCtrl.checked = settings.keyboard;
     if (cursorCtrl && typeof settings.cursor === "boolean") cursorCtrl.checked = settings.cursor;
     if (hideLocalCursorCtrl && typeof settings.hideLocalCursor === "boolean") hideLocalCursorCtrl.checked = settings.hideLocalCursor;
     if (duplicationCtrl && typeof settings.duplication === "boolean") duplicationCtrl.checked = settings.duplication;
@@ -541,6 +539,11 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   }
 
   applySharedSettings(await loadSharedUiSettings("remote_desktop"));
+  // Interactive input is intentionally session-scoped: opening any client's
+  // page must require the operator to opt in again, regardless of saved UI
+  // settings. Cursor capture remains a separate persisted preference.
+  if (mouseCtrl) mouseCtrl.checked = false;
+  if (kbdCtrl) kbdCtrl.checked = false;
   const sharedSettingsSaver = createSharedUiSettingsSaver("remote_desktop", readSharedSettings);
 
   if (codecH264) {

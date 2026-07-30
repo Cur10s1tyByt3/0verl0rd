@@ -184,8 +184,6 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     setSelectValue(targetFpsSelect, settings.targetFps);
     setSelectValue(webrtcMode, "off");
     if (qualitySlider && settings.quality !== undefined) qualitySlider.value = String(settings.quality);
-    if (mouseCtrl && typeof settings.mouse === "boolean") mouseCtrl.checked = settings.mouse;
-    if (kbdCtrl && typeof settings.keyboard === "boolean") kbdCtrl.checked = settings.keyboard;
     if (clipboardSyncCtrl && typeof settings.clipboardSync === "boolean") clipboardSyncCtrl.checked = settings.clipboardSync;
     if (uiaCtrl && typeof settings.uia === "boolean") uiaCtrl.checked = settings.uia;
     prefersH264 = false;
@@ -220,6 +218,11 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   }
 
   applySharedSettings(await loadSharedUiSettings("backstage"));
+  // Interactive input is intentionally session-scoped: opening any client's
+  // page must require the operator to opt in again, regardless of saved UI
+  // settings.
+  if (mouseCtrl) mouseCtrl.checked = false;
+  if (kbdCtrl) kbdCtrl.checked = false;
   const sharedSettingsSaver = createSharedUiSettingsSaver("backstage", readSharedSettings);
 
   if (codecH264) {
