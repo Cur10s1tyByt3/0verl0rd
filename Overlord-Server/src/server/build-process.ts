@@ -31,6 +31,15 @@ export function createAgentTlsPinsLdflag(pins: string[]): string {
   return `-X overlord-client/cmd/agent/config.DefaultTLSSPKIPins=${pins.join(",")}`;
 }
 
+export function createBaseGoLdflags(targetOs: string, stripDebug: boolean): string {
+  const flags: string[] = [];
+  if (stripDebug) flags.push("-s", "-w", "-buildid=");
+
+  if (targetOs === "android") flags.push("-checklinkname=0");
+
+  return flags.join(" ");
+}
+
 function isClientModuleDir(dir: string): boolean {
   return (
     fs.existsSync(path.join(dir, "go.mod")) &&
@@ -1213,7 +1222,7 @@ func runBoundFiles() {
         );
       }
 
-      let ldflags = config.stripDebug !== false ? "-s -w -buildid=" : "";
+      let ldflags = createBaseGoLdflags(effectiveOs, config.stripDebug !== false);
 
       if (config.serverUrl) {
         const serverFlag = `-X overlord-client/cmd/agent/config.DefaultServerURL=${config.serverUrl}`;
