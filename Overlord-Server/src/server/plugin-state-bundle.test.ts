@@ -105,6 +105,7 @@ describe("loadPluginBundle", () => {
       apiVersion: 2,
       runtime: "native",
       nativeLoader: "loadlibraryex",
+      autoLoadByDefault: true,
       nativeEntrypoints: {
         onLoad: "StartPlugin",
         onEvent: "HandlePluginEvent",
@@ -123,6 +124,7 @@ describe("loadPluginBundle", () => {
     const manifest = JSON.parse(await readFile(join(root, "native-loader-demo", "manifest.json"), "utf-8"));
 
     expect(manifest.nativeLoader).toBe("os");
+    expect(manifest.autoLoadByDefault).toBe(true);
     expect(manifest.nativeEntrypoints.onLoad).toBe("StartPlugin");
     expect(manifest.nativeEntrypoints.onEvent).toBe("HandlePluginEvent");
     expect(manifest.nativeEntrypoints.onUnload).toBe("StopPlugin");

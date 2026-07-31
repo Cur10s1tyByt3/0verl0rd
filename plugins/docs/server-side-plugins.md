@@ -37,8 +37,8 @@ export default {
     ctx.log.info("server plugin started");
   },
 
-  async onEvent(ctx, event) {
-    ctx.log.info(`plugin event from ${event.clientId}`);
+  async onEvent(ctx, clientId, event, payload) {
+    ctx.log.info(`${event} from ${clientId}: ${JSON.stringify(payload)}`);
   },
 
   rpc: {
@@ -52,6 +52,8 @@ export default {
   },
 };
 ```
+
+`onEvent` receives events emitted by that plugin's client module.
 
 ## The `ctx` Object
 

@@ -53,6 +53,7 @@ Auto-load notes:
 | WASM needs | WASM plugins with unapproved needs are blocked. |
 | Persistence | Auto-load state is saved in `.plugin-state.json`. |
 | Platform matching | WASM is universal; legacy native requires a matching binary. |
+| Bundle default | `autoLoadByDefault: true` enables auto-load only after the plugin passes trusted enablement or an administrator explicitly confirms enablement. |
 
 ## Useful APIs
 

@@ -210,6 +210,7 @@ export async function ensurePluginExtracted(
     apiVersion: Number(extraConfig.apiVersion) === 2 || runtime === "wasm" ? 2 : 1,
     runtime,
     ...(nativeLoader && { nativeLoader }),
+    ...(extraConfig.autoLoadByDefault === true && { autoLoadByDefault: true }),
     ...(nativeEntrypoints && { nativeEntrypoints }),
     version: extraConfig.version || "1.0.0",
     description: extraConfig.description,

@@ -85,6 +85,13 @@ Native plugins can choose the Windows loader mode and exported ABI names:
 
 `navbar.icon` accepts a Font Awesome 6 solid icon class such as `fa-cube`, `fa-key`, or `fa-network-wired`. If the plugin is enabled, navbar plugins appear in the Plugin Apps group and open at `/plugins/<id>`.
 
+Client-side bundles can set `autoLoadByDefault: true`. The default is applied only
+after a trusted plugin is enabled automatically or an administrator explicitly
+confirms and enables an untrusted plugin. An existing administrator auto-load
+choice is preserved across reinstalls.
+When the default is applied, compatible connected clients are loaded immediately;
+future clients receive the plugin as they connect.
+
 ## Dashboard Badges
 
 Plugins can contribute compact badges to client cards on the main dashboard. Declare the dashboard integration in `config.json`:

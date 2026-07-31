@@ -217,6 +217,7 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
     }
   }
 
+
   function rpc(
     pluginId: string,
     method: string,

@@ -8,7 +8,11 @@ import { requireAnyPermission, requireClientAccess, requirePermission, requirePl
 import { canUserAccessClient, canUserAccessPlugin } from "../../users";
 import * as clientManager from "../../clientManager";
 import { metrics } from "../../metrics";
-import { encodeMessage, type PluginSignatureInfo } from "../../protocol";
+import {
+  encodeMessage,
+  type PluginManifest as ProtocolPluginManifest,
+  type PluginSignatureInfo,
+} from "../../protocol";
 import { getConfig, updatePluginsConfig } from "../../config";
 import { getOrVerifySignature, BUILTIN_TRUSTED_KEYS } from "../plugin-signature";
 import type { PluginRuntime } from "../plugin-runtime/runtime";
@@ -16,17 +20,9 @@ import { arePluginNeedsApproved, computePluginNeedsHash, getPluginPull, deletePl
 import { isAuthorizedAgentRequest } from "../agent-auth";
 import { logger } from "../../logger";
 
-type PluginManifest = {
-  id: string;
-  name: string;
+type PluginManifest = ProtocolPluginManifest & {
   signature?: PluginSignatureInfo;
-  hasServer?: boolean;
-  apiVersion?: number;
-  runtime?: string;
-  wasm?: string;
-  needs?: any;
   needsHash?: string;
-  dashboard?: any;
 };
 
 type PluginBundle = {
@@ -116,6 +112,20 @@ export async function handlePluginRoutes(
       },
       { status: 428 },
     );
+  }
+
+  async function loadPluginOnConnectedClients(pluginId: string): Promise<void> {
+    const allClients = clientManager.getAllClients();
+    for (const [clientId, client] of allClients) {
+      if (deps.isPluginLoaded(clientId, pluginId) || deps.isPluginLoading(clientId, pluginId)) continue;
+      try {
+        const bundle = await deps.loadPluginBundle(pluginId, client.os, client.arch);
+        deps.markPluginLoading(clientId, pluginId);
+        deps.sendPluginBundle(client, bundle);
+        metrics.recordCommand("plugin_load");
+      } catch {
+      }
+    }
   }
 
   if (req.method === "GET" && url.pathname.startsWith("/api/plugins/pull/")) {
@@ -531,7 +541,15 @@ export async function handlePluginRoutes(
     const uploadedManifest = await loadManifest(pluginId);
 
     if (deps.pluginState.enabled[pluginId] === undefined) {
-      deps.pluginState.enabled[pluginId] = sigInfo.trusted === true && needsApproved(uploadedManifest);
+      const enabledByDefault = sigInfo.trusted === true && needsApproved(uploadedManifest);
+      deps.pluginState.enabled[pluginId] = enabledByDefault;
+      if (
+        enabledByDefault &&
+        uploadedManifest.runtime !== "server" &&
+        uploadedManifest.autoLoadByDefault === true
+      ) {
+        deps.pluginState.autoLoad[pluginId] = true;
+      }
       await deps.savePluginState();
     }
 
@@ -543,6 +561,9 @@ export async function handlePluginRoutes(
       } catch {}
     } else if (deps.pluginRuntime.isRunning(pluginId)) {
       await deps.pluginRuntime.stopPlugin(pluginId);
+    }
+    if (deps.pluginState.enabled[pluginId] && deps.pluginState.autoLoad[pluginId]) {
+      await loadPluginOnConnectedClients(pluginId);
     }
 
     return Response.json({ ok: true, id: pluginId, enabled: deps.pluginState.enabled[pluginId], signature: sigInfo });
@@ -587,6 +608,12 @@ export async function handlePluginRoutes(
     }
 
     deps.pluginState.enabled[pluginId] = enabled;
+    if (enabled && deps.pluginState.autoLoad[pluginId] === undefined) {
+      const manifest = await loadManifest(pluginId);
+      if (manifest.runtime !== "server" && manifest.autoLoadByDefault === true) {
+        deps.pluginState.autoLoad[pluginId] = true;
+      }
+    }
     await deps.savePluginState();
 
     if (enabled) {
@@ -595,6 +622,9 @@ export async function handlePluginRoutes(
       }
     } else if (deps.pluginRuntime.isRunning(pluginId)) {
       await deps.pluginRuntime.stopPlugin(pluginId);
+    }
+    if (enabled && deps.pluginState.autoLoad[pluginId]) {
+      await loadPluginOnConnectedClients(pluginId);
     }
 
     return Response.json({ ok: true, id: pluginId, enabled });
@@ -658,17 +688,7 @@ export async function handlePluginRoutes(
     await deps.savePluginState();
 
     if (autoLoad) {
-      const allClients = clientManager.getAllClients();
-      for (const [cid, client] of allClients) {
-        if (deps.isPluginLoaded(cid, pluginId) || deps.isPluginLoading(cid, pluginId)) continue;
-        try {
-          const bundle = await deps.loadPluginBundle(pluginId, client.os, client.arch);
-          deps.markPluginLoading(cid, pluginId);
-          deps.sendPluginBundle(client, bundle);
-          metrics.recordCommand("plugin_load");
-        } catch {
-        }
-      }
+      await loadPluginOnConnectedClients(pluginId);
     }
 
     return Response.json({
