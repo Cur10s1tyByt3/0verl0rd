@@ -1298,6 +1298,18 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		capture.SetbackstageDXGIEnabled(dxgiEnabled)
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
+	case "backstage_enable_printwindow_fallback":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		enabled := true
+		if payload != nil {
+			if v, ok := payload["enabled"].(bool); ok {
+				enabled = v
+			}
+		}
+		log.Printf("backstage: per-window PrintWindow fallback %v", enabled)
+		capture.SetbackstagePrintWindowFallbackEnabled(enabled)
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
 	case "backstage_enable_uia":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		uiaEnabled := true

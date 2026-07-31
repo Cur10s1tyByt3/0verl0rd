@@ -117,6 +117,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const statusEl = document.getElementById("streamStatus");
   const clipboardSyncCtrl = document.getElementById("clipboardSyncCtrl");
   const uiaCtrl = document.getElementById("uiaCtrl");
+  const printWindowFallbackCtrl = document.getElementById("printWindowFallbackCtrl");
   const backstageResolutionSelect = document.getElementById("backstageResolutionSelect");
   const targetFpsSelect = document.getElementById("targetFpsSelect");
   let whepClient = null;
@@ -132,6 +133,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     if (mouseCtrl) sendCmd("backstage_enable_mouse", { enabled: mouseCtrl.checked });
     if (kbdCtrl) sendCmd("backstage_enable_keyboard", { enabled: kbdCtrl.checked });
     if (uiaCtrl) sendCmd("backstage_enable_uia", { enabled: uiaCtrl.checked });
+    if (printWindowFallbackCtrl) {
+      sendCmd("backstage_enable_printwindow_fallback", { enabled: printWindowFallbackCtrl.checked });
+    }
     pushbackstageResolution();
   }
   let activeClientId = clientId;
@@ -186,6 +190,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     if (qualitySlider && settings.quality !== undefined) qualitySlider.value = String(settings.quality);
     if (clipboardSyncCtrl && typeof settings.clipboardSync === "boolean") clipboardSyncCtrl.checked = settings.clipboardSync;
     if (uiaCtrl && typeof settings.uia === "boolean") uiaCtrl.checked = settings.uia;
+    if (printWindowFallbackCtrl && typeof settings.printWindowFallback === "boolean") {
+      printWindowFallbackCtrl.checked = settings.printWindowFallback;
+    }
     prefersH264 = false;
     const cloneToggle = document.getElementById("backstageCloneToggle");
     const cloneLiteToggle = document.getElementById("backstageCloneLiteToggle");
@@ -211,6 +218,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       keyboard: !!kbdCtrl?.checked,
       clipboardSync: !!clipboardSyncCtrl?.checked,
       uia: !!uiaCtrl?.checked,
+      printWindowFallback: printWindowFallbackCtrl?.checked !== false,
       cloneProfile: document.getElementById("backstageCloneToggle")?.checked !== false,
       cloneLite: document.getElementById("backstageCloneLiteToggle")?.checked === true,
       killIfRunning: document.getElementById("backstageKillIfRunningToggle")?.checked === true,
@@ -1278,6 +1286,12 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   if (uiaCtrl) {
     uiaCtrl.addEventListener("change", function () {
       sendCmd("backstage_enable_uia", { enabled: uiaCtrl.checked });
+      sharedSettingsSaver.scheduleSave();
+    });
+  }
+  if (printWindowFallbackCtrl) {
+    printWindowFallbackCtrl.addEventListener("change", function () {
+      sendCmd("backstage_enable_printwindow_fallback", { enabled: printWindowFallbackCtrl.checked });
       sharedSettingsSaver.scheduleSave();
     });
   }

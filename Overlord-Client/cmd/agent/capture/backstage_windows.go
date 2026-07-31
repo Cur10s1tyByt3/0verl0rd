@@ -32,8 +32,8 @@ var (
 	procGetWindow                = user32.NewProc("GetWindow")
 	procGetTopWindow             = user32.NewProc("GetTopWindow")
 	procCreateProcessW           = kernel32.NewProc("CreateProcessW")
-	procSendInputbackstage            = user32.NewProc("SendInput")
-	procGetCursorPosbackstage         = user32.NewProc("GetCursorPos")
+	procSendInputbackstage       = user32.NewProc("SendInput")
+	procGetCursorPosbackstage    = user32.NewProc("GetCursorPos")
 	procWindowFromPoint          = user32.NewProc("WindowFromPoint")
 	procScreenToClient           = user32.NewProc("ScreenToClient")
 	procPostMessageW             = user32.NewProc("PostMessageW")
@@ -148,7 +148,7 @@ const (
 	GA_ROOT                = 2
 	SMTO_ABORTIFHUNG       = 0x0002
 
-	GWL_EXSTYLE     = -20
+	GWL_EXSTYLE      = -20
 	WS_EX_TOOLWINDOW = 0x00000080
 )
 
@@ -377,6 +377,7 @@ func CleanupbackstageDesktop() {
 	defer backstageDesktopMu.Unlock()
 
 	backstageCleanupFrameReaders()
+	backstageCleanupDWMThumbnails()
 
 	backstageFreeCapCache()
 
@@ -592,6 +593,9 @@ func BackstageKillAll() error {
 
 	pids := make(map[uint32]struct{})
 	cb := syscall.NewCallback(func(hwnd, _ uintptr) uintptr {
+		if backstageIsDWMHost(hwnd) {
+			return 1
+		}
 		var pid uint32
 		procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
 		if pid != 0 {
@@ -889,6 +893,18 @@ func BackstageCaptureDisplayOnThread(display int) (*image.RGBA, error) {
 	if dstW <= 0 || dstH <= 0 {
 		dstW = srcW
 		dstH = srcH
+	}
+
+	if dwmHDC, dwmBuf, ok := backstageEnsureDWMCompCache(dstW, dstH); ok {
+		for i := range dwmBuf {
+			dwmBuf[i] = 0
+		}
+		if drawbackstageStagingFromDWM(dwmHDC, bounds, dstW, dstH, dwmBuf) {
+			swapRB(dwmBuf)
+			img := GetRGBA(dstW, dstH)
+			copy(img.Pix, dwmBuf)
+			return img, nil
+		}
 	}
 
 	capW := srcW
@@ -1312,7 +1328,7 @@ func foregroundWindow() uintptr {
 func findAnyVisibleTopLevelWindow() uintptr {
 	hwnd := getTopWindow(0)
 	for hwnd != 0 {
-		if isWindowVisible(hwnd) {
+		if !backstageIsDWMHost(hwnd) && isWindowVisible(hwnd) {
 			return hwnd
 		}
 		hwnd = getWindow(hwnd, GW_HWNDNEXT)
@@ -1326,6 +1342,9 @@ func makeLParam(x, y int32) uintptr {
 
 func windowFromPoint(pt point) uintptr {
 	ret, _, _ := procWindowFromPoint.Call(uintptr(*(*int64)(unsafe.Pointer(&pt))))
+	if backstageIsDWMHost(ret) {
+		return 0
+	}
 	return ret
 }
 
@@ -1678,7 +1697,7 @@ func drawbackstageWindowsToBuffer(hdcScreen uintptr, bounds image.Rectangle, tar
 
 	drawn := 0
 	for hwnd != 0 {
-		if drawbackstageWindow(hdcScreen, hwnd, bounds, target, targetStride) {
+		if !backstageIsDWMHost(hwnd) && drawbackstageWindow(hdcScreen, hwnd, bounds, target, targetStride) {
 			drawn++
 		}
 		alive[hwnd] = true
@@ -1751,10 +1770,13 @@ var dxgiFrameBuf []byte
 
 var backstageDXGIEnabled atomic.Bool
 var backstageUIAEnabled atomic.Bool
+var backstagePrintWindowFallbackEnabled atomic.Bool
+var backstagePrintWindowFallbackLogNs atomic.Int64
 
 func init() {
 	backstageDXGIEnabled.Store(false) // disabled by default
 	backstageUIAEnabled.Store(false)  // disabled by default
+	backstagePrintWindowFallbackEnabled.Store(true)
 }
 
 func SetbackstageDXGIEnabled(enabled bool) {
@@ -1771,6 +1793,14 @@ func SetbackstageUIAEnabled(enabled bool) {
 
 func GetbackstageUIAEnabled() bool {
 	return backstageUIAEnabled.Load()
+}
+
+func SetbackstagePrintWindowFallbackEnabled(enabled bool) {
+	backstagePrintWindowFallbackEnabled.Store(enabled)
+}
+
+func GetbackstagePrintWindowFallbackEnabled() bool {
+	return backstagePrintWindowFallbackEnabled.Load()
 }
 
 func drawbackstageWindowFromDXGI(hwnd uintptr, winLeft, winTop, winW, winH int, bounds image.Rectangle, target []byte, targetStride int) bool {
@@ -1847,6 +1877,9 @@ func drawbackstageWindowFromDXGI(hwnd uintptr, winLeft, winTop, winW, winH int, 
 }
 
 func drawbackstageWindow(hdcScreen, hwnd uintptr, bounds image.Rectangle, target []byte, targetStride int) bool {
+	if backstageIsDWMHost(hwnd) {
+		return false
+	}
 	if !isWindowVisible(hwnd) {
 		return false
 	}
@@ -1874,6 +1907,15 @@ func drawbackstageWindow(hdcScreen, hwnd uintptr, bounds image.Rectangle, target
 
 	if drawn := drawbackstageWindowFromDXGI(hwnd, winLeft, winTop, winW, winH, bounds, target, targetStride); drawn {
 		return true
+	}
+	if !backstagePrintWindowFallbackEnabled.Load() {
+		now := time.Now().UnixNano()
+		last := backstagePrintWindowFallbackLogNs.Load()
+		if now-last > int64(5*time.Second) &&
+			backstagePrintWindowFallbackLogNs.CompareAndSwap(last, now) {
+			log.Printf("backstage capture: per-window PrintWindow fallback is disabled")
+		}
+		return false
 	}
 
 	// Use pooled DC+DIB from cache
@@ -2048,6 +2090,9 @@ func BackstageEnumWindows() ([]BackstageWindowInfo, []BackstageMonitorInfo) {
 	var windows []rawWin
 
 	cb := syscall.NewCallback(func(hwnd, _ uintptr) uintptr {
+		if backstageIsDWMHost(hwnd) {
+			return 1
+		}
 		windows = append(windows, rawWin{hwnd: hwnd})
 		return 1
 	})

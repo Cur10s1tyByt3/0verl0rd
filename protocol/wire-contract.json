@@ -78,6 +78,7 @@
     "backstage_enable_dxgi",
     "backstage_enable_keyboard",
     "backstage_enable_mouse",
+    "backstage_enable_printwindow_fallback",
     "backstage_enable_uia",
     "backstage_installed_apps",
     "backstage_key_down",

@@ -347,6 +347,7 @@ function sanitizeSharedUiSettings(scope: string, raw: unknown): Record<string, u
     assignIfDefined(out, "resolution", pickString(input.resolution, ["720", "1080", "1440", "-1"]));
     assignIfDefined(out, "dxgi", pickBoolean(input.dxgi));
     assignIfDefined(out, "uia", pickBoolean(input.uia));
+    assignIfDefined(out, "printWindowFallback", pickBoolean(input.printWindowFallback));
     assignIfDefined(out, "cloneProfile", pickBoolean(input.cloneProfile));
     assignIfDefined(out, "cloneLite", pickBoolean(input.cloneLite));
     assignIfDefined(out, "killIfRunning", pickBoolean(input.killIfRunning));

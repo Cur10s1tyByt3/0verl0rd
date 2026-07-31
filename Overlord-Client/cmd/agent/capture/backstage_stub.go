@@ -19,6 +19,10 @@ func SetbackstageDXGIEnabled(enabled bool) {}
 
 func GetbackstageDXGIEnabled() bool { return false }
 
+func SetbackstagePrintWindowFallbackEnabled(enabled bool) {}
+
+func GetbackstagePrintWindowFallbackEnabled() bool { return false }
+
 func SetbackstageUIAEnabled(enabled bool) {}
 
 func GetbackstageUIAEnabled() bool { return false }

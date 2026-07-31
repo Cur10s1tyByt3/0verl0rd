@@ -1363,6 +1363,9 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
     case "backstage_enable_dxgi":
       if (state.isStreaming) sendbackstageCommand(target, "backstage_enable_dxgi", { enabled: !!payload.enabled });
       break;
+    case "backstage_enable_printwindow_fallback":
+      if (state.isStreaming) sendbackstageCommand(target, "backstage_enable_printwindow_fallback", { enabled: !!payload.enabled });
+      break;
     case "backstage_enable_uia":
       if (state.isStreaming) sendbackstageCommand(target, "backstage_enable_uia", { enabled: !!payload.enabled });
       break;

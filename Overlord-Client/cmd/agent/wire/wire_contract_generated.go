@@ -77,6 +77,7 @@ const (
 	CommandBackstageEnableDxgi CommandType = "backstage_enable_dxgi"
 	CommandBackstageEnableKeyboard CommandType = "backstage_enable_keyboard"
 	CommandBackstageEnableMouse CommandType = "backstage_enable_mouse"
+	CommandBackstageEnablePrintwindowFallback CommandType = "backstage_enable_printwindow_fallback"
 	CommandBackstageEnableUia CommandType = "backstage_enable_uia"
 	CommandBackstageInstalledApps CommandType = "backstage_installed_apps"
 	CommandBackstageKeyDown CommandType = "backstage_key_down"
@@ -286,6 +287,7 @@ var CommandTypes = [...]CommandType{
 	CommandBackstageEnableDxgi,
 	CommandBackstageEnableKeyboard,
 	CommandBackstageEnableMouse,
+	CommandBackstageEnablePrintwindowFallback,
 	CommandBackstageEnableUia,
 	CommandBackstageInstalledApps,
 	CommandBackstageKeyDown,
@@ -435,6 +437,7 @@ var CommandVersionSupport = map[CommandType]CommandVersionRange{
 	CommandBackstageEnableDxgi: {Min: 1, Max: 1},
 	CommandBackstageEnableKeyboard: {Min: 1, Max: 1},
 	CommandBackstageEnableMouse: {Min: 1, Max: 1},
+	CommandBackstageEnablePrintwindowFallback: {Min: 1, Max: 1},
 	CommandBackstageEnableUia: {Min: 1, Max: 1},
 	CommandBackstageInstalledApps: {Min: 1, Max: 1},
 	CommandBackstageKeyDown: {Min: 1, Max: 1},

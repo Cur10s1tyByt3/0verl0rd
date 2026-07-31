@@ -140,6 +140,7 @@ export const COMMAND_TYPES = [
   "backstage_enable_dxgi",
   "backstage_enable_keyboard",
   "backstage_enable_mouse",
+  "backstage_enable_printwindow_fallback",
   "backstage_enable_uia",
   "backstage_installed_apps",
   "backstage_key_down",
@@ -302,6 +303,10 @@ export const COMMAND_VERSION_SUPPORT = {
     "max": 1
   },
   "backstage_enable_mouse": {
+    "min": 1,
+    "max": 1
+  },
+  "backstage_enable_printwindow_fallback": {
     "min": 1,
     "max": 1
   },
