@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connect Four</title>
+  <link rel="stylesheet" href="connect-four.css">
+</head>
+<body>
+  <main class="c4-shell">
+    <header class="c4-header">
+      <div>
+        <p class="c4-kicker">SERVER ARCADE</p>
+        <h2>Connect Four</h2>
+        <p class="c4-subtitle">Drop four pieces in a row before your opponent.</p>
+      </div>
+      <button id="c4-new" type="button">Create challenge</button>
+    </header>
+
+    <section class="c4-game">
+      <div class="c4-match" aria-live="polite">
+        <span id="c4-player-r">Red · Waiting</span>
+        <strong id="c4-turn">No active match</strong>
+        <span id="c4-player-y">Yellow · Waiting</span>
+      </div>
+      <div class="c4-frame">
+        <div id="c4-columns" class="c4-columns" aria-label="Drop controls"></div>
+        <div id="c4-board" class="c4-board" role="grid" aria-label="Connect Four board"></div>
+      </div>
+      <p id="c4-status" class="c4-status" role="status">Loading lobby…</p>
+    </section>
+
+    <section class="c4-lobby">
+      <div class="c4-lobby-heading">
+        <div>
+          <p class="c4-kicker">OPEN CHALLENGES</p>
+          <h3>Lobby</h3>
+        </div>
+        <button id="c4-refresh" type="button">Refresh</button>
+      </div>
+      <div id="c4-challenges" class="c4-challenges"></div>
+      <p id="c4-empty" class="c4-empty">No open challenges.</p>
+    </section>
+  </main>
+  <script src="connect-four.js"></script>
+</body>
+</html>

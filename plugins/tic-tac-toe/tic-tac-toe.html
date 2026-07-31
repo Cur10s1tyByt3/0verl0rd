@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tic Tac Toe</title>
+  <link rel="stylesheet" href="tic-tac-toe.css">
+</head>
+<body>
+  <main class="ttt-shell">
+    <header class="ttt-header">
+      <div>
+        <p class="ttt-kicker">SERVER ARCADE</p>
+        <h2>Tic Tac Toe</h2>
+        <p class="ttt-subtitle">Challenge another signed-in user.</p>
+      </div>
+      <button id="ttt-new" type="button">Create challenge</button>
+    </header>
+
+    <section class="ttt-game">
+      <div class="ttt-match" aria-live="polite">
+        <span id="ttt-player-x">X · Waiting</span>
+        <strong id="ttt-turn">No active match</strong>
+        <span id="ttt-player-o">O · Waiting</span>
+      </div>
+      <div class="ttt-frame">
+        <div id="ttt-board" class="ttt-board" role="grid" aria-label="Tic Tac Toe board"></div>
+      </div>
+      <p id="ttt-status" class="ttt-status" role="status">Loading lobby…</p>
+    </section>
+
+    <section class="ttt-lobby">
+      <div class="ttt-lobby-heading">
+        <div>
+          <p class="ttt-kicker">OPEN CHALLENGES</p>
+          <h3>Lobby</h3>
+        </div>
+        <button id="ttt-refresh" type="button">Refresh</button>
+      </div>
+      <div id="ttt-challenges" class="ttt-challenges"></div>
+      <p id="ttt-empty" class="ttt-empty">No open challenges.</p>
+    </section>
+  </main>
+  <script src="tic-tac-toe.js"></script>
+</body>
+</html>
