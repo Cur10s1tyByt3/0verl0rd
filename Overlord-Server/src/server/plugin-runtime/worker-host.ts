@@ -11,7 +11,7 @@ declare const self: {
 type PluginExports = {
   setup?: (ctx: PluginContext) => unknown | Promise<unknown>;
   onEvent?: (ctx: PluginContext, clientId: string, event: string, payload: unknown) => unknown | Promise<unknown>;
-  rpc?: Record<string, (ctx: PluginContext, params: unknown, meta: { caller: { id: number; role: string } }) => unknown | Promise<unknown>>;
+  rpc?: Record<string, (ctx: PluginContext, params: unknown, meta: { caller: { id: number; username: string; role: string } }) => unknown | Promise<unknown>>;
   buildHooks?: Record<string, (ctx: PluginContext, payload: unknown) => unknown | Promise<unknown>>;
   onBuildPrepare?: (ctx: PluginContext, payload: unknown) => unknown | Promise<unknown>;
   onBuildTarget?: (ctx: PluginContext, payload: unknown) => unknown | Promise<unknown>;

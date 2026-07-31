@@ -278,7 +278,7 @@ export async function handlePluginRoutes(
           plugin.id,
           "dashboardContributions",
           { clientIds: authorizedClientIds },
-          { id: user.userId, role: user.role },
+          { id: user.userId, username: user.username, role: user.role },
         );
         const rows = Array.isArray(result?.contributions) ? result.contributions : Array.isArray(result) ? result : [];
         for (const row of rows) {
@@ -1293,6 +1293,7 @@ export async function handlePluginRoutes(
     try {
       const result = await deps.pluginRuntime.rpc(pluginId, method, body.params, {
         id: user.userId,
+        username: user.username,
         role: user.role,
       });
       metrics.recordCommand("plugin_rpc");

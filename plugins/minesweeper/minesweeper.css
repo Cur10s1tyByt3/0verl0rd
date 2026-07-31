@@ -1,0 +1,73 @@
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #080d16;
+  color: #e5e7eb;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.mine-shell { max-width: 1120px; margin: 0 auto; padding: 16px; }
+.mine-header,
+.mine-leaderboard-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.mine-header { margin-bottom: 16px; }
+.mine-header h2 { margin: 0; font-size: 32px; }
+.mine-kicker { margin: 0 0 4px; color: #facc15; font-size: 11px; font-weight: 700; letter-spacing: 2px; }
+.mine-subtitle,
+.mine-status,
+.mine-help,
+.mine-empty { color: #94a3b8; font-size: 13px; }
+.mine-subtitle { margin: 4px 0 0; }
+
+.mine-counters { display: flex; border: 1px solid #334155; }
+.mine-counters div { min-width: 72px; padding: 8px 12px; text-align: center; }
+.mine-counters div + div { border-left: 1px solid #334155; }
+.mine-counters span { display: block; color: #94a3b8; font-size: 10px; text-transform: uppercase; }
+.mine-counters strong { display: block; color: #fde047; font-size: 22px; }
+
+.mine-toolbar { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 16px; }
+.mine-toolbar label { color: #94a3b8; font-size: 12px; }
+.mine-toolbar select,
+.mine-toolbar button,
+.mine-leaderboard button { border: 1px solid #475569; border-radius: 0; padding: 8px 10px; background: #111827; color: #e5e7eb; }
+.mine-toolbar button,
+.mine-leaderboard button { cursor: pointer; }
+.mine-toolbar button:hover,
+.mine-leaderboard button:hover { background: #1e293b; }
+
+.mine-layout { display: flex; flex-direction: column; align-items: center; gap: 24px; }
+.mine-board-wrap { box-sizing: border-box; width: max-content; max-width: 100%; overflow: auto; border: 8px solid #1e293b; background: #0f172a; padding: 8px; }
+.mine-board { display: grid; width: max-content; gap: 1px; background: #334155; }
+.mine-cell { display: flex; align-items: center; justify-content: center; width: var(--cell-size); height: var(--cell-size); border: 0; border-radius: 0; padding: 0; background: #475569; color: #e5e7eb; font-size: calc(var(--cell-size) * 0.5); font-weight: 700; cursor: pointer; }
+.mine-cell:hover:not(:disabled) { background: #64748b; }
+.mine-cell.revealed { background: #111827; cursor: default; }
+.mine-cell.flagged { color: #facc15; }
+.mine-cell.mine-hit { background: #991b1b; color: #fff; }
+.mine-cell.mine-shown { background: #3f1d24; color: #fca5a5; }
+.mine-cell.value-1 { color: #60a5fa; }
+.mine-cell.value-2 { color: #4ade80; }
+.mine-cell.value-3 { color: #f87171; }
+.mine-cell.value-4 { color: #a78bfa; }
+.mine-cell.value-5,
+.mine-cell.value-6,
+.mine-cell.value-7,
+.mine-cell.value-8 { color: #fbbf24; }
+.mine-status { min-height: 18px; margin: 8px 0 0; }
+.mine-help { margin: 2px 0 0; }
+
+.mine-leaderboard { box-sizing: border-box; width: min(100%, 480px); padding: 12px; border: 1px solid #334155; background: #0c1420; }
+.mine-leaderboard h3 { margin: 0; font-size: 18px; }
+.mine-leaderboard button { padding: 6px 8px; font-size: 11px; }
+.mine-leaderboard ol { list-style: none; margin: 12px 0 0; padding: 0; }
+.mine-leaderboard li { display: grid; grid-template-columns: 24px 1fr auto; gap: 8px; align-items: center; min-height: 38px; border-bottom: 1px solid #1e293b; font-size: 12px; }
+.mine-rank { color: #64748b; }
+.mine-player { overflow: hidden; color: #cbd5e1; text-overflow: ellipsis; white-space: nowrap; }
+.mine-result { color: #fde047; text-align: right; }
+.mine-result small { display: block; color: #64748b; }
+
+
+@media (max-width: 520px) {
+  .mine-shell { padding: 8px; }
+  .mine-subtitle { display: none; }
+  .mine-toolbar { align-items: stretch; flex-direction: column; }
+  .mine-counters div { min-width: 54px; padding: 6px; }
+}

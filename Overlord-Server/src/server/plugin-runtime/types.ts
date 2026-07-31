@@ -1,5 +1,6 @@
 export type PluginRpcCaller = {
   id: number;
+  username: string;
   role: string;
 };
 

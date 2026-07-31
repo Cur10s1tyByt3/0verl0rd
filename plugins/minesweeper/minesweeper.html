@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minesweeper</title>
+  <link rel="stylesheet" href="minesweeper.css">
+</head>
+<body>
+  <main class="mine-shell">
+    <header class="mine-header">
+      <div>
+        <p class="mine-kicker">SERVER ARCADE</p>
+        <h2>Minesweeper</h2>
+        <p class="mine-subtitle">Clear the field without touching a mine.</p>
+      </div>
+      <div class="mine-counters" aria-live="polite">
+        <div><span>Mines</span><strong id="mine-count">10</strong></div>
+        <div><span>Time</span><strong id="mine-time">0</strong></div>
+      </div>
+    </header>
+
+    <div class="mine-toolbar">
+      <label for="mine-difficulty">Difficulty</label>
+      <select id="mine-difficulty">
+        <option value="beginner">Beginner · 9 × 9 · 10 mines</option>
+        <option value="intermediate">Intermediate · 16 × 16 · 40 mines</option>
+        <option value="expert">Expert · 30 × 16 · 99 mines</option>
+      </select>
+      <button id="mine-new-game" type="button">New game</button>
+    </div>
+
+    <div class="mine-layout">
+      <section class="mine-game" aria-label="Minesweeper game">
+        <div class="mine-board-wrap">
+          <div id="mine-board" class="mine-board" role="grid" aria-label="Mine field"></div>
+        </div>
+        <p id="mine-status" class="mine-status" role="status">Choose a difficulty and start a game.</p>
+        <p class="mine-help">Left click to reveal. Right click to flag.</p>
+      </section>
+
+      <aside class="mine-leaderboard">
+        <div class="mine-leaderboard-heading">
+          <div>
+            <p class="mine-kicker">BEST TIMES</p>
+            <h3>Leaderboard</h3>
+          </div>
+          <button id="mine-refresh" type="button" aria-label="Refresh leaderboard">Refresh</button>
+        </div>
+        <ol id="mine-leaderboard-list"></ol>
+        <p id="mine-leaderboard-empty" class="mine-empty">No wins at this difficulty.</p>
+      </aside>
+    </div>
+  </main>
+  <script src="minesweeper.js"></script>
+</body>
+</html>

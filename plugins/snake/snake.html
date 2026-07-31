@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Snake</title>
+  <link rel="stylesheet" href="snake.css">
+</head>
+<body>
+<section class="snake-shell" aria-labelledby="snake-title">
+  <header class="snake-header">
+    <div>
+      <p class="snake-kicker">SERVER ARCADE</p>
+      <h2 id="snake-title">Snake</h2>
+      <p class="snake-subtitle">Eat the signal. Avoid the walls. Claim the leaderboard.</p>
+    </div>
+    <div class="snake-scoreboard" aria-live="polite">
+      <div><span>Score</span><strong id="snake-score">0</strong></div>
+      <div><span>Best</span><strong id="snake-best">0</strong></div>
+    </div>
+  </header>
+
+  <div class="snake-layout">
+    <div class="snake-game-column">
+      <div class="snake-canvas-frame">
+        <canvas id="snake-board" width="600" height="600" aria-label="Snake game board"></canvas>
+        <div id="snake-overlay" class="snake-overlay">
+          <strong id="snake-overlay-title">Ready?</strong>
+          <span id="snake-overlay-copy">Use arrow keys or WASD to steer.</span>
+          <button id="snake-start" type="button">Start game</button>
+        </div>
+      </div>
+      <div class="snake-controls" aria-label="Touch controls">
+        <button type="button" data-direction="up" aria-label="Move up">▲</button>
+        <button type="button" data-direction="left" aria-label="Move left">◀</button>
+        <button type="button" data-direction="down" aria-label="Move down">▼</button>
+        <button type="button" data-direction="right" aria-label="Move right">▶</button>
+      </div>
+      <p id="snake-status" class="snake-status" role="status">Waiting for a game.</p>
+    </div>
+
+    <aside class="snake-leaderboard" aria-labelledby="snake-leaderboard-title">
+      <div class="snake-leaderboard-heading">
+        <div>
+          <p class="snake-kicker">TOP OPERATORS</p>
+          <h3 id="snake-leaderboard-title">Leaderboard</h3>
+        </div>
+        <button id="snake-refresh" type="button" title="Refresh leaderboard" aria-label="Refresh leaderboard">↻</button>
+      </div>
+      <ol id="snake-leaderboard-list"></ol>
+      <p id="snake-leaderboard-empty" class="snake-empty">No completed runs yet.</p>
+      <div class="snake-help">
+        <strong>Controls</strong>
+        <span>Arrow keys / WASD</span>
+        <span>Space to pause</span>
+      </div>
+    </aside>
+  </div>
+</section>
+  <script src="snake.js"></script>
+</body>
+</html>
