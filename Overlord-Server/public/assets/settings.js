@@ -7,6 +7,11 @@ import {
 } from "./notify-client.js";
 import { escapeHtml, formatBytes as formatSharedBytes, formatDate as formatSharedDate } from "./format.js";
 import { getCertificateTrustGuide } from "./cert-banner.js";
+import {
+  isEasterEggEnabled,
+  setEasterEggEnabled,
+  showEnabledEasterEgg,
+} from "./easter-egg.js";
 
 const PREF_REFRESH_KEY = "overlord_refresh_interval_seconds";
 const NAV_MODE_KEY = "sb_mode";
@@ -40,6 +45,8 @@ const prefNotificationsInput = document.getElementById("pref-notifications");
 const prefDesktopNotificationsInput = document.getElementById("pref-desktop-notifications");
 const prefDesktopNotificationsHint = document.getElementById("pref-desktop-notifications-hint");
 const prefRefreshSecondsInput = document.getElementById("pref-refresh-seconds");
+const easterEggEnabledInput = document.getElementById("easter-egg-enabled");
+const easterEggStatus = document.getElementById("easter-egg-status");
 
 const inputArchiveUserForm = document.getElementById("input-archive-user-form");
 const inputArchiveMyEnabledInput = document.getElementById("input-archive-my-enabled");
@@ -654,6 +661,38 @@ function loadPrefs() {
   if (navHiddenInput) {
     navHiddenInput.checked = localStorage.getItem(NAV_HIDDEN_KEY) === "true";
   }
+}
+
+function initEasterEggPreference() {
+  if (!easterEggEnabledInput) return;
+  easterEggEnabledInput.checked = isEasterEggEnabled();
+  easterEggEnabledInput.addEventListener("change", async () => {
+    const enabled = easterEggEnabledInput.checked;
+    setEasterEggEnabled(enabled);
+    if (!easterEggStatus) return;
+
+    if (!enabled) {
+      easterEggStatus.textContent = "Disabled. The image will not be requested.";
+      easterEggStatus.className = "text-xs text-slate-500";
+      return;
+    }
+
+    easterEggEnabledInput.disabled = true;
+    easterEggStatus.textContent = "Loading the easter egg…";
+    easterEggStatus.className = "text-xs text-violet-300";
+    try {
+      await showEnabledEasterEgg({ force: true });
+      easterEggStatus.textContent = "Enabled and shown in the browser console.";
+      easterEggStatus.className = "text-xs text-emerald-400";
+    } catch (error) {
+      setEasterEggEnabled(false);
+      easterEggEnabledInput.checked = false;
+      easterEggStatus.textContent = `Could not load the easter egg: ${error.message}`;
+      easterEggStatus.className = "text-xs text-rose-400";
+    } finally {
+      easterEggEnabledInput.disabled = false;
+    }
+  });
 }
 
 async function loadCurrentUser() {
@@ -2926,6 +2965,7 @@ async function init() {
     await loadCurrentUser();
     applyPermissionVisibility();
     loadPrefs();
+    initEasterEggPreference();
     await loadMfaStatus();
 
     if (userHas("clients:build")) {

@@ -1781,6 +1781,28 @@
           </div>
         </section>
 
+        <!-- Easter egg -->
+        <section id="section-easter-egg" class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
+          <div class="flex items-center gap-3">
+            <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-violet-500/10 border border-violet-500/30">
+              <i class="fa-solid fa-egg text-violet-400"></i>
+            </div>
+            <div>
+              <h2 class="text-lg font-semibold">Easter egg</h2>
+              <p class="text-sm text-slate-400">Optionally show a hidden surprise in the browser console.</p>
+            </div>
+          </div>
+
+          <label class="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 cursor-pointer">
+            <input id="easter-egg-enabled" type="checkbox" class="mt-0.5 h-4 w-4 accent-violet-500" />
+            <span class="space-y-1">
+              <span class="block text-sm text-slate-200">Enable easter egg</span>
+              <span class="block text-xs text-slate-500">The image is about 5.9 MB and is only requested after you enable this option. Your browser caches it for later sessions.</span>
+            </span>
+          </label>
+          <p id="easter-egg-status" class="text-xs text-slate-500">Disabled by default.</p>
+        </section>
+
         </div>
         <!-- /Sections -->
       </div>

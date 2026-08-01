@@ -30,6 +30,48 @@ afterEach(() => {
 });
 
 describe("admin-created users must change password", () => {
+  test("POST /api/users rejects malformed JSON as a client error", async () => {
+    const admin = await createAuthedAdmin();
+    const url = new URL("https://localhost/api/users");
+    const res = await handleUsersRoutes(
+      new Request(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${admin.token}`,
+          "Content-Type": "application/json",
+        },
+        body: "{not-json",
+      }),
+      url,
+      mockServer,
+    );
+
+    expect(res?.status).toBe(400);
+    expect(await res?.json()).toEqual({ error: "Invalid JSON body" });
+  });
+
+  test("POST /api/users reports schema validation issues", async () => {
+    const admin = await createAuthedAdmin();
+    const url = new URL("https://localhost/api/users");
+    const res = await handleUsersRoutes(
+      new Request(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${admin.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username: "new-user", password: PASSWORD, role: "owner" }),
+      }),
+      url,
+      mockServer,
+    );
+
+    expect(res?.status).toBe(400);
+    const body = await res?.json();
+    expect(body.error).toBe("Invalid request body");
+    expect(body.issues).toContainEqual({ path: "role", message: "Invalid role" });
+  });
+
   test("POST /api/users marks new users for password change", async () => {
     const admin = await createAuthedAdmin();
     const username = `mcp_user_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;

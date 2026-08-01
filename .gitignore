@@ -15,6 +15,7 @@ dist/
 # Build output
 Overlord-Server/public/assets/tailwind.css
 Overlord-Server/public/vendor/
+Overlord-Server/public/assets/generated/
 Overlord-Desktop/src/vendor/
 
 # Tauri

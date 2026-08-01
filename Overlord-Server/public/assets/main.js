@@ -15,6 +15,7 @@ import {
 } from "./data.js";
 import { ThumbnailLoader } from "./thumbnail-loader.js";
 import { initDashboardStats, updateDashboardStatsFromClients } from "./dashboard-stats.js";
+import { showEnabledEasterEgg } from "./easter-egg.js";
 
 const grid = document.getElementById("grid");
 const totalPill = document.getElementById("total-pill");
@@ -2243,40 +2244,5 @@ menu.addEventListener("click", async (e) => {
 
 loadCurrentUser();
 
-// console easter egg
-(function () {
-  const runWhenIdle = (fn) => {
-    if ("requestIdleCallback" in window) {
-      window.requestIdleCallback(fn, { timeout: 5000 });
-      return;
-    }
-    window.addEventListener("load", () => setTimeout(fn, 1500), { once: true });
-  };
-
-  const consoleimg = {
-    load: function (src, { size = 320, color = "transparent" } = {}) {
-      const reader = new FileReader();
-      reader.addEventListener("load", function () {
-        const style =
-          "background: url('" + reader.result + "') left top no-repeat; font-size: " +
-          size +
-          "px; background-size: contain; background-color:" +
-          color;
-        console.log("%c     ", style);
-      }, false);
-      fetch(src)
-        .then((r) => r.blob())
-        .then((blob) => {
-          if (blob.type.indexOf("image") === 0) {
-            if (blob.size > 8192 && navigator.userAgent.indexOf("Firefox") > 0)
-              throw new Error("Image size too big to be displayed in Firefox.");
-            return blob;
-          }
-          throw new Error("Valid image not found.");
-        })
-        .then((blob) => reader.readAsDataURL(blob))
-        .catch((err) => console.warn(err.message));
-    },
-  };
-  runWhenIdle(() => consoleimg.load("/assets/console.gif", { size: 320, color: "transparent" }));
-})();
+// Opt-in console easter egg. Disabled users never request the large image.
+showEnabledEasterEgg().catch((err) => console.warn(err.message));

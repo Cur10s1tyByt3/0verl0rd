@@ -9,6 +9,7 @@ import {
   setUserGroups,
 } from "../../users";
 import { createHttpFetchHandler } from "../http-dispatch";
+import { createHonoRouteHandler } from "../hono-router";
 import { handlePermissionGroupsRoutes } from "./permission-groups-routes";
 import { handleUsersRoutes } from "./users-routes";
 
@@ -55,7 +56,10 @@ function callThroughServerRoutes(method: string, path: string, token: string | n
     metrics: { withHttpMetrics: (fn) => fn() },
     CORS_HEADERS: {},
     routes: [
-      (req, routeUrl, server) => handleUsersRoutes(req, routeUrl, server as typeof mockServer),
+      createHonoRouteHandler([{
+        basePath: "/api/users",
+        handler: (req, routeUrl, server) => handleUsersRoutes(req, routeUrl, server as typeof mockServer),
+      }]),
       (req, routeUrl, server) => handlePermissionGroupsRoutes(req, routeUrl, server as typeof mockServer),
     ],
   });

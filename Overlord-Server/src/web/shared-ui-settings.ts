@@ -1,30 +1,44 @@
-export async function loadSharedUiSettings(scope) {
+import { object, record, safeParse, string, unknown } from "valibot";
+
+export type SharedUiSettings = Record<string, unknown>;
+
+const sharedUiSettingsResponseSchema = object({
+  settings: record(string(), unknown()),
+});
+
+export async function loadSharedUiSettings(scope: string): Promise<SharedUiSettings> {
   try {
     const res = await fetch(`/api/ui-settings/${encodeURIComponent(scope)}`, {
       credentials: "include",
     });
     if (!res.ok) return {};
-    const data = await res.json().catch(() => ({}));
-    return data && typeof data.settings === "object" && data.settings ? data.settings : {};
+
+    const input: unknown = await res.json().catch(() => null);
+    const result = safeParse(sharedUiSettingsResponseSchema, input);
+    return result.success ? result.output.settings : {};
   } catch (err) {
     console.warn(`ui-settings: failed to load ${scope}`, err);
     return {};
   }
 }
 
-export function createSharedUiSettingsSaver(scope, readSettings, delayMs = 350) {
-  let timer = null;
+export function createSharedUiSettingsSaver(
+  scope: string,
+  readSettings: () => SharedUiSettings | null | undefined,
+  delayMs = 350,
+) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
   let lastPayload = "";
 
-  async function saveNow() {
+  async function saveNow(): Promise<void> {
     if (timer) {
       clearTimeout(timer);
       timer = null;
     }
 
-    let settings = {};
+    let settings: SharedUiSettings;
     try {
-      settings = readSettings() || {};
+      settings = readSettings() ?? {};
     } catch (err) {
       console.warn(`ui-settings: failed to read ${scope}`, err);
       return;
@@ -42,16 +56,14 @@ export function createSharedUiSettingsSaver(scope, readSettings, delayMs = 350) 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ settings }),
       });
-      if (!res.ok) {
-        lastPayload = "";
-      }
+      if (!res.ok) lastPayload = "";
     } catch (err) {
       lastPayload = "";
       console.warn(`ui-settings: failed to save ${scope}`, err);
     }
   }
 
-  function scheduleSave() {
+  function scheduleSave(): void {
     if (timer) clearTimeout(timer);
     timer = setTimeout(saveNow, delayMs);
   }

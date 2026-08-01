@@ -4,7 +4,7 @@ import { WhepClient } from "./whep.js";
 import { P2PClient } from "./webrtc-p2p.js";
 import { AdaptiveDesktopQuality, normalizeAdaptiveProfiles } from "./rd-adaptive-quality.js";
 import { createKeyboardCapture } from "./keyboard-capture.js";
-import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-settings.js";
+import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/shared-ui-settings.js";
 
 (async function () {
   const clientId = new URLSearchParams(location.search).get("clientId");

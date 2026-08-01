@@ -26,6 +26,7 @@ function runPreparation(command: string): void {
 }
 
 runPreparation("build:css");
+runPreparation("build:web");
 runPreparation("vendor");
 
 const backend = Bun.spawn(["bun", "--watch", "src/index.ts"], {
@@ -44,6 +45,14 @@ const styles = Bun.spawn(["bun", "run", "watch:css"], {
   stderr: "inherit",
 });
 
+const web = Bun.spawn(["bun", "run", "watch:web"], {
+  cwd,
+  env,
+  stdin: "inherit",
+  stdout: "inherit",
+  stderr: "inherit",
+});
+
 let stopping = false;
 
 function stop(exitCode = 0): void {
@@ -51,6 +60,7 @@ function stop(exitCode = 0): void {
   stopping = true;
   backend.kill();
   styles.kill();
+  web.kill();
   process.exitCode = exitCode;
 }
 
@@ -60,6 +70,7 @@ process.on("SIGTERM", () => stop(143));
 const result = await Promise.race([
   backend.exited.then((exitCode) => ({ process: "backend", exitCode })),
   styles.exited.then((exitCode) => ({ process: "Tailwind watcher", exitCode })),
+  web.exited.then((exitCode) => ({ process: "browser TypeScript watcher", exitCode })),
 ]);
 
 if (!stopping) {
@@ -67,4 +78,4 @@ if (!stopping) {
   stop(result.exitCode || 1);
 }
 
-await Promise.allSettled([backend.exited, styles.exited]);
+await Promise.allSettled([backend.exited, styles.exited, web.exited]);

@@ -58,6 +58,7 @@ import { handleRegistrationRoutes } from "./server/routes/registration-routes";
 import { consumeHttpDownloadPayload, type PendingHttpDownload } from "./server/http-download-consumer";
 import { startBuildProcess as runBuildProcess } from "./server/build-process";
 import { createHttpFetchHandler } from "./server/http-dispatch";
+import { createHonoRouteHandler } from "./server/hono-router";
 import { startMaintenanceLoops } from "./server/maintenance-loops";
 import {
   deliverNotificationWithScreenshot,
@@ -711,6 +712,13 @@ async function startServer() {
     handleCrashReport: notificationPluginHandlers.handleCrashReport,
   };
 
+  const routedHttpHandler = createHonoRouteHandler([
+    {
+      basePath: "/api/users",
+      handler: (req, url, srv) => handleUsersRoutes(req, url, srv as any),
+    },
+  ]);
+
   const server = Bun.serve<SocketData>({
     port: PORT,
     hostname: HOST,
@@ -742,7 +750,7 @@ async function startServer() {
         (req, url) => handleEnrollmentRoutes(req, url),
         (req, url) => handleChatRoutes(req, url),
         (req, url) => handleSolRoutes(req, url),
-        (req, url, srv) => handleUsersRoutes(req, url, srv as any),
+        routedHttpHandler,
         (req, url, srv) => handlePermissionGroupsRoutes(req, url, srv as any),
         (req, url, srv) => handleBuildRoutes(req, url, srv as any, routeDeps.build),
         (req, url, srv) => handleDeployRoutes(req, url, srv as any, routeDeps.deploy),

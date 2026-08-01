@@ -35,6 +35,18 @@ import {
   updateUserRole,
 } from "../../users";
 import { makeAuthCookie } from "./auth-cookie";
+import { parseJsonBody } from "../request-validation";
+import {
+  clientAccessRuleBodySchema,
+  createUserBodySchema,
+  updateCanBuildBodySchema,
+  updateCanUploadFilesBodySchema,
+  updateClientAccessBodySchema,
+  updateFeaturePermissionsBodySchema,
+  updatePasswordBodySchema,
+  updatePluginAccessBodySchema,
+  updateRoleBodySchema,
+} from "./user-request-schemas";
 
 type RequestIpProvider = {
   requestIP: (req: Request) => { address?: string } | null | undefined;
@@ -83,16 +95,8 @@ export async function handleUsersRoutes(
 
     if (req.method === "POST" && url.pathname === "/api/users") {
       const authedUser = requirePermission(user, "users:manage");
-      const body = await req.json();
+      const body = await parseJsonBody(req, createUserBodySchema);
       const { username, password, role, mustChangePassword } = body;
-
-      if (!username || !password || !role) {
-        return Response.json({ error: "Missing required fields" }, { status: 400 });
-      }
-
-      if (!["admin", "operator", "viewer"].includes(role)) {
-        return Response.json({ error: "Invalid role" }, { status: 400 });
-      }
 
       const result = await createUser(
         username,
@@ -123,7 +127,7 @@ export async function handleUsersRoutes(
         return Response.json({ error: "Not authenticated" }, { status: 401 });
       }
       const userId = parseInt(url.pathname.split("/")[3]);
-      const body = await req.json();
+      const body = await parseJsonBody(req, updatePasswordBodySchema);
       const { password, newPassword, currentPassword } = body;
 
       const canChange = user.userId === userId || user.role === "admin";
@@ -209,12 +213,8 @@ export async function handleUsersRoutes(
     if (req.method === "PUT" && url.pathname.match(/^\/api\/users\/\d+\/role$/)) {
       const authedUser = requirePermission(user, "users:manage");
       const userId = parseInt(url.pathname.split("/")[3]);
-      const body = await req.json();
+      const body = await parseJsonBody(req, updateRoleBodySchema);
       const { role } = body;
-
-      if (!role || !["admin", "operator", "viewer"].includes(role)) {
-        return Response.json({ error: "Invalid role" }, { status: 400 });
-      }
 
       if (userId === authedUser.userId) {
         return Response.json({ error: "Cannot change your own role" }, { status: 400 });
@@ -286,8 +286,8 @@ export async function handleUsersRoutes(
         return Response.json({ error: "User not found" }, { status: 404 });
       }
 
-      const body = await req.json();
-      const scope = body?.scope as ClientAccessScope;
+      const body = await parseJsonBody(req, updateClientAccessBodySchema);
+      const scope = body.scope as ClientAccessScope;
       const result = setUserClientAccessScope(userId, scope);
       if (!result.success) {
         return Response.json({ error: result.error }, { status: 400 });
@@ -314,9 +314,9 @@ export async function handleUsersRoutes(
         return Response.json({ error: "User not found" }, { status: 404 });
       }
 
-      const body = await req.json();
-      const clientId = String(body?.clientId || "").trim();
-      const access = body?.access as ClientAccessRuleKind;
+      const body = await parseJsonBody(req, clientAccessRuleBodySchema);
+      const clientId = body.clientId.trim();
+      const access = body.access as ClientAccessRuleKind;
       const result = setUserClientAccessRule(userId, clientId, access);
       if (!result.success) {
         return Response.json({ error: result.error }, { status: 400 });
@@ -411,8 +411,8 @@ export async function handleUsersRoutes(
         return Response.json({ error: "User not found" }, { status: 404 });
       }
 
-      const body = await req.json();
-      const canBuild = !!body?.canBuild;
+      const body = await parseJsonBody(req, updateCanBuildBodySchema);
+      const canBuild = body.canBuild;
       const previous = Boolean(targetUser.can_build);
       const result = setUserCanBuild(userId, canBuild);
       if (!result.success) {
@@ -445,8 +445,8 @@ export async function handleUsersRoutes(
         return Response.json({ error: "User not found" }, { status: 404 });
       }
 
-      const body = await req.json();
-      const canUploadFiles = !!body?.canUploadFiles;
+      const body = await parseJsonBody(req, updateCanUploadFilesBodySchema);
+      const canUploadFiles = body.canUploadFiles;
       const previous = Boolean(targetUser.can_upload_files);
       const result = setUserCanUploadFiles(userId, canUploadFiles);
       if (!result.success) {
@@ -491,11 +491,8 @@ export async function handleUsersRoutes(
         return Response.json({ error: "User not found" }, { status: 404 });
       }
 
-      const body = await req.json();
-      const permissions = body?.permissions;
-      if (!permissions || typeof permissions !== "object") {
-        return Response.json({ error: "Invalid permissions object" }, { status: 400 });
-      }
+      const body = await parseJsonBody(req, updateFeaturePermissionsBodySchema);
+      const permissions = body.permissions;
 
       const validated: Partial<Record<FeatureName, boolean>> = {};
       for (const [key, value] of Object.entries(permissions)) {
@@ -603,9 +600,9 @@ export async function handleUsersRoutes(
         return Response.json({ error: "User not found" }, { status: 404 });
       }
 
-      const body = await req.json();
-      const scope = body?.scope as PluginAccessScope;
-      const pluginIds = Array.isArray(body?.pluginIds) ? body.pluginIds.filter((id: any) => typeof id === "string" && id.trim()) : undefined;
+      const body = await parseJsonBody(req, updatePluginAccessBodySchema);
+      const scope = body.scope as PluginAccessScope;
+      const pluginIds = body.pluginIds?.map((id) => id.trim());
 
       const scopeResult = setUserPluginAccessScope(userId, scope);
       if (!scopeResult.success) {
