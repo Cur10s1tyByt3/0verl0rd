@@ -33,6 +33,29 @@
   --color-primary-hover: #818cf8;
   --color-success: #22c55e;
   --color-danger: #ef4444;
+
+  /* Shared interaction motion */
+  --motion-fast: 140ms;
+  --motion-normal: 220ms;
+  --motion-slow: 360ms;
+  --motion-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
+}
+
+.motion-surface {
+  transition:
+    border-color var(--motion-normal) var(--motion-ease-out),
+    background-color var(--motion-normal) var(--motion-ease-out),
+    box-shadow var(--motion-normal) var(--motion-ease-out),
+    opacity var(--motion-normal) var(--motion-ease-out),
+    transform var(--motion-normal) var(--motion-ease-out);
+}
+
+.motion-status {
+  transition:
+    color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }
 
 .monaco-editor,

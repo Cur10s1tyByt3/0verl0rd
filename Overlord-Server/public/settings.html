@@ -25,7 +25,7 @@
         border-radius: 0.5rem;
         color: rgb(203 213 225); /* slate-300 */
         cursor: pointer;
-        transition: background-color 120ms, color 120ms;
+        transition: background-color var(--motion-fast), color var(--motion-fast), box-shadow var(--motion-normal) var(--motion-ease-out), transform var(--motion-fast) ease;
       }
       .settings-nav-link span {
         min-width: 0;
@@ -36,6 +36,7 @@
       .settings-nav-link:hover {
         background-color: rgb(30 41 59 / 0.7); /* slate-800/70 */
         color: rgb(241 245 249); /* slate-100 */
+        transform: translateX(2px);
       }
       /* Active state pulls its color from --accent (set inline per link to
          match the link's icon). Falls back to sky-400 if not set. */
@@ -61,7 +62,10 @@
          class applies scroll-margin-top, which both `scrollIntoView` and
          browser hash navigation honor. */
       :root { --settings-scroll-mt: 1rem; }
-      .settings-section { scroll-margin-top: var(--settings-scroll-mt); }
+      .settings-section {
+        scroll-margin-top: var(--settings-scroll-mt);
+        transition: border-color var(--motion-normal) ease, box-shadow var(--motion-normal) ease;
+      }
       /* Also pin the sticky sidebar below the topbar so it doesn't slide
          under the nav when the page is scrolled. */
       #settings-sidebar {

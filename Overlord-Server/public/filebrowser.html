@@ -23,6 +23,10 @@
       }
       .file-item {
         position: relative;
+        transition:
+          background-color var(--motion-fast) ease,
+          box-shadow var(--motion-fast) ease,
+          border-color var(--motion-fast) ease;
       }
       .file-item.selected {
         background-color: rgba(14, 165, 233, 0.12);
@@ -56,7 +60,7 @@
         background-color: #2563eb;
       }
       .context-menu {
-        display: none;
+        display: block;
         position: fixed;
         z-index: 1000;
         background-color: #1e293b;
@@ -64,9 +68,22 @@
         border-radius: 0.5rem;
         padding: 0.5rem 0;
         box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transform: translateY(4px) scale(0.96);
+        transform-origin: top left;
+        transition:
+          opacity var(--motion-fast) ease,
+          transform var(--motion-fast) var(--motion-ease-out),
+          visibility 0s linear var(--motion-fast);
       }
       .context-menu.show {
-        display: block;
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        transform: translateY(0) scale(1);
+        transition-delay: 0s;
       }
       .context-menu-item {
         padding: 0.5rem 1rem;
@@ -348,7 +365,9 @@
         top: 5rem;
         max-height: calc(100vh - 6rem);
         overflow-y: auto;
+        transform-origin: top right;
       }
+      #preview-pane-host.preview-pane-user-hidden { display: none !important; }
       #preview-pane {
         /* host handles sticky + scroll; inner stays in normal flow */
       }

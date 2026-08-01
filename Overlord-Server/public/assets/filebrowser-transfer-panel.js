@@ -1,4 +1,5 @@
 import { formatBytes } from "./filebrowser-utils.js";
+import { concealElement, revealElement } from "./motion.js";
 
 export function createTransferPanel({ onCancel }) {
   const transferPanel = document.getElementById("transfer-panel");
@@ -43,7 +44,10 @@ export function createTransferPanel({ onCancel }) {
     }
 
     transferList.appendChild(transferItem);
-    transferPanel.classList.remove("hidden");
+    if (transferPanel.classList.contains("hidden")) {
+      revealElement(transferPanel, { duration: 180, offset: 6 });
+    }
+    revealElement(transferItem, { duration: 190, offset: 7 });
   }
 
   function updateTransferProgress(transferId, progress, current, total) {
@@ -61,14 +65,15 @@ export function createTransferPanel({ onCancel }) {
     }
   }
 
-  function removeTransfer(transferId) {
+  async function removeTransfer(transferId) {
     const transferItem = document.getElementById(`transfer-${transferId}`);
     if (transferItem) {
+      await concealElement(transferItem, { duration: 130, offset: -5 });
       transferItem.remove();
     }
 
     if (transferList && transferList.children.length === 0) {
-      transferPanel?.classList.add("hidden");
+      await concealElement(transferPanel, { duration: 120, offset: 5 });
     }
   }
 

@@ -4,6 +4,12 @@ import { createFileHexHashManager } from "./filebrowser-hex-hash.js";
 import { createFilePreviewModal } from "./filebrowser-preview-modal.js";
 import { createTransferPanel } from "./filebrowser-transfer-panel.js";
 import {
+  animateElement,
+  concealElement,
+  revealElement,
+  staggerChildren,
+} from "./motion.js";
+import {
   KNOWN_BINARY_EXTS,
   PREVIEW_IMAGE_EXTS,
   escapeHtml,
@@ -1165,52 +1171,28 @@ function clearVirtualizedListMode() {
 
 function renderDirectoryStandard(entries, canGoUp, parentPath, disableAnimations) {
   clearVirtualizedListMode();
+  fileListEl.style.transition = "none";
+  fileListEl.style.opacity = "1";
+  fileListEl.style.transform = "translateX(0)";
+  fileListEl.innerHTML = "";
 
-  if (!disableAnimations) {
-    fileListEl.style.opacity = "0";
-    fileListEl.style.transform = "translateX(20px)";
+  if (canGoUp) fileListEl.appendChild(createParentRow(parentPath));
+
+  if (entries.length === 0 && !canGoUp) {
+    fileListEl.innerHTML =
+      '<div class="px-4 py-6 text-center text-slate-400"><i class="fa-solid fa-folder-open mr-2"></i>Empty directory</div>';
   } else {
-    fileListEl.style.transition = "none";
-    fileListEl.style.opacity = "1";
-    fileListEl.style.transform = "translateX(0)";
+    const fragment = document.createDocumentFragment();
+    entries.forEach((entry) => fragment.appendChild(createFileRow(entry)));
+    fileListEl.appendChild(fragment);
   }
 
-  const renderList = () => {
-    fileListEl.innerHTML = "";
-
-    if (canGoUp) {
-      fileListEl.appendChild(createParentRow(parentPath));
-    }
-
-    if (entries.length === 0 && !canGoUp) {
-      fileListEl.innerHTML =
-        '<div class="px-4 py-6 text-center text-slate-400"><i class="fa-solid fa-folder-open mr-2"></i>Empty directory</div>';
-      fileListEl.style.opacity = "1";
-      fileListEl.style.transform = "translateX(0)";
-      return;
-    }
-
-    entries.forEach((entry, index) => {
-      const row = createFileRow(entry);
-      if (!disableAnimations) {
-        row.style.animationDelay = `${index * 0.02}s`;
-        row.classList.add("card-animate");
-      }
-      fileListEl.appendChild(row);
-    });
-
-    if (!disableAnimations) {
-      fileListEl.style.transition =
-        "opacity 0.3s ease-out, transform 0.3s ease-out";
-      fileListEl.style.opacity = "1";
-      fileListEl.style.transform = "translateX(0)";
-    }
-  };
-
-  if (disableAnimations) {
-    renderList();
-  } else {
-    setTimeout(renderList, 150);
+  if (!disableAnimations) {
+    animateElement(fileListEl, [
+      { opacity: 0.35, transform: "translateX(8px)" },
+      { opacity: 1, transform: "translateX(0)" },
+    ], { duration: 190 });
+    staggerChildren(fileListEl, { limit: 14, interval: 18, duration: 190, offset: 5 });
   }
 }
 
@@ -2384,6 +2366,7 @@ function handleCommandResult(msg) {
 function showContextMenu(x, y, entry) {
   contextMenu.style.left = `${x}px`;
   contextMenu.style.top = `${y}px`;
+  contextMenu.style.transformOrigin = `${x > window.innerWidth / 2 ? "right" : "left"} top`;
   contextMenu.classList.add("show");
   contextMenu.dataset.path = entry.path;
   contextMenu.dataset.isDir = entry.isDir;
@@ -3036,14 +3019,26 @@ const {
   requestFilePeek,
 } = fileHexHashManager;
 
-function setPreviewPaneVisible(visible) {
+function setPreviewPaneVisible(visible, animate = true) {
   if (!previewPaneHost) return;
   if (visible) {
-    previewPaneHost.classList.remove("hidden");
+    previewPaneHost.classList.remove("preview-pane-user-hidden");
+    if (animate) revealElement(previewPaneHost, { duration: 220, offset: 0, scale: 0.98 });
+    else previewPaneHost.classList.remove("hidden");
     previewPaneShowBtnHost?.classList.add("hidden");
   } else {
-    previewPaneHost.classList.add("hidden");
-    previewPaneShowBtnHost?.classList.remove("hidden");
+    if (animate) {
+      concealElement(previewPaneHost, { duration: 140, offset: 0, scale: 0.98 })
+        .then((concealed) => {
+          if (!concealed) return;
+          previewPaneHost.classList.add("preview-pane-user-hidden");
+          revealElement(previewPaneShowBtnHost, { duration: 160, offset: 4 });
+        });
+    } else {
+      previewPaneHost.classList.add("hidden");
+      previewPaneHost.classList.add("preview-pane-user-hidden");
+      previewPaneShowBtnHost?.classList.remove("hidden");
+    }
   }
   try { localStorage.setItem(PREVIEW_PANE_STATE_KEY, visible ? "1" : "0"); } catch {}
 }
@@ -3053,7 +3048,7 @@ previewPaneShowBtn?.addEventListener("click", () => setPreviewPaneVisible(true))
 (function initPreviewPaneVisibility() {
   let saved = "1";
   try { saved = localStorage.getItem(PREVIEW_PANE_STATE_KEY) || "1"; } catch {}
-  setPreviewPaneVisible(saved !== "0");
+  setPreviewPaneVisible(saved !== "0", false);
 })();
 
 function clearPreviewPane() {

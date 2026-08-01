@@ -1,4 +1,10 @@
 import { escapeHtml, formatBytes } from "./format.js";
+import {
+  animateTextChange,
+  emphasizeElement,
+  staggerChildren,
+  swapPanels,
+} from "./motion.js";
 
 const clientList = document.getElementById("client-list");
 const clientSearch = document.getElementById("client-search");
@@ -27,22 +33,22 @@ const fetchUrlBtn = document.getElementById("fetch-url-btn");
 let activeTab = "upload";
 
 function switchTab(tab) {
+  if (tab === activeTab) return;
+  const outgoing = activeTab === "upload" ? panelUpload : panelUrl;
+  const incoming = tab === "upload" ? panelUpload : panelUrl;
   activeTab = tab;
   if (tab === "upload") {
     tabUpload.classList.add("bg-slate-700", "text-slate-100");
     tabUpload.classList.remove("text-slate-400");
     tabUrl.classList.remove("bg-slate-700", "text-slate-100");
     tabUrl.classList.add("text-slate-400");
-    panelUpload.classList.remove("hidden");
-    panelUrl.classList.add("hidden");
   } else {
     tabUrl.classList.add("bg-slate-700", "text-slate-100");
     tabUrl.classList.remove("text-slate-400");
     tabUpload.classList.remove("bg-slate-700", "text-slate-100");
     tabUpload.classList.add("text-slate-400");
-    panelUrl.classList.remove("hidden");
-    panelUpload.classList.add("hidden");
   }
+  swapPanels(outgoing, incoming);
 }
 
 tabUpload.addEventListener("click", () => switchTab("upload"));
@@ -228,6 +234,8 @@ function renderClients() {
     cb.addEventListener("change", handleClientToggle);
   });
 
+  staggerChildren(clientList, { limit: 12, interval: 18, duration: 180, offset: 5 });
+
   updateSelectedCount();
 }
 
@@ -243,6 +251,7 @@ function handleClientToggle(e) {
 
 function updateSelectedCount() {
   selectedCountSpan.textContent = `${selectedClients.size} selected`;
+  animateTextChange(selectedCountSpan);
   executeBtn.disabled = selectedClients.size === 0 || !uploaded;
   if (updateBtn) {
     updateBtn.disabled = selectedClients.size === 0 || !uploaded;
@@ -269,6 +278,7 @@ function matchesClientOs(clientOs, targetOs) {
 function setUploadStatus(text, tone = "text-slate-400") {
   uploadStatus.className = `mt-3 text-sm ${tone}`;
   uploadStatus.textContent = text;
+  animateTextChange(uploadStatus);
 }
 
 function setOsBadge(os) {
@@ -513,6 +523,7 @@ executeBtn.addEventListener("click", async () => {
     </div>`;
     })
     .join("");
+  staggerChildren(outputContainer, { limit: 16, interval: 30, duration: 220, offset: 7 });
 
   executeBtn.disabled = false;
 });
@@ -747,6 +758,7 @@ function renderAutoDeployList(items) {
         </div>`;
     })
     .join("");
+  staggerChildren(autoDeployList, { limit: 12, interval: 24, duration: 200, offset: 6 });
 
   autoDeployList.querySelectorAll(".auto-deploy-toggle").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -759,6 +771,7 @@ function renderAutoDeployList(items) {
           body: JSON.stringify({ enabled: !currentlyEnabled }),
         });
         if (res.ok) loadAutoDeploys();
+        if (res.ok) emphasizeElement(btn, "rgba(52, 211, 153, 0.24)");
       } catch (err) {
         console.error("Toggle failed:", err);
       }

@@ -12,6 +12,13 @@ import {
   setEasterEggEnabled,
   showEnabledEasterEgg,
 } from "./easter-egg.js";
+import {
+  animateElement,
+  animateTextChange,
+  concealElement,
+  emphasizeElement,
+  revealElement,
+} from "./motion.js";
 
 const PREF_REFRESH_KEY = "overlord_refresh_interval_seconds";
 const NAV_MODE_KEY = "sb_mode";
@@ -190,6 +197,7 @@ function showMessage(text, type = "ok") {
   } else {
     messageEl.classList.add("text-emerald-200", "border-emerald-700", "bg-emerald-900/30");
   }
+  animateTextChange(messageEl);
 }
 
 function formatDate(timestamp) {
@@ -470,7 +478,11 @@ function applyTlsForm() {
 }
 
 tlsTrustHelpBtn?.addEventListener("click", () => {
-  tlsTrustInstructions?.classList.toggle("hidden");
+  if (tlsTrustInstructions?.classList.contains("hidden")) {
+    revealElement(tlsTrustInstructions, { duration: 200, offset: 5 });
+  } else {
+    concealElement(tlsTrustInstructions, { duration: 120, offset: -3 });
+  }
 });
 
 async function loadActiveTlsCertificate() {
@@ -792,7 +804,7 @@ async function startMfaSetup() {
     if (mfaQrCode) mfaQrCode.innerHTML = data.qrSvg || "";
     if (mfaSecretText) mfaSecretText.textContent = data.secret || "";
     if (mfaOtpauthLink) mfaOtpauthLink.href = data.otpauthUrl || "#";
-    if (mfaSetupPanel) mfaSetupPanel.classList.remove("hidden");
+    revealElement(mfaSetupPanel, { duration: 240, offset: 8 });
     if (mfaEnableCodeInput) mfaEnableCodeInput.focus();
   } catch {
     showMfaMessage("Network error while starting MFA setup.", "error");
@@ -813,7 +825,7 @@ async function enableMfa() {
       showMfaMessage(data.error || "Failed to enable MFA.", "error");
       return;
     }
-    if (mfaSetupPanel) mfaSetupPanel.classList.add("hidden");
+    concealElement(mfaSetupPanel, { duration: 130, offset: -4 });
     if (mfaEnableCodeInput) mfaEnableCodeInput.value = "";
     showMfaMessage("MFA enabled.");
     await loadMfaStatus();
@@ -1396,9 +1408,18 @@ function initSettingsSidebar() {
   }
   if (sectionMap.size === 0) return;
 
+  let activeLink = null;
   function setActive(link) {
+    if (link === activeLink) return;
+    activeLink = link;
     links.forEach((l) => l.classList.remove("active"));
-    if (link) link.classList.add("active");
+    if (link) {
+      link.classList.add("active");
+      animateElement(link, [
+        { transform: "translateX(-2px)", opacity: 0.8 },
+        { transform: "translateX(0)", opacity: 1 },
+      ], { duration: 180 });
+    }
   }
 
   function isAtPageBottom() {
@@ -1421,6 +1442,7 @@ function initSettingsSidebar() {
     updateSettingsScrollOffset();
     _clickLockUntil = Date.now() + 1200;
     setActive(link);
+    emphasizeElement(target, "rgba(56, 189, 248, 0.18)");
     target.scrollIntoView({ behavior: "smooth", block: "start" });
     history.replaceState(null, "", `#${id}`);
   });

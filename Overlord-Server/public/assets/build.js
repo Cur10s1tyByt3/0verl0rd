@@ -3,6 +3,11 @@ import {
   createBuildHistoryManager,
   formatFileSize,
 } from "./build-history-manager.js";
+import {
+  animateElement,
+  revealElement,
+  staggerChildren,
+} from "./motion.js";
 
 const form = document.getElementById("build-form");
 const buildBtn = document.getElementById("build-btn");
@@ -195,12 +200,22 @@ function updateServerUrlCurrentButton() {
 
 let isBuilding = false;
 
+function revealBuildResults() {
+  if (buildResults.classList.contains("hidden")) {
+    revealElement(buildResults, { duration: 240, offset: 8 });
+  }
+  requestAnimationFrame(() => {
+    staggerChildren(buildFilesDiv, { limit: 10, interval: 28, duration: 220, offset: 6 });
+  });
+}
+
 function initAccordions() {
   document.querySelectorAll(".accordion-section").forEach((section) => {
     const header = section.querySelector(".accordion-header");
     const body = section.querySelector(".accordion-body");
     const chevron = section.querySelector(".accordion-chevron");
     const startOpen = section.dataset.open !== "false";
+    header.setAttribute("aria-expanded", String(startOpen));
 
     if (!startOpen) {
       body.classList.add("collapsed");
@@ -211,6 +226,12 @@ function initAccordions() {
     header.addEventListener("click", () => {
       const nowCollapsed = body.classList.toggle("collapsed");
       chevron.classList.toggle("rotated", !nowCollapsed);
+      section.dataset.open = String(!nowCollapsed);
+      header.setAttribute("aria-expanded", String(!nowCollapsed));
+      animateElement(header, [
+        { backgroundColor: "rgba(51, 65, 85, 0.62)" },
+        { backgroundColor: "rgba(30, 41, 59, 0.5)" },
+      ], { duration: 180 });
     });
   });
 }
@@ -226,6 +247,10 @@ function initBuilderTabs() {
     panels.forEach((p) => {
       if (p.dataset.builderPanel === tabName) {
         p.removeAttribute("hidden");
+        animateElement(p, [
+          { opacity: 0, transform: "translateY(7px)" },
+          { opacity: 1, transform: "translateY(0)" },
+        ], { duration: 200 });
       } else {
         p.setAttribute("hidden", "");
       }
@@ -2020,7 +2045,7 @@ async function startBuild(config) {
     setSgnTxtButtonState("Building TXT...", "fa-solid fa-spinner fa-spin");
   }
 
-  buildStatus.classList.remove("hidden");
+  revealElement(buildStatus, { duration: 220, offset: 6 });
   buildStatusText.textContent = "Starting build...";
   buildStatus.querySelector("div").className =
     "flex items-center gap-2 p-3 rounded-lg bg-blue-900/40 border border-blue-700/60";
@@ -2136,7 +2161,7 @@ async function streamBuildOutput(buildId, config = {}) {
             files: info.files,
           };
           saveBuildToStorage(buildData.id, buildData);
-          buildResults.classList.remove("hidden");
+          revealBuildResults();
           displayBuild(buildData);
 
           if (pendingUpdateAll) {
@@ -2181,7 +2206,7 @@ async function streamBuildOutput(buildId, config = {}) {
               files: info.files,
             };
             saveBuildToStorage(buildData.id, buildData);
-            buildResults.classList.remove("hidden");
+            revealBuildResults();
             displayBuild(buildData);
           }
           return;
@@ -2250,7 +2275,7 @@ async function streamBuildOutput(buildId, config = {}) {
                 };
                 saveBuildToStorage(data.buildId, buildData);
 
-                buildResults.classList.remove("hidden");
+                revealBuildResults();
                 displayBuild(buildData);
 
                 if (uploadedShareFiles.length > 0) {
@@ -2304,7 +2329,7 @@ async function streamBuildOutput(buildId, config = {}) {
           files: info.files,
         };
         saveBuildToStorage(buildData.id, buildData);
-        buildResults.classList.remove("hidden");
+        revealBuildResults();
         displayBuild(buildData);
       }
     } else {
@@ -2394,7 +2419,7 @@ function renderShareLinksPanel(items) {
 }
 
 function showBuildFiles(files, buildId, expiresAt) {
-  buildResults.classList.remove("hidden");
+  revealBuildResults();
   buildFilesDiv.innerHTML = "";
 
   const buildInfoDiv = document.createElement("div");

@@ -21,7 +21,7 @@
       .accordion-body {
         display: grid;
         grid-template-rows: 1fr;
-        transition: grid-template-rows 0.2s ease, opacity 0.2s ease;
+        transition: grid-template-rows var(--motion-normal) var(--motion-ease-out), opacity var(--motion-fast) ease;
         opacity: 1;
       }
       .accordion-body.collapsed {
@@ -32,7 +32,7 @@
         overflow: hidden;
       }
       .accordion-chevron {
-        transition: transform 0.2s ease;
+        transition: transform var(--motion-normal) var(--motion-ease-out);
       }
       .accordion-chevron.rotated {
         transform: rotate(-180deg);
@@ -67,11 +67,12 @@
         color: rgb(148, 163, 184);
         font-size: 0.78rem;
         font-weight: 600;
-        transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+        transition: color var(--motion-fast) ease, background var(--motion-fast) ease, box-shadow var(--motion-normal) var(--motion-ease-out), transform var(--motion-fast) ease;
       }
       .builder-tab:hover {
         color: rgb(226, 232, 240);
         background: rgba(51, 65, 85, 0.45);
+        transform: translateY(-1px);
       }
       .builder-tab[aria-selected="true"] {
         color: white;
