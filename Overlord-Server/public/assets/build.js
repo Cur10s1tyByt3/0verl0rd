@@ -15,6 +15,12 @@ const buildStatus = document.getElementById("build-status");
 const buildStatusText = document.getElementById("build-status-text");
 const buildOutputDiv = document.getElementById("build-output");
 const buildOutputContainer = document.getElementById("build-output-container");
+const buildLogIssueCount = document.getElementById("build-log-issue-count");
+const buildLogFilterButtons = document.querySelectorAll("[data-build-log-filter]");
+const buildLogWrapBtn = document.getElementById("build-log-wrap-btn");
+const buildLogFollowBtn = document.getElementById("build-log-follow-btn");
+const buildLogCopyBtn = document.getElementById("build-log-copy-btn");
+const buildLogClearBtn = document.getElementById("build-log-clear-btn");
 const buildResults = document.getElementById("build-results");
 const buildFilesDiv = document.getElementById("build-files");
 const logoutBtn = document.getElementById("logout-btn");
@@ -199,6 +205,147 @@ function updateServerUrlCurrentButton() {
 }
 
 let isBuilding = false;
+const BUILD_LOG_MAX_VISIBLE_LINES = 5000;
+const BUILD_LOG_WRAP_KEY = "overlord.buildLog.wrap.v1";
+let buildLogRawChunks = [];
+let buildLogLineCount = 0;
+let buildLogIssueTotal = 0;
+let buildLogFollow = true;
+
+function updateBuildLogSummary() {
+  if (buildLogIssueCount) buildLogIssueCount.textContent = buildLogIssueTotal.toLocaleString();
+}
+
+function setBuildLogFollow(enabled) {
+  buildLogFollow = enabled;
+  buildLogFollowBtn?.setAttribute("aria-pressed", String(enabled));
+  if (enabled && buildOutputContainer) {
+    buildOutputContainer.scrollTop = buildOutputContainer.scrollHeight;
+  }
+}
+
+function resetBuildLog(showEmptyState = false) {
+  buildLogRawChunks = [];
+  buildLogLineCount = 0;
+  buildLogIssueTotal = 0;
+  if (buildOutputDiv) {
+    buildOutputDiv.innerHTML = showEmptyState
+      ? '<div class="build-log-empty">Output cleared. New build events will appear here.</div>'
+      : "";
+  }
+  updateBuildLogSummary();
+}
+
+function classifyBuildLogLine(line, requestedLevel) {
+  const normalizedLevel = String(requestedLevel || "info").toLowerCase();
+  if (normalizedLevel === "error" || /\b(error|failed|failure|fatal|panic)\b/i.test(line)) return "error";
+  if (normalizedLevel === "warn" || normalizedLevel === "warning" || /\b(warn(?:ing)?|retry|skipp?ed|hint)\b/i.test(line)) return "warning";
+  if (normalizedLevel === "success" || /\b(success(?:ful(?:ly)?)?|completed|\[ok\])\b/i.test(line)) return "success";
+  if (/^(?:\s*[=─-]{2,}|\s*\[[^\]]+\]|\s*(?:starting|build id|building|uploading|pushing|reconnecting)\b)/i.test(line)) return "stage";
+  return "detail";
+}
+
+function appendBuildLogLine(line, requestedLevel) {
+  if (!buildOutputDiv || !line.trim()) return;
+  buildOutputDiv.querySelector(".build-log-empty")?.remove();
+
+  const level = classifyBuildLogLine(line, requestedLevel);
+  const row = document.createElement("div");
+  row.className = "build-log-line";
+  row.dataset.logLevel = level;
+
+  buildLogLineCount += 1;
+  if (level === "warning" || level === "error") buildLogIssueTotal += 1;
+
+  const number = document.createElement("span");
+  number.className = "build-log-number";
+  number.textContent = String(buildLogLineCount);
+
+  const content = document.createElement("span");
+  content.className = "build-log-content";
+  content.appendChild(document.createTextNode(line));
+  row.appendChild(number);
+  row.appendChild(content);
+  buildOutputDiv.appendChild(row);
+
+  while (buildOutputDiv.children.length > BUILD_LOG_MAX_VISIBLE_LINES) {
+    buildOutputDiv.firstElementChild?.remove();
+  }
+
+  if (level !== "detail") {
+    animateElement(row, [
+      { opacity: 0, transform: "translateX(5px)" },
+      { opacity: 1, transform: "translateX(0)" },
+    ], { duration: 170 });
+  }
+}
+
+function initBuildConsole() {
+  let wrapEnabled = false;
+  try { wrapEnabled = localStorage.getItem(BUILD_LOG_WRAP_KEY) === "1"; } catch {}
+  buildOutputDiv?.classList.toggle("log-wrap", wrapEnabled);
+  buildLogWrapBtn?.setAttribute("aria-pressed", String(wrapEnabled));
+
+  buildLogFilterButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const filter = button.dataset.buildLogFilter || "all";
+      buildOutputDiv.dataset.filter = filter;
+      buildLogFilterButtons.forEach((candidate) => {
+        candidate.setAttribute("aria-pressed", String(candidate === button));
+      });
+    });
+  });
+
+  buildLogWrapBtn?.addEventListener("click", () => {
+    const enabled = !buildOutputDiv.classList.contains("log-wrap");
+    buildOutputDiv.classList.toggle("log-wrap", enabled);
+    buildLogWrapBtn.setAttribute("aria-pressed", String(enabled));
+    try { localStorage.setItem(BUILD_LOG_WRAP_KEY, enabled ? "1" : "0"); } catch {}
+  });
+
+  buildLogFollowBtn?.addEventListener("click", () => setBuildLogFollow(!buildLogFollow));
+  buildOutputContainer?.addEventListener("scroll", () => {
+    const distanceFromBottom = buildOutputContainer.scrollHeight
+      - buildOutputContainer.scrollTop
+      - buildOutputContainer.clientHeight;
+    if (distanceFromBottom > 40 && buildLogFollow) setBuildLogFollow(false);
+  }, { passive: true });
+
+  buildLogCopyBtn?.addEventListener("click", async () => {
+    const text = buildLogRawChunks.join("");
+    if (!text) return;
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      copied = document.execCommand?.("copy") === true;
+      textarea.remove();
+    }
+    if (copied) {
+      buildLogCopyBtn.innerHTML = '<i class="fa-solid fa-check text-emerald-400"></i><span class="sr-only">Copied</span>';
+      setTimeout(() => {
+        buildLogCopyBtn.innerHTML = '<i class="fa-regular fa-copy"></i><span class="sr-only">Copy output</span>';
+      }, 1400);
+    } else {
+      window.showToast?.("Could not copy build output", "error");
+    }
+  });
+
+  buildLogClearBtn?.addEventListener("click", () => {
+    resetBuildLog(true);
+    setBuildLogFollow(true);
+  });
+  updateBuildLogSummary();
+}
+
+initBuildConsole();
 
 function revealBuildResults() {
   if (buildResults.classList.contains("hidden")) {
@@ -2053,7 +2200,8 @@ async function startBuild(config) {
   buildResults.classList.add("hidden");
   buildFilesDiv.innerHTML = "";
 
-  buildOutputDiv.innerHTML = "";
+  resetBuildLog();
+  setBuildLogFollow(true);
   addBuildOutput("Starting build process...\n", "info");
 
   try {
@@ -2298,7 +2446,6 @@ async function streamBuildOutput(buildId, config = {}) {
           }
         }
 
-        buildOutputContainer.scrollTop = buildOutputContainer.scrollHeight;
       }
       // Stream ended cleanly without a "complete" event — build may still be running
       completed = true;
@@ -2340,20 +2487,18 @@ async function streamBuildOutput(buildId, config = {}) {
 }
 
 function addBuildOutput(text, level = "info") {
-  const span = document.createElement("span");
-  span.textContent = text;
+  const rawText = String(text ?? "");
+  if (!rawText) return;
+  buildLogRawChunks.push(rawText);
+  const normalized = rawText.replace(/\r\n?/g, "\n");
+  normalized.split("\n").forEach((line) => appendBuildLogLine(line, level));
+  updateBuildLogSummary();
 
-  if (level === "error") {
-    span.className = "text-red-400";
-  } else if (level === "success") {
-    span.className = "text-green-400";
-  } else if (level === "warn") {
-    span.className = "text-yellow-400";
-  } else {
-    span.className = "text-slate-300";
+  if (buildLogFollow && buildOutputContainer) {
+    requestAnimationFrame(() => {
+      buildOutputContainer.scrollTop = buildOutputContainer.scrollHeight;
+    });
   }
-
-  buildOutputDiv.appendChild(span);
 }
 
 function renderShareLinksPanel(items) {

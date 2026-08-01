@@ -79,6 +79,78 @@
         background: linear-gradient(135deg, rgba(37, 99, 235, 0.95), rgba(79, 70, 229, 0.9));
         box-shadow: 0 8px 22px rgba(37, 99, 235, 0.22);
       }
+      .build-console {
+        overflow: hidden;
+        border: 1px solid rgb(51 65 85);
+        border-radius: 0.75rem;
+        background: rgb(2 6 23 / 0.92);
+        box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.025);
+      }
+      .build-console-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.65rem;
+        padding: 0.6rem 0.75rem;
+        border-bottom: 1px solid rgb(30 41 59);
+        background: linear-gradient(180deg, rgb(15 23 42 / 0.96), rgb(8 15 30 / 0.96));
+      }
+      .build-console-group { display: flex; align-items: center; gap: 0.35rem; }
+      .build-console-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        min-height: 1.9rem;
+        padding: 0.3rem 0.55rem;
+        border: 1px solid transparent;
+        border-radius: 0.45rem;
+        color: rgb(148 163 184);
+        font-size: 0.7rem;
+        font-weight: 600;
+      }
+      .build-console-control:hover { color: rgb(226 232 240); background: rgb(51 65 85 / 0.5); }
+      .build-console-control[aria-pressed="true"] {
+        color: rgb(241 245 249);
+        border-color: rgb(100 116 139 / 0.45);
+        background: rgb(51 65 85 / 0.72);
+      }
+      #build-output-container {
+        min-height: 28rem;
+        max-height: calc(100vh - 23rem);
+        overflow: auto;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
+      }
+      #build-output { min-width: max-content; padding: 0.55rem 0; }
+      #build-output.log-wrap { min-width: 0; }
+      .build-log-line {
+        display: grid;
+        grid-template-columns: 3rem minmax(0, 1fr);
+        min-height: 1.65rem;
+        border-left: 2px solid transparent;
+        color: rgb(148 163 184);
+        font-family: inherit;
+        font-size: 0.78rem;
+        line-height: 1.55;
+      }
+      .build-log-line:hover { background: rgb(30 41 59 / 0.34); }
+      .build-log-number {
+        padding: 0.15rem 0.65rem 0.15rem 0.35rem;
+        color: rgb(71 85 105);
+        text-align: right;
+        user-select: none;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      }
+      .build-log-content { padding: 0.15rem 0.8rem 0.15rem 0; white-space: pre; }
+      #build-output.log-wrap .build-log-content { white-space: pre-wrap; overflow-wrap: anywhere; }
+      .build-log-line[data-log-level="stage"] { color: rgb(186 230 253); border-left-color: rgb(56 189 248); background: rgb(14 165 233 / 0.055); }
+      .build-log-line[data-log-level="success"] { color: rgb(134 239 172); border-left-color: rgb(34 197 94); background: rgb(22 163 74 / 0.06); }
+      .build-log-line[data-log-level="warning"] { color: rgb(253 224 71); border-left-color: rgb(234 179 8); background: rgb(202 138 4 / 0.06); }
+      .build-log-line[data-log-level="error"] { color: rgb(253 164 175); border-left-color: rgb(244 63 94); background: rgb(225 29 72 / 0.08); }
+      #build-output[data-filter="important"] .build-log-line[data-log-level="detail"],
+      #build-output[data-filter="issues"] .build-log-line:not([data-log-level="warning"]):not([data-log-level="error"]) { display: none; }
+      .build-log-empty { padding: 1.2rem; color: rgb(100 116 139); font-size: 0.78rem; }
       [data-builder-panel][hidden] { display: none !important; }
       .builder-profile-bar {
         display: grid;
@@ -1244,10 +1316,34 @@
               </div>
             </div>
 
-            <div id="build-output-container"
-              class="bg-slate-950 border border-slate-700 rounded-lg p-4 min-h-[28rem] max-h-[calc(100vh-20rem)] overflow-y-auto font-mono text-sm">
-              <div id="build-output" class="text-slate-400">
-                Ready to build. Select platforms and click "Start Build".
+            <div class="build-console">
+              <div class="build-console-toolbar" aria-label="Build output controls">
+                <div class="build-console-group" role="group" aria-label="Filter build output">
+                  <button type="button" class="build-console-control" data-build-log-filter="all" aria-pressed="true">All</button>
+                  <button type="button" class="build-console-control" data-build-log-filter="important" aria-pressed="false">Important</button>
+                  <button type="button" class="build-console-control" data-build-log-filter="issues" aria-pressed="false">
+                    Issues <span id="build-log-issue-count" class="text-amber-300">0</span>
+                  </button>
+                </div>
+                <div class="build-console-group">
+                  <button id="build-log-wrap-btn" type="button" class="build-console-control" aria-pressed="false" title="Wrap long lines">
+                    <i class="fa-solid fa-align-left"></i><span>Wrap</span>
+                  </button>
+                  <button id="build-log-follow-btn" type="button" class="build-console-control" aria-pressed="true" title="Follow new output">
+                    <i class="fa-solid fa-arrow-down"></i><span>Follow</span>
+                  </button>
+                  <button id="build-log-copy-btn" type="button" class="build-console-control" title="Copy full output">
+                    <i class="fa-regular fa-copy"></i><span class="sr-only">Copy output</span>
+                  </button>
+                  <button id="build-log-clear-btn" type="button" class="build-console-control" title="Clear output">
+                    <i class="fa-solid fa-eraser"></i><span class="sr-only">Clear output</span>
+                  </button>
+                </div>
+              </div>
+              <div id="build-output-container">
+                <div id="build-output" class="text-slate-400" data-filter="all" role="log" aria-live="polite" aria-relevant="additions">
+                  <div class="build-log-empty">Ready to build. Select platforms and click “Start Build”.</div>
+                </div>
               </div>
             </div>
 
