@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Overlord Server Dockerfile (multi-stage)
 #
-# Stage 1 (builder): full apt toolchain to compile assets + HVNC DLLs.
+# Stage 1 (builder): full apt toolchain to compile assets + Backstage DLLs.
 # Stage 2 (runtime, slim): only what the server needs at startup. Cross-compile
 # toolchains (mingw, aarch64/armv7/musl, Android NDK, ldid, UPX) are downloaded
 # on first agent build by Overlord-Server/src/server/toolchain-manager.ts and
