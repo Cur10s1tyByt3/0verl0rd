@@ -30,6 +30,7 @@ func GetPersistedDisplay() int {
 
 func DesktopStart(ctx context.Context, env *rt.Env) error {
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
+	defer capture.CleanupDesktopStream()
 	fps := activeDesktopTargetFPS()
 	interval := time.Second / time.Duration(fps)
 	capture.SetDesktopH264TargetFPS(fps)

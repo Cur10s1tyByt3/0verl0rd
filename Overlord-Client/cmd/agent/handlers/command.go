@@ -899,7 +899,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			display = 0
 		}
 		goSafe("desktop encoder capability probe", env.Cancel, func() {
-			caps := capture.ProbeDesktopEncoderCapabilities(display)
+			caps := capture.ProbeDesktopEncoderCapabilities(ctx, display)
 			profiles := make([]wire.DesktopEncoderProfile, 0, len(caps.Profiles))
 			for _, profile := range caps.Profiles {
 				profiles = append(profiles, wire.DesktopEncoderProfile{

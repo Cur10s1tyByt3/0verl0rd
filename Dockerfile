@@ -87,7 +87,7 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 # Server source (Overlord-Server/dist-clients may carry pre-built MSVC DLLs from CI)
 COPY Overlord-Server/ ./
 
-# HVNC sources for the cross-compile fallback (used only if no pre-built MSVC DLL).
+# Backstage sources for the cross-compile fallback (used only if no pre-built MSVC DLL).
 COPY BackstageInjection/ ./BackstageInjection/
 COPY scripts/build-backstage-dll.sh ./scripts/
 COPY BackstageCapture/ ./BackstageCapture/

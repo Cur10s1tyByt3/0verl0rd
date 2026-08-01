@@ -187,8 +187,10 @@ var (
 	backstageLastScale       atomic.Uint64 // float64 bits — scale used by last backstage capture
 
 	// Capture cache: pooled DC/DIB per window to avoid per-frame allocation
-	backstageWinCache     map[uintptr]*backstageWinCacheEntry
-	backstageWinCachePrev []byte
+	backstageWinCache      map[uintptr]*backstageWinCacheEntry
+	backstageWinCachePrev  []byte
+	backstageWinCacheBytes int64
+	backstageWinCacheSeq   uint64
 
 	backstageCompHdcMem uintptr
 	backstageCompHbmp   uintptr
@@ -282,9 +284,16 @@ type backstageWinCacheEntry struct {
 	hbmp   uintptr
 	bits   unsafe.Pointer
 	w, h   int
+	bytes  int64
+	usedAt uint64
 	lastOK bool
 	age    int
 }
+
+const (
+	backstageMaxWindowCacheEntries = 64
+	backstageMaxWindowCacheBytes   = int64(256 << 20)
+)
 
 type keybdInput struct {
 	wVk         uint16
@@ -375,16 +384,16 @@ func InitializebackstageDesktop() error {
 func CleanupbackstageDesktop() {
 	backstageDesktopMu.Lock()
 	defer backstageDesktopMu.Unlock()
+	ResetPrevbackstage()
+	resetH264D3D11TextureEncoder("backstage")
 
 	backstageCleanupFrameReaders()
+	captureMu.Lock()
 	backstageCleanupDWMThumbnails()
 
 	backstageFreeCapCache()
 
-	for _, entry := range backstageWinCache {
-		backstageFreeCacheEntry(entry)
-	}
-	backstageWinCache = nil
+	backstageClearWindowCache()
 	backstageWinCachePrev = nil
 
 	if backstageCompHbmp != 0 {
@@ -398,6 +407,7 @@ func CleanupbackstageDesktop() {
 	backstageCompBits = nil
 	backstageCompW = 0
 	backstageCompH = 0
+	captureMu.Unlock()
 
 	backstageInputMu.Lock()
 	backstageShiftDown = false
@@ -1705,10 +1715,9 @@ func drawbackstageWindowsToBuffer(hdcScreen uintptr, bounds image.Rectangle, tar
 	}
 
 	// Evict cache entries for windows that no longer exist
-	for h, entry := range backstageWinCache {
+	for h := range backstageWinCache {
 		if !alive[h] {
-			backstageFreeCacheEntry(entry)
-			delete(backstageWinCache, h)
+			backstageRemoveWindowCacheEntry(h)
 		}
 	}
 
@@ -1716,13 +1725,35 @@ func drawbackstageWindowsToBuffer(hdcScreen uintptr, bounds image.Rectangle, tar
 }
 
 func backstageGetOrCreateCache(hdcScreen uintptr, hwnd uintptr, w, h int) *backstageWinCacheEntry {
+	entryBytes, valid := backstageWindowCacheByteSize(w, h)
+	if !valid || entryBytes > backstageMaxWindowCacheBytes {
+		return nil
+	}
+	backstageWinCacheSeq++
 	entry, ok := backstageWinCache[hwnd]
 	if ok && entry.w == w && entry.h == h && entry.hdcMem != 0 && entry.hbmp != 0 {
 		entry.age = 0
+		entry.usedAt = backstageWinCacheSeq
 		return entry
 	}
 	if ok {
-		backstageFreeCacheEntry(entry)
+		backstageRemoveWindowCacheEntry(hwnd)
+	}
+	for len(backstageWinCache) >= backstageMaxWindowCacheEntries || backstageWinCacheBytes+entryBytes > backstageMaxWindowCacheBytes {
+		var oldestHandle uintptr
+		var oldestSeq uint64
+		found := false
+		for handle, candidate := range backstageWinCache {
+			if !found || candidate.usedAt < oldestSeq {
+				oldestHandle = handle
+				oldestSeq = candidate.usedAt
+				found = true
+			}
+		}
+		if !found {
+			return nil
+		}
+		backstageRemoveWindowCacheEntry(oldestHandle)
 	}
 	hdcMem := createCompatibleDC(hdcScreen)
 	if hdcMem == 0 {
@@ -1752,9 +1783,40 @@ func backstageGetOrCreateCache(hdcScreen uintptr, hwnd uintptr, w, h int) *backs
 		bits:   bits,
 		w:      w,
 		h:      h,
+		bytes:  entryBytes,
+		usedAt: backstageWinCacheSeq,
 	}
 	backstageWinCache[hwnd] = entry
+	backstageWinCacheBytes += entryBytes
 	return entry
+}
+
+func backstageWindowCacheByteSize(w, h int) (int64, bool) {
+	if w <= 0 || h <= 0 || int64(w) > (1<<63-1)/int64(h)/4 {
+		return 0, false
+	}
+	return int64(w) * int64(h) * 4, true
+}
+
+func backstageRemoveWindowCacheEntry(hwnd uintptr) {
+	entry := backstageWinCache[hwnd]
+	if entry == nil {
+		return
+	}
+	backstageFreeCacheEntry(entry)
+	delete(backstageWinCache, hwnd)
+	backstageWinCacheBytes -= entry.bytes
+	if backstageWinCacheBytes < 0 {
+		backstageWinCacheBytes = 0
+	}
+}
+
+func backstageClearWindowCache() {
+	for hwnd := range backstageWinCache {
+		backstageRemoveWindowCacheEntry(hwnd)
+	}
+	backstageWinCache = nil
+	backstageWinCacheBytes = 0
 }
 
 func backstageFreeCacheEntry(entry *backstageWinCacheEntry) {

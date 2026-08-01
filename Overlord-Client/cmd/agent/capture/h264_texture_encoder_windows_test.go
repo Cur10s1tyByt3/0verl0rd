@@ -124,6 +124,36 @@ type fakeH264FrameEncoder struct {
 	closed     bool
 }
 
+func TestCleanupDesktopStreamClosesFrameEncoders(t *testing.T) {
+	desktop := &fakeH264FrameEncoder{}
+	hevc := &fakeH264FrameEncoder{}
+
+	h264Mu.Lock()
+	savedDesktop := h264Enc
+	h264Enc = desktop
+	h264Mu.Unlock()
+	hevcMu.Lock()
+	savedHEVC := hevcEnc
+	hevcEnc = hevc
+	hevcMu.Unlock()
+	t.Cleanup(func() {
+		h264Mu.Lock()
+		h264Enc = savedDesktop
+		h264Mu.Unlock()
+		hevcMu.Lock()
+		hevcEnc = savedHEVC
+		hevcMu.Unlock()
+	})
+
+	CleanupDesktopStream()
+	if !desktop.closed {
+		t.Error("desktop H.264 encoder was not closed")
+	}
+	if !hevc.closed {
+		t.Error("desktop HEVC encoder was not closed")
+	}
+}
+
 func (e *fakeH264FrameEncoder) Encode(*image.RGBA) ([]byte, error) {
 	e.encodeCall++
 	return e.output, e.err

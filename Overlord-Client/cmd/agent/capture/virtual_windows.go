@@ -137,6 +137,13 @@ func CleanupVirtualMode() {
 	virtualDupState.mu.Lock()
 	virtualDupState.close()
 	virtualDupState.mu.Unlock()
+	ResetPrevbackstage()
+	resetH264D3D11TextureEncoder("backstage")
+	captureMu.Lock()
+	backstageFreeCapCache()
+	backstageClearWindowCache()
+	virtualCapImg = nil
+	captureMu.Unlock()
 
 	virtualInputMu.Lock()
 	virtualShiftDown = false
@@ -2495,10 +2502,9 @@ func drawVirtualWindowsToBuffer(hdcScreen uintptr, bounds image.Rectangle, targe
 		hwnd = getWindow(hwnd, GW_HWNDPREV)
 	}
 
-	for h, entry := range backstageWinCache {
+	for h := range backstageWinCache {
 		if !alive[h] {
-			backstageFreeCacheEntry(entry)
-			delete(backstageWinCache, h)
+			backstageRemoveWindowCacheEntry(h)
 		}
 	}
 

@@ -2,7 +2,9 @@
 
 package capture
 
-func ProbeDesktopEncoderCapabilities(display int) DesktopEncoderCapabilities {
+import "context"
+
+func ProbeDesktopEncoderCapabilities(_ context.Context, display int) DesktopEncoderCapabilities {
 	return completeDesktopEncoderCapabilities(DesktopEncoderCapabilities{
 		Display: display,
 		Profiles: []DesktopEncoderProfile{

@@ -445,16 +445,28 @@ func captureAllDisplaysAndSend(ctx context.Context, env *rt.Env) error {
 	}
 
 	quality := desktopJPEGQuality()
-	frame, _, err := buildFrame(canvas, 0, quality)
+	frame, err := buildInitialDesktopThumbnail(canvas, quality)
 	canvasW, canvasH := canvas.Rect.Dx(), canvas.Rect.Dy()
 	PutRGBA(canvas)
 	canvas = nil
 	if err != nil {
 		return err
 	}
-	frame.Header.FPS = 1
 	log.Printf("capture: all-displays initial frame %dx%d (%d monitors)", canvasW, canvasH, n)
 	return wire.WriteMsg(ctx, env.Conn, frame)
+}
+
+func buildInitialDesktopThumbnail(img *image.RGBA, quality int) (wire.Frame, error) {
+	jpegBytes, err := encodeJPEG(img, quality)
+	return wire.Frame{
+		Type: "frame",
+		Header: wire.FrameHeader{
+			Monitor: 0,
+			FPS:     1,
+			Format:  "jpeg",
+		},
+		Data: jpegBytes,
+	}, err
 }
 
 func supportsCapture() bool {
@@ -665,12 +677,23 @@ func consumeFullFrame() bool {
 }
 
 func ResetPrev() {
-	prevMu.Lock()
-	prevFrame = nil
-	prevMu.Unlock()
+	clearDesktopPreviousFrame()
 	lastKeyframe.Store(0)
 	requestFullFrames(2)
 	resetH264Encoder()
+}
+
+func clearDesktopPreviousFrame() {
+	prevMu.Lock()
+	prevFrame = nil
+	prevMu.Unlock()
+}
+
+func CleanupDesktopStream() {
+	ResetDesktopCapture()
+	ResetPrev()
+	resetHEVCEncoder()
+	ResetFrameSlots()
 }
 
 func ResetPrevbackstage() {

@@ -3,6 +3,7 @@
 package capture
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"sort"
@@ -35,7 +36,7 @@ type desktopProfileProbe struct {
 	run  func(h264D3D11TextureRequest) (time.Duration, error)
 }
 
-func ProbeDesktopEncoderCapabilities(display int) DesktopEncoderCapabilities {
+func ProbeDesktopEncoderCapabilities(ctx context.Context, display int) DesktopEncoderCapabilities {
 	bounds := DisplayBounds(display)
 	cacheKey := fmt.Sprintf("%d:%d:%d:%d:%d:%.3f", display, bounds.Min.X, bounds.Min.Y, bounds.Dx(), bounds.Dy(), captureScale())
 	desktopCapabilityCache.Lock()
@@ -43,8 +44,12 @@ func ProbeDesktopEncoderCapabilities(display int) DesktopEncoderCapabilities {
 		desktopCapabilityCache.Unlock()
 		return cached.caps
 	}
-	caps := probeDesktopEncoderCapabilities(display, bounds)
+	caps := probeDesktopEncoderCapabilities(ctx, display, bounds)
 	caps = completeDesktopEncoderCapabilities(caps)
+	if ctx.Err() != nil {
+		desktopCapabilityCache.Unlock()
+		return caps
+	}
 	desktopCapabilityCache.entries[cacheKey] = desktopCapabilityCacheEntry{at: time.Now(), caps: caps}
 	for key, entry := range desktopCapabilityCache.entries {
 		if time.Since(entry.at) >= desktopCapabilityCacheTTL {
@@ -55,8 +60,13 @@ func ProbeDesktopEncoderCapabilities(display int) DesktopEncoderCapabilities {
 	return caps
 }
 
-func probeDesktopEncoderCapabilities(display int, bounds image.Rectangle) DesktopEncoderCapabilities {
+func probeDesktopEncoderCapabilities(ctx context.Context, display int, bounds image.Rectangle) DesktopEncoderCapabilities {
 	caps := DesktopEncoderCapabilities{Display: display}
+	if ctx.Err() != nil {
+		caps.Profiles = safeDesktopProfiles(bounds.Dx(), bounds.Dy())
+		caps.Detail = "Hardware encoder capability probing was cancelled."
+		return caps
+	}
 	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
 		caps.Profiles = safeDesktopProfiles(1280, 720)
 		caps.Detail = "Could not determine the selected display size; safe software profiles are shown."
@@ -119,10 +129,14 @@ func probeDesktopEncoderCapabilities(display int, bounds image.Rectangle) Deskto
 	fpsOptions := []int{240, 165, 144, 120, 90, 60, 30}
 	sizes := desktopProbeSizes(nativeWidth, nativeHeight)
 	providersByProfile := make(map[string][]string)
+probeLoop:
 	for _, size := range sizes {
 		for _, probe := range probes {
 			maxFPS := 0
 			for _, fps := range fpsOptions {
+				if ctx.Err() != nil {
+					break probeLoop
+				}
 				if fps > desktopProfileFPSCeiling(size.height) {
 					continue
 				}
@@ -175,11 +189,13 @@ func probeDesktopEncoderCapabilities(display int, bounds image.Rectangle) Deskto
 		}
 		return caps.Profiles[i].FPS > caps.Profiles[j].FPS
 	})
-	caps.Probed = true
+	caps.Probed = ctx.Err() == nil
 	if len(caps.Profiles) == 0 {
 		caps.Profiles = safeDesktopProfiles(nativeWidth, nativeHeight)
 	}
-	if !hardwareProfilesFound {
+	if ctx.Err() != nil {
+		caps.Detail = "Hardware encoder capability probing was cancelled."
+	} else if !hardwareProfilesFound {
 		caps.Detail = "No hardware H.264 profile initialized successfully; safe software profiles are shown."
 	} else {
 		caps.Detail = "Profiles were tested on the selected display adapter."

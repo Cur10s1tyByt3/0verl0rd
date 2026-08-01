@@ -23,6 +23,53 @@ type recordingWriter struct {
 	types []websocket.MessageType
 }
 
+func TestClearDesktopPreviousFrameReleasesStitchedBaseline(t *testing.T) {
+	marker := &prevImage{w: 3840, h: 2160, pix: make([]byte, 16)}
+	prevMu.Lock()
+	saved := prevFrame
+	prevFrame = marker
+	prevMu.Unlock()
+	t.Cleanup(func() {
+		prevMu.Lock()
+		prevFrame = saved
+		prevMu.Unlock()
+	})
+
+	clearDesktopPreviousFrame()
+	prevMu.Lock()
+	defer prevMu.Unlock()
+	if prevFrame != nil {
+		t.Fatal("desktop previous frame remained retained")
+	}
+}
+
+func TestInitialDesktopThumbnailIsJPEGAndDoesNotReplaceBaseline(t *testing.T) {
+	marker := &prevImage{w: 1, h: 1, pix: []byte{0x42}}
+	prevMu.Lock()
+	saved := prevFrame
+	prevFrame = marker
+	prevMu.Unlock()
+	t.Cleanup(func() {
+		prevMu.Lock()
+		prevFrame = saved
+		prevMu.Unlock()
+	})
+
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	frame, err := buildInitialDesktopThumbnail(img, 80)
+	if err != nil {
+		t.Fatalf("build initial thumbnail: %v", err)
+	}
+	if frame.Header.Format != "jpeg" || frame.Header.FPS != 1 || len(frame.Data) == 0 {
+		t.Fatalf("unexpected initial frame header=%+v bytes=%d", frame.Header, len(frame.Data))
+	}
+	prevMu.Lock()
+	defer prevMu.Unlock()
+	if prevFrame != marker {
+		t.Fatal("initial thumbnail replaced the live-stream delta baseline")
+	}
+}
+
 func TestEncodeBlocksBackstageAdvancesOnlyBackstageHistory(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
 	for i := range img.Pix {
