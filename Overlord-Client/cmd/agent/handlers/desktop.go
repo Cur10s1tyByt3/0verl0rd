@@ -34,7 +34,8 @@ func DesktopStart(ctx context.Context, env *rt.Env) error {
 	fps := activeDesktopTargetFPS()
 	interval := time.Second / time.Duration(fps)
 	capture.SetDesktopH264TargetFPS(fps)
-	capture.SetFrameFlowTargetFPS(fps)
+	capture.StartFrameFlowStream("desktop", fps)
+	defer capture.StopFrameFlowStream("desktop")
 	log.Printf("desktop: starting stream (target fps %d)", fps)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -49,7 +50,7 @@ func DesktopStart(ctx context.Context, env *rt.Env) error {
 			if fps != currentFPS {
 				currentFPS = fps
 				capture.SetDesktopH264TargetFPS(fps)
-				capture.SetFrameFlowTargetFPS(fps)
+				capture.UpdateFrameFlowStream("desktop", fps)
 				ticker.Reset(time.Second / time.Duration(fps))
 				log.Printf("desktop: target fps changed to %d", fps)
 			}
@@ -76,7 +77,7 @@ func SetDesktopTargetFPS(fps int) int {
 	fps = clampDesktopTargetFPS(fps)
 	desktopTargetFPS.Store(int64(fps))
 	capture.SetDesktopH264TargetFPS(fps)
-	capture.SetFrameFlowTargetFPS(fps)
+	capture.UpdateFrameFlowStream("desktop", fps)
 	return fps
 }
 

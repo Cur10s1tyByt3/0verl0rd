@@ -15,3 +15,13 @@ func CaptureDisplayRGBAPreferBitBlt(display int) (*image.RGBA, error) {
 	}
 	return CaptureDisplayRGBA(display)
 }
+
+func CaptureDisplayRGBAThumbnail(display, maxHeight int) (*image.RGBA, error) {
+	return captureDisplayThumbnailBitBlt(display, maxHeight)
+}
+
+func CleanupThumbnailCapture() {
+	thumbnailMu.Lock()
+	thumbnailState.reset()
+	thumbnailMu.Unlock()
+}

@@ -4,6 +4,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -15,6 +16,8 @@ var (
 	frameAckSeen   atomic.Bool
 	lastAckNano    atomic.Int64
 	maxFrameSlots  atomic.Int64
+	frameStreamsMu sync.Mutex
+	frameStreams   = make(map[string]int)
 )
 
 func AcquireFrameSlot() bool {
@@ -54,6 +57,48 @@ func ResetFrameSlots() {
 }
 
 func SetFrameFlowTargetFPS(fps int) {
+	maxFrameSlots.Store(frameSlotLimitForFPS(fps))
+}
+
+func StartFrameFlowStream(stream string, fps int) {
+	frameStreamsMu.Lock()
+	frameStreams[stream] = fps
+	applyActiveFrameStreamLimitLocked()
+	frameStreamsMu.Unlock()
+}
+
+func UpdateFrameFlowStream(stream string, fps int) {
+	frameStreamsMu.Lock()
+	if _, active := frameStreams[stream]; active {
+		frameStreams[stream] = fps
+		applyActiveFrameStreamLimitLocked()
+	}
+	frameStreamsMu.Unlock()
+}
+
+func StopFrameFlowStream(stream string) {
+	frameStreamsMu.Lock()
+	delete(frameStreams, stream)
+	if len(frameStreams) == 0 {
+		ResetFrameSlots()
+		maxFrameSlots.Store(defaultMaxInFlightFrames)
+	} else {
+		applyActiveFrameStreamLimitLocked()
+	}
+	frameStreamsMu.Unlock()
+}
+
+func applyActiveFrameStreamLimitLocked() {
+	combinedFPS := 0
+	for _, fps := range frameStreams {
+		if fps > 0 {
+			combinedFPS += fps
+		}
+	}
+	maxFrameSlots.Store(frameSlotLimitForFPS(combinedFPS))
+}
+
+func frameSlotLimitForFPS(fps int) int64 {
 	limit := defaultMaxInFlightFrames
 	switch {
 	case fps >= 180:
@@ -75,7 +120,7 @@ func SetFrameFlowTargetFPS(fps int) {
 			}
 		}
 	}
-	maxFrameSlots.Store(limit)
+	return limit
 }
 
 func activeFrameSlotLimit() int64 {

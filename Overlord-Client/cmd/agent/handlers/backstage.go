@@ -33,13 +33,15 @@ func backstageStart(ctx context.Context, env *rt.Env, autoStartExplorer bool) er
 	fps := activebackstageTargetFPS()
 	interval := time.Second / time.Duration(fps)
 	capture.SetBackstageH264TargetFPS(fps)
-	capture.SetFrameFlowTargetFPS(fps)
 	log.Printf("backstage: starting stream (target fps %d)", fps)
 
 	if err := capture.InitializebackstageDesktop(); err != nil {
 		log.Printf("backstage: failed to initialize hidden desktop: %v", err)
 		return err
 	}
+	capture.StartFrameFlowStream("backstage", fps)
+	defer capture.StopFrameFlowStream("backstage")
+	defer capture.CleanupbackstageDesktop()
 
 	if autoStartExplorer {
 		goSafe("backstage auto-start explorer", nil, func() {
@@ -56,21 +58,19 @@ func backstageStart(ctx context.Context, env *rt.Env, autoStartExplorer bool) er
 		select {
 		case <-ctx.Done():
 			log.Printf("backstage: stopping stream")
-			capture.CleanupbackstageDesktop()
 			return nil
 		case <-ticker.C:
 			fps := activebackstageTargetFPS()
 			if fps != currentFPS {
 				currentFPS = fps
 				capture.SetBackstageH264TargetFPS(fps)
-				capture.SetFrameFlowTargetFPS(fps)
+				capture.UpdateFrameFlowStream("backstage", fps)
 				ticker.Reset(time.Second / time.Duration(fps))
 				log.Printf("backstage: target fps changed to %d", fps)
 			}
 			if err := capture.Nowbackstage(ctx, env); err != nil {
 				if ctx.Err() != nil {
 					log.Printf("backstage: stopping stream")
-					capture.CleanupbackstageDesktop()
 					return nil
 				}
 				log.Printf("backstage: capture error: %v", err)
@@ -91,7 +91,7 @@ func SetbackstageTargetFPS(fps int) int {
 	fps = clampDesktopTargetFPS(fps)
 	backstageTargetFPS.Store(int64(fps))
 	capture.SetBackstageH264TargetFPS(fps)
-	capture.SetFrameFlowTargetFPS(fps)
+	capture.UpdateFrameFlowStream("backstage", fps)
 	return fps
 }
 

@@ -530,14 +530,13 @@ const desktopHardwareH264FallbackCooldown = 30 * time.Second
 var consecutiveCaptureFails atomic.Int64
 
 var (
-	fpsWindowStart atomic.Int64
-	fpsCount       atomic.Int64
-	fpsLatest      atomic.Int64
-	lastFrameLog   atomic.Int64
-	metricsOnce    sync.Once
-	metricsEnabled bool
-	lastKeyframe   atomic.Int64
-	fullNextFrames atomic.Int64
+	desktopFPSCounter   frameRateCounter
+	backstageFPSCounter frameRateCounter
+	lastFrameLog        atomic.Int64
+	metricsOnce         sync.Once
+	metricsEnabled      bool
+	lastKeyframe        atomic.Int64
+	fullNextFrames      atomic.Int64
 
 	desktopRecoveryAfterBackstageStart atomic.Bool
 	statFrames                         atomic.Int64
@@ -576,6 +575,12 @@ var (
 	backstageLastKeyframe atomic.Int64
 )
 
+type frameRateCounter struct {
+	windowStart atomic.Int64
+	count       atomic.Int64
+	latest      atomic.Int64
+}
+
 type prevImage struct {
 	w   int
 	h   int
@@ -604,28 +609,36 @@ func logCodecSupport() {
 	})
 }
 
-func frameFPS(now time.Time) int {
-	start := fpsWindowStart.Load()
+func (c *frameRateCounter) fps(now time.Time) int {
+	start := c.windowStart.Load()
 	if start == 0 {
-		if fpsWindowStart.CompareAndSwap(0, now.UnixNano()) {
-			fpsCount.Store(1)
-			return int(fpsLatest.Load())
+		if c.windowStart.CompareAndSwap(0, now.UnixNano()) {
+			c.count.Store(1)
+			return int(c.latest.Load())
 		}
-		start = fpsWindowStart.Load()
+		start = c.windowStart.Load()
 	}
 
-	fpsCount.Add(1)
+	c.count.Add(1)
 	elapsed := time.Duration(now.UnixNano() - start)
 	if elapsed >= time.Second {
-		frames := fpsCount.Swap(0)
+		frames := c.count.Swap(0)
 		if frames > 0 {
 			fps := int(float64(frames) / elapsed.Seconds())
-			fpsLatest.Store(int64(fps))
+			c.latest.Store(int64(fps))
 		}
-		fpsWindowStart.Store(now.UnixNano())
+		c.windowStart.Store(now.UnixNano())
 	}
 
-	return int(fpsLatest.Load())
+	return int(c.latest.Load())
+}
+
+func frameFPS(now time.Time) int {
+	return desktopFPSCounter.fps(now)
+}
+
+func backstageFrameFPS(now time.Time) int {
+	return backstageFPSCounter.fps(now)
 }
 
 func shouldLogFrame(now time.Time) bool {
@@ -693,7 +706,6 @@ func CleanupDesktopStream() {
 	ResetDesktopCapture()
 	ResetPrev()
 	resetHEVCEncoder()
-	ResetFrameSlots()
 }
 
 func ResetPrevbackstage() {
@@ -1903,7 +1915,7 @@ func captureAndSendVirtual(ctx context.Context, env *rt.Env) error {
 	}
 
 	now := time.Now()
-	fps := frameFPS(now)
+	fps := backstageFrameFPS(now)
 	if fps <= 0 {
 		fps = 1
 	}
@@ -1954,7 +1966,7 @@ func captureAndSendVirtual(ctx context.Context, env *rt.Env) error {
 
 func virtualSendCompletedFrame(ctx context.Context, env *rt.Env, frame wire.Frame, t0 time.Time, captureDur, encodeDur time.Duration) error {
 	now := time.Now()
-	fps := frameFPS(now)
+	fps := backstageFrameFPS(now)
 	if fps <= 0 {
 		fps = 1
 	}
@@ -2053,7 +2065,7 @@ func captureAndSendbackstage(ctx context.Context, env *rt.Env) error {
 	}
 
 	now := time.Now()
-	fps := frameFPS(now)
+	fps := backstageFrameFPS(now)
 	if fps <= 0 {
 		fps = 1
 	}

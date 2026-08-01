@@ -17,13 +17,14 @@ func VirtualStart(ctx context.Context, env *rt.Env) error {
 	fps := activeVirtualTargetFPS()
 	interval := time.Second / time.Duration(fps)
 	capture.SetBackstageH264TargetFPS(fps)
-	capture.SetFrameFlowTargetFPS(fps)
 	log.Printf("virtual: starting stream (target fps %d)", fps)
 
 	if err := capture.InitializeVirtualMode(); err != nil {
 		log.Printf("virtual: failed to initialize virtual mode: %v", err)
 		return err
 	}
+	capture.StartFrameFlowStream("virtual", fps)
+	defer capture.StopFrameFlowStream("virtual")
 	defer capture.CleanupVirtualMode()
 
 	ticker := time.NewTicker(interval)
@@ -39,7 +40,7 @@ func VirtualStart(ctx context.Context, env *rt.Env) error {
 			if fps != currentFPS {
 				currentFPS = fps
 				capture.SetBackstageH264TargetFPS(fps)
-				capture.SetFrameFlowTargetFPS(fps)
+				capture.UpdateFrameFlowStream("virtual", fps)
 				ticker.Reset(time.Second / time.Duration(fps))
 				log.Printf("virtual: target fps changed to %d", fps)
 			}
@@ -66,7 +67,7 @@ func SetVirtualTargetFPS(fps int) int {
 	fps = clampDesktopTargetFPS(fps)
 	virtualTargetFPS.Store(int64(fps))
 	capture.SetBackstageH264TargetFPS(fps)
-	capture.SetFrameFlowTargetFPS(fps)
+	capture.UpdateFrameFlowStream("virtual", fps)
 	return fps
 }
 

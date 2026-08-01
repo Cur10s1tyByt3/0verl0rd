@@ -2,7 +2,10 @@
 
 package capture
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestBackstageWindowCacheByteSizeAndLimit(t *testing.T) {
 	bytes, ok := backstageWindowCacheByteSize(3840, 2160)
@@ -50,5 +53,50 @@ func TestBackstagePrintWindowFallbackToggle(t *testing.T) {
 	SetbackstagePrintWindowFallbackEnabled(true)
 	if !GetbackstagePrintWindowFallbackEnabled() {
 		t.Fatal("PrintWindow fallback did not re-enable")
+	}
+}
+
+func TestBackstagePrintWindowTimeoutQuarantinesHungWindow(t *testing.T) {
+	savedFn := backstagePrintWindowFn
+	savedCache := backstageWinCache
+	savedBytes := backstageWinCacheBytes
+	savedHung := backstageHungWindows
+	release := make(chan struct{})
+	returned := make(chan struct{})
+	backstagePrintWindowFn = func(_, _ uintptr, _ uint32) bool {
+		<-release
+		close(returned)
+		return true
+	}
+	entry := &backstageWinCacheEntry{bytes: 64}
+	const hwnd = uintptr(0x1234)
+	backstageWinCache = map[uintptr]*backstageWinCacheEntry{hwnd: entry}
+	backstageWinCacheBytes = entry.bytes
+	backstageHungWindows = make(map[uintptr]struct{})
+	t.Cleanup(func() {
+		close(release)
+		select {
+		case <-returned:
+		case <-time.After(time.Second):
+			t.Error("timed-out PrintWindow worker did not exit after release")
+		}
+		backstagePrintWindowFn = savedFn
+		backstageWinCache = savedCache
+		backstageWinCacheBytes = savedBytes
+		backstageHungWindows = savedHung
+	})
+
+	start := time.Now()
+	if backstagePrintWindowWithTimeout(hwnd, entry) {
+		t.Fatal("hung PrintWindow unexpectedly succeeded")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("PrintWindow timeout took too long: %s", elapsed)
+	}
+	if backstageWinCache[hwnd] != nil || backstageWinCacheBytes != 0 {
+		t.Fatal("timed-out PrintWindow cache entry was not detached")
+	}
+	if _, ok := backstageHungWindows[hwnd]; !ok {
+		t.Fatal("timed-out window was not quarantined")
 	}
 }

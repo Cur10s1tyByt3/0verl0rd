@@ -139,11 +139,11 @@ func CleanupVirtualMode() {
 	virtualDupState.mu.Unlock()
 	ResetPrevbackstage()
 	resetH264D3D11TextureEncoder("backstage")
-	captureMu.Lock()
+	backstageCaptureMu.Lock()
 	backstageFreeCapCache()
 	backstageClearWindowCache()
 	virtualCapImg = nil
-	captureMu.Unlock()
+	backstageCaptureMu.Unlock()
 
 	virtualInputMu.Lock()
 	virtualShiftDown = false
@@ -2393,8 +2393,8 @@ var (
 )
 
 func VirtualCaptureDisplayFallback() (*image.RGBA, error) {
-	captureMu.Lock()
-	defer captureMu.Unlock()
+	backstageCaptureMu.Lock()
+	defer backstageCaptureMu.Unlock()
 
 	setDPIAware()
 

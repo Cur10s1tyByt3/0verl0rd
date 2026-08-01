@@ -165,9 +165,9 @@ var (
 	maxResHeight     atomic.Int64 // 0 = default (1080), -1 = native, >0 = specific max height
 	lastCapScale     atomic.Uint64
 	state            capState
+	thumbnailState   capState
 	captureMu        sync.Mutex
-
-	stateCreatedAt time.Time
+	thumbnailMu      sync.Mutex
 
 	stateRefreshInterval = 30 * time.Second
 )
@@ -186,9 +186,18 @@ var captureDisplayFn = func(display int) (*image.RGBA, error) {
 }
 
 func captureDisplayBitBlt(display int) (*image.RGBA, error) {
-
 	captureMu.Lock()
 	defer captureMu.Unlock()
+	return captureDisplayBitBltWithState(display, &state, 0)
+}
+
+func captureDisplayThumbnailBitBlt(display, maxHeight int) (*image.RGBA, error) {
+	thumbnailMu.Lock()
+	defer thumbnailMu.Unlock()
+	return captureDisplayBitBltWithState(display, &thumbnailState, maxHeight)
+}
+
+func captureDisplayBitBltWithState(display int, captureState *capState, forcedMaxHeight int) (*image.RGBA, error) {
 
 	setDPIAware()
 
@@ -223,7 +232,10 @@ func captureDisplayBitBlt(display int) (*image.RGBA, error) {
 		}
 	}
 
-	userScale := effectiveScale(srcW, srcH)
+	userScale := scaleForMaxHeight(srcH, forcedMaxHeight)
+	if forcedMaxHeight <= 0 {
+		userScale = effectiveScale(srcW, srcH)
+	}
 	dstW := int(float64(srcW) * userScale)
 	dstH := int(float64(srcH) * userScale)
 	if dstW <= 0 || dstH <= 0 {
@@ -265,7 +277,7 @@ func captureDisplayBitBlt(display int) (*image.RGBA, error) {
 	}
 
 	captureWithDC := func() (*image.RGBA, time.Duration, time.Duration, time.Duration, error) {
-		hdcMem, _, buf, stride, err := state.ensure(hdcScreen, capW, capH)
+		hdcMem, _, buf, stride, err := captureState.ensure(hdcScreen, capW, capH)
 		if err != nil {
 			return nil, 0, 0, 0, err
 		}
@@ -278,8 +290,8 @@ func captureDisplayBitBlt(display int) (*image.RGBA, error) {
 			captured = bitBltWithFallback(hdcMem, hdcScreen, bounds, capW, capH)
 		}
 		if !captured {
-			state.reset()
-			hdcMem, _, buf, stride, err = state.ensure(hdcScreen, capW, capH)
+			captureState.reset()
+			hdcMem, _, buf, stride, err = captureState.ensure(hdcScreen, capW, capH)
 			if err != nil {
 				return nil, 0, 0, 0, err
 			}
@@ -328,13 +340,13 @@ func captureDisplayBitBlt(display int) (*image.RGBA, error) {
 		return img, bitDur, dibDur, convDur, nil
 	}
 
-	if !stateCreatedAt.IsZero() && time.Since(stateCreatedAt) > stateRefreshInterval {
-		state.reset()
+	if !captureState.createdAt.IsZero() && time.Since(captureState.createdAt) > stateRefreshInterval {
+		captureState.reset()
 	}
 
 	img, bitDur, dibDur, convDur, err := captureWithDC()
 	if err != nil && fromCreateDC {
-		state.reset()
+		captureState.reset()
 		closeDC()
 		hdcScreen = getDC(0)
 		fromCreateDC = false
@@ -344,7 +356,7 @@ func captureDisplayBitBlt(display int) (*image.RGBA, error) {
 		img, bitDur, dibDur, convDur, err = captureWithDC()
 	}
 	if err != nil {
-		state.reset()
+		captureState.reset()
 		return nil, err
 	}
 
@@ -447,14 +459,15 @@ func resizeNearest(src *image.RGBA, w, h int) *image.RGBA {
 }
 
 type capState struct {
-	mu     sync.Mutex
-	hdcMem uintptr
-	hbmp   uintptr
-	buf    []byte
-	stride int
-	w      int
-	h      int
-	bits   unsafe.Pointer
+	mu        sync.Mutex
+	hdcMem    uintptr
+	hbmp      uintptr
+	buf       []byte
+	stride    int
+	w         int
+	h         int
+	bits      unsafe.Pointer
+	createdAt time.Time
 }
 
 func (s *capState) ensure(hdcScreen uintptr, w, h int) (uintptr, uintptr, []byte, int, error) {
@@ -466,7 +479,7 @@ func (s *capState) ensure(hdcScreen uintptr, w, h int) (uintptr, uintptr, []byte
 		if s.hdcMem == 0 {
 			return 0, 0, nil, 0, syscall.EINVAL
 		}
-		stateCreatedAt = time.Now()
+		s.createdAt = time.Now()
 	}
 
 	if s.w != w || s.h != h || s.hbmp == 0 {
@@ -519,7 +532,7 @@ func (s *capState) reset() {
 	s.w = 0
 	s.h = 0
 	s.bits = nil
-	stateCreatedAt = time.Time{}
+	s.createdAt = time.Time{}
 }
 
 func captureScale() float64 {
@@ -551,6 +564,19 @@ func effectiveScale(srcW, srcH int) float64 {
 		}
 	}
 	storeLastScale(s)
+	return s
+}
+
+func scaleForMaxHeight(srcH, maxHeight int) float64 {
+	s := captureScale()
+	if s > 1 {
+		s = 1
+	}
+	if maxHeight > 0 && srcH > maxHeight {
+		if capScale := float64(maxHeight) / float64(srcH); capScale < s {
+			s = capScale
+		}
+	}
 	return s
 }
 

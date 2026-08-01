@@ -595,17 +595,20 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 	case "screenshot":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		allDisplays := false
+		dashboardThumbnail := false
 		if payload != nil {
+			mode, _ := payload["mode"].(string)
+			dashboardThumbnail = mode == "thumbnail"
 			if v, ok := payload["allDisplays"].(bool); ok && v {
 				allDisplays = true
-			} else if mode, ok := payload["mode"].(string); ok && mode == "notification" {
+			} else if mode == "notification" || mode == "thumbnail" {
 				allDisplays = true
 			}
 		}
 		if goruntime.GOOS == "windows" {
 			allDisplays = true
 		}
-		return HandleScreenshot(ctx, env, cmdID, allDisplays)
+		return HandleScreenshot(ctx, env, cmdID, allDisplays, dashboardThumbnail)
 	case "plugin_load":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		if payload == nil {
@@ -1137,6 +1140,22 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		}
 		capture.RequestDesktopRecoveryAfterBackstageStart()
 		if VirtualMode {
+			// The hidden-desktop and virtual-display implementations share the
+			// backstage encoder, frame history, and fallback capture caches. Stop
+			// the other implementation before switching; ordinary remote desktop
+			// remains independent and continues running.
+			env.BackstageMu.Lock()
+			if env.BackstageCancel != nil {
+				env.BackstageCancel()
+				waitStreamStop(env.BackstageDone, "backstage")
+				env.BackstageCancel = nil
+				env.BackstageDone = nil
+			}
+			env.BackstageMouseControl = false
+			env.BackstageKeyboardControl = false
+			env.BackstageCursorCapture = false
+			clearbackstageInputQueue()
+			env.BackstageMu.Unlock()
 			env.VirtualMu.Lock()
 			if env.VirtualCancel != nil {
 				env.VirtualCancel()
@@ -1165,6 +1184,12 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			sendCommandResultSafe(env, cmdID, true, "")
 			return nil
 		}
+		env.VirtualMu.Lock()
+		if env.VirtualCancel != nil {
+			log.Printf("hidden: stopping virtual stream before starting backstage desktop")
+			stopVirtualStreamLocked(env)
+		}
+		env.VirtualMu.Unlock()
 		env.BackstageMu.Lock()
 		if env.BackstageCancel != nil {
 			env.BackstageCancel()

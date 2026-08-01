@@ -314,7 +314,7 @@ export async function handleClientRoutes(
     const beforeVersion = getThumbnailVersion(clientId);
     if (target?.online) {
       const commandId = uuidv4();
-      target.ws.send(encodeMessage({ type: "command", commandType: "screenshot", id: commandId, payload: { mode: "notification", allDisplays: true } }));
+      target.ws.send(encodeMessage({ type: "command", commandType: "screenshot", id: commandId, payload: { mode: "thumbnail", allDisplays: true } }));
       metrics.recordCommand("screenshot");
     }
     const fresh = target?.online ? await waitForThumbnail(clientId, 2500) : false;

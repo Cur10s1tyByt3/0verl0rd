@@ -23,6 +23,7 @@ var (
 	procDWMCreateWindowExW              = user32.NewProc("CreateWindowExW")
 	procDWMShowWindow                   = user32.NewProc("ShowWindow")
 	procDWMUpdateWindow                 = user32.NewProc("UpdateWindow")
+	procDWMDestroyWindow                = user32.NewProc("DestroyWindow")
 	backstageDWMStateMu                 sync.Mutex
 	backstageDWMHost                    uintptr
 	backstageDWMThumbnails              map[uintptr]*backstageDWMThumbnail
@@ -460,9 +461,21 @@ func backstageCleanupDWMThumbnails() {
 	defer backstageDWMStateMu.Unlock()
 	backstageUnregisterDWMThumbnailsLocked()
 	if backstageDWMHost != 0 {
-		procDWMShowWindow.Call(backstageDWMHost, 0)
+		// This runs on the worker that created the host. Destroying the HWND is
+		// required before that OS thread can be moved back to its original
+		// desktop; merely hiding it leaves SetThreadDesktop failing with
+		// ERROR_BUSY on the next lifecycle.
+		procDWMDestroyWindow.Call(backstageDWMHost)
 	}
 	backstageDWMHost = 0
+}
+
+func backstageAbandonDWMThumbnails() {
+	backstageDWMStateMu.Lock()
+	backstageDWMThumbnails = nil
+	backstageDWMOrder = nil
+	backstageDWMHost = 0
+	backstageDWMStateMu.Unlock()
 }
 
 func backstageUnregisterDWMThumbnailsLocked() {
