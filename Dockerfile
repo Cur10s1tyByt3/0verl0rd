@@ -113,12 +113,15 @@ RUN if [ -f dist-clients/BackstageCapture.x64.dll ]; then \
 # Keep production build phases separate so BuildKit reports the exact slow or
 # failing phase and can cache each completed phase independently.
 RUN bun run build:css
+RUN bun run build:web:prod
 RUN bun run vendor
 RUN MINIFY_CONCURRENCY=4 bun run minify
 RUN bun run build:bundle
 
 RUN test "$(wc -l < ./public/index.html)" -lt 20 \
     && test "$(wc -l < ./public/assets/main.js)" -lt 50 \
+    && test -s ./public/assets/generated/shared-ui-settings.js \
+    && test ! -e ./public/assets/generated/shared-ui-settings.js.map \
     && test -s ./public/assets/tailwind.css \
     && test -d ./public/vendor/fontawesome \
     && test -s ./dist/index.js \

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Minify all public JS, CSS, and HTML assets in-place.
+ * Minify first-party public assets and copied vendor assets that do not
+ * already ship minified.
  * Uses terser (JS), clean-css (CSS), html-minifier-terser (HTML).
  *
  * Usage:  bun run scripts/minify-public.ts [--dir public]
@@ -55,13 +56,13 @@ async function collectFiles(dir: string, exts: Set<string>): Promise<string[]> {
   return results;
 }
 
-async function minifyJS(filePath: string) {
+async function minifyJS(filePath: string, isModule = true) {
   const src = await Bun.file(filePath).text();
   const result = await terserMinify(src, {
     compress: { passes: 2, drop_console: false, ecma: 2020 },
     mangle: { toplevel: false },
     format: { ecma: 2020 },
-    module: true,
+    module: isModule,
   });
   if (result.code && result.code.length < src.length) {
     stats.savedBytes += src.length - result.code.length;
@@ -108,19 +109,60 @@ async function runPool<T>(
   await Promise.all(workers);
 }
 
-// Collect all files
+const vendorDir = path.join(publicDir, "vendor");
+const vendorRoots = [
+  "msgpackr",
+  "codemirror",
+  "chart.js",
+  "gridstack",
+  "hotwired",
+  "xterm",
+  "inter",
+  "jetbrains-mono",
+];
+
+async function collectVendorFiles(exts: Set<string>): Promise<string[]> {
+  const results: string[] = [];
+  for (const root of vendorRoots) {
+    const dir = path.join(vendorDir, root);
+    try {
+      results.push(...(await collectFiles(dir, exts)));
+    } catch (error: any) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  return results;
+}
+
+function isVendorModule(filePath: string): boolean {
+  const normalized = filePath.replaceAll("\\", "/");
+  return normalized.endsWith(".mjs") ||
+    normalized.includes("/hotwired/") ||
+    normalized.endsWith("/chart.esm.js");
+}
+
+// Collect all files.
 const jsFiles = await collectFiles(path.join(publicDir, "assets"), new Set([".js"]));
 const cssFiles = await collectFiles(path.join(publicDir, "assets"), new Set([".css"]));
 const htmlFiles = await collectFiles(publicDir, new Set([".html"]));
+const vendorJsFiles = await collectVendorFiles(new Set([".js", ".mjs"]));
+const vendorCssFiles = await collectVendorFiles(new Set([".css"]));
 
 console.log(
-  `Minifying ${jsFiles.length} JS, ${cssFiles.length} CSS, ${htmlFiles.length} HTML files ` +
+  `Minifying ${jsFiles.length + vendorJsFiles.length} JS, ` +
+  `${cssFiles.length + vendorCssFiles.length} CSS, ${htmlFiles.length} HTML files ` +
   `(concurrency=${minifyConcurrency})...`,
 );
 
 const jobs = [
   ...jsFiles.map((file) => ({ kind: "JS", file, minify: minifyJS })),
+  ...vendorJsFiles.map((file) => ({
+    kind: "JS",
+    file,
+    minify: (filePath: string) => minifyJS(filePath, isVendorModule(filePath)),
+  })),
   ...cssFiles.map((file) => ({ kind: "CSS", file, minify: minifyCSS })),
+  ...vendorCssFiles.map((file) => ({ kind: "CSS", file, minify: minifyCSS })),
   ...htmlFiles.map((file) => ({ kind: "HTML", file, minify: minifyHTML })),
 ];
 await runPool(jobs, minifyConcurrency, async ({ kind, file, minify }) => {
