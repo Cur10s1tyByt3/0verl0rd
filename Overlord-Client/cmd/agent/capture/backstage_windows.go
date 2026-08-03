@@ -7,6 +7,7 @@ import (
 	"image"
 	"log"
 	"math"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -653,6 +654,7 @@ func BackstageKillAll() error {
 		return fmt.Errorf("backstage desktop not initialized")
 	}
 
+	currentPID := uint32(os.Getpid())
 	pids := make(map[uint32]struct{})
 	cb := syscall.NewCallback(func(hwnd, _ uintptr) uintptr {
 		if backstageIsDWMHost(hwnd) {
@@ -660,7 +662,7 @@ func BackstageKillAll() error {
 		}
 		var pid uint32
 		procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
-		if pid != 0 {
+		if backstageShouldKillPID(pid, currentPID) {
 			pids[pid] = struct{}{}
 		}
 		return 1 // continue enumeration
@@ -679,6 +681,10 @@ func BackstageKillAll() error {
 	}
 	log.Printf("backstage: kill all: terminated %d processes across %d pids", killed, len(pids))
 	return nil
+}
+
+func backstageShouldKillPID(pid, currentPID uint32) bool {
+	return pid != 0 && pid != currentPID
 }
 
 func BackstageAutoStartExplorer() error {
