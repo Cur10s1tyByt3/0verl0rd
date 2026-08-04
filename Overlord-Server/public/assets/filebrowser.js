@@ -18,6 +18,7 @@ import {
   getHighlightLanguage,
   getParentPath,
   isPreviewable,
+  joinRemotePath,
   shouldShowParentDirectory,
 } from "./filebrowser-utils.js";
 
@@ -54,9 +55,11 @@ const breadcrumbEl = document.getElementById("breadcrumb");
 const fileListEl = document.getElementById("file-list");
 const refreshBtn = document.getElementById("refresh-btn");
 const uploadBtn = document.getElementById("upload-btn");
+const uploadExecuteBtn = document.getElementById("upload-execute-btn");
 const mkdirBtn = document.getElementById("mkdir-btn");
 const searchBtn = document.getElementById("search-btn");
 const fileInput = document.getElementById("file-input");
+const executeFileInput = document.getElementById("execute-file-input");
 const contextMenu = document.getElementById("context-menu");
 const clientIdHeader = document.getElementById("client-id-header");
 const backBtn = document.getElementById("back-btn");
@@ -161,6 +164,7 @@ function updateStatus(state, text) {
 function enableControls(enabled) {
   refreshBtn.disabled = !enabled;
   uploadBtn.disabled = !enabled;
+  uploadExecuteBtn.disabled = !enabled;
   mkdirBtn.disabled = !enabled;
 }
 
@@ -2403,22 +2407,27 @@ function hideContextMenu() {
 refreshBtn.onclick = () => listFiles(currentPath);
 
 uploadBtn.onclick = () => fileInput.click();
+uploadExecuteBtn.onclick = () => executeFileInput.click();
 
 fileInput.onchange = async (e) => {
   const files = Array.from(e.target.files);
   if (files.length === 0) return;
 
-  for (const file of files) {
-    await uploadFile(file);
-  }
-
+  await uploadMultipleFiles(files);
   fileInput.value = "";
-  listFiles(currentPath);
 };
 
-async function uploadMultipleFiles(files) {
+executeFileInput.onchange = async (e) => {
+  const files = Array.from(e.target.files);
+  if (files.length === 0) return;
+
+  await uploadMultipleFiles(files, { executeAfterUpload: true });
+  executeFileInput.value = "";
+};
+
+async function uploadMultipleFiles(files, options = {}) {
   for (const file of files) {
-    await uploadFile(file);
+    await uploadFile(file, options);
   }
   listFiles(currentPath);
 }
@@ -2429,6 +2438,7 @@ function hasFileDrag(event) {
 }
 
 let dropOverlayEl = null;
+let activeDropFolderRow = null;
 
 function ensureDropOverlay() {
   if (dropOverlayEl || !fileListPanel) return dropOverlayEl;
@@ -2451,7 +2461,7 @@ function ensureDropOverlay() {
   return overlay;
 }
 
-function setDropTargetActive(active) {
+function setDropTargetActive(active, destinationPath = currentPath, folderRow = null) {
   if (!fileListPanel) return;
   const overlay = ensureDropOverlay();
   if (overlay) {
@@ -2459,14 +2469,31 @@ function setDropTargetActive(active) {
     if (active) {
       const pathEl = overlay.querySelector(".drop-target-path");
       if (pathEl) {
-        pathEl.textContent = currentPath ? `into ${currentPath}` : "";
+        pathEl.textContent = destinationPath ? `into ${destinationPath}` : "";
       }
     }
+  }
+  if (activeDropFolderRow && activeDropFolderRow !== folderRow) {
+    activeDropFolderRow.classList.remove("ring-2", "ring-emerald-400", "bg-emerald-500/10");
+  }
+  activeDropFolderRow = active && folderRow ? folderRow : null;
+  if (activeDropFolderRow) {
+    activeDropFolderRow.classList.add("ring-2", "ring-emerald-400", "bg-emerald-500/10");
   }
   fileListPanel.classList.toggle("ring-2", active);
   fileListPanel.classList.toggle("ring-blue-500", active);
   fileListPanel.classList.toggle("ring-offset-2", active);
   fileListPanel.classList.toggle("ring-offset-slate-950", active);
+}
+
+function getDropDestination(event) {
+  const folderRow = event.target instanceof Element
+    ? event.target.closest('.file-item[data-is-dir="true"]')
+    : null;
+  if (folderRow && fileListPanel.contains(folderRow)) {
+    return { path: folderRow.dataset.path || currentPath, folderRow };
+  }
+  return { path: currentPath, folderRow: null };
 }
 
 function setupDragAndDropUpload() {
@@ -2477,14 +2504,16 @@ function setupDragAndDropUpload() {
     if (!hasFileDrag(e)) return;
     e.preventDefault();
     dragDepth += 1;
-    setDropTargetActive(true);
+    const destination = getDropDestination(e);
+    setDropTargetActive(true, destination.path, destination.folderRow);
   });
 
   fileListPanel.addEventListener("dragover", (e) => {
     if (!hasFileDrag(e)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
-    setDropTargetActive(true);
+    const destination = getDropDestination(e);
+    setDropTargetActive(true, destination.path, destination.folderRow);
   });
 
   fileListPanel.addEventListener("dragleave", (e) => {
@@ -2499,14 +2528,50 @@ function setupDragAndDropUpload() {
   fileListPanel.addEventListener("drop", async (e) => {
     if (!hasFileDrag(e)) return;
     e.preventDefault();
+    const destination = getDropDestination(e);
     dragDepth = 0;
     setDropTargetActive(false);
 
     const files = Array.from(e.dataTransfer?.files || []);
     if (files.length === 0) return;
 
-    notifyToast(`Uploading ${files.length} file(s)...`, "info", 3000);
-    await uploadMultipleFiles(files);
+    notifyToast(`Uploading ${files.length} file(s) into ${destination.path || "."}...`, "info", 3000);
+    await uploadMultipleFiles(files, { destinationPath: destination.path });
+  });
+}
+
+function setupUploadAndExecuteDropTarget() {
+  if (!uploadExecuteBtn) return;
+
+  const setActive = (active) => {
+    uploadExecuteBtn.classList.toggle("ring-4", active);
+    uploadExecuteBtn.classList.toggle("ring-amber-300/50", active);
+    uploadExecuteBtn.classList.toggle("scale-105", active);
+  };
+
+  uploadExecuteBtn.addEventListener("dragenter", (event) => {
+    if (!hasFileDrag(event)) return;
+    event.preventDefault();
+    setActive(true);
+  });
+  uploadExecuteBtn.addEventListener("dragover", (event) => {
+    if (!hasFileDrag(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setActive(true);
+  });
+  uploadExecuteBtn.addEventListener("dragleave", (event) => {
+    if (!hasFileDrag(event)) return;
+    setActive(false);
+  });
+  uploadExecuteBtn.addEventListener("drop", async (event) => {
+    if (!hasFileDrag(event)) return;
+    event.preventDefault();
+    setActive(false);
+    const files = Array.from(event.dataTransfer?.files || []);
+    if (files.length === 0) return;
+    notifyToast(`Uploading and running ${files.length} file(s)...`, "info", 3000);
+    await uploadMultipleFiles(files, { executeAfterUpload: true });
   });
 }
 
@@ -2775,8 +2840,9 @@ async function uploadFileViaWsChunks(file, path, transfer) {
   }
 }
 
-async function uploadFile(file) {
-  const path = currentPath ? `${currentPath}/${file.name}` : file.name;
+async function uploadFile(file, options = {}) {
+  const destinationPath = options.destinationPath ?? currentPath;
+  const path = joinRemotePath(destinationPath, file.name);
   const transferId = `upload-${Date.now()}-${Math.random()}`;
 
   console.log("Uploading:", path);
@@ -2815,6 +2881,8 @@ async function uploadFile(file) {
       await uploadFileViaHttpPull(file, path, transfer);
     }
     finishUpload(transfer);
+    if (options.executeAfterUpload) executeFile(path, false);
+    return path;
   } catch (err) {
     const canFallbackToWs = PREFER_HTTP_UPLOAD_PULL && file.size <= WS_UPLOAD_MAX_TOTAL && !transfer.cancelled;
     if (canFallbackToWs) {
@@ -2836,7 +2904,8 @@ async function uploadFile(file) {
       try {
         await uploadFileViaWsChunks(file, path, transfer);
         finishUpload(transfer);
-        return;
+        if (options.executeAfterUpload) executeFile(path, false);
+        return path;
       } catch (fallbackErr) {
         err = fallbackErr;
       }
@@ -2846,6 +2915,7 @@ async function uploadFile(file) {
     fileUploads.delete(path);
     fileUploadsById.delete(transferId);
     alert(`Upload failed: ${err.message}`);
+    return null;
   }
 }
 
@@ -2890,6 +2960,7 @@ document.addEventListener("click", (e) => {
 });
 
 setupDragAndDropUpload();
+setupUploadAndExecuteDropTarget();
 updateStatus("connecting", "Connecting...");
 updateBackButton();
 

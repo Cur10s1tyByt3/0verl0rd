@@ -543,6 +543,14 @@
               <i class="fa-solid fa-upload"></i> Upload
             </button>
             <button
+              id="upload-execute-btn"
+              class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 border border-amber-500 text-white text-sm font-medium disabled:opacity-40"
+              title="Choose a local file, or drop files here, to upload and run"
+              disabled
+            >
+              <i class="fa-solid fa-play"></i> Upload &amp; run
+            </button>
+            <button
               id="mkdir-btn"
               class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 border border-violet-500 text-white text-sm font-medium disabled:opacity-40"
               disabled
@@ -1001,8 +1009,9 @@
 
     <!-- Upload Modal -->
     <input type="file" id="file-input" style="display: none" multiple />
+    <input type="file" id="execute-file-input" style="display: none" multiple />
 
     <script type="module" src="/assets/nav.js"></script>
-    <script type="module" src="/assets/filebrowser.js?v=mac-permission-locks-20260609-1"></script>
+    <script type="module" src="/assets/filebrowser.js?v=drag-drop-execute-20260803-1"></script>
   </body>
 </html>

@@ -103,6 +103,13 @@ export function getParentPath(path) {
   return parentPath || ".";
 }
 
+export function joinRemotePath(directory, fileName) {
+  if (!directory || directory === ".") return fileName;
+  if (/[\\/]$/.test(directory)) return `${directory}${fileName}`;
+  const separator = directory.includes("\\") && !directory.includes("/") ? "\\" : "/";
+  return `${directory}${separator}${fileName}`;
+}
+
 export function formatBytes(bytes) {
   if (bytes === 0 || bytes === 0n) return "0 B";
   const sizes = ["B", "KB", "MB", "GB", "TB"];
