@@ -49,6 +49,16 @@ func TestDesktopDuplicationToggleResetsState(t *testing.T) {
 	}
 }
 
+func TestD3D11DeviceCreationFlagsFallBackWithoutVideoSupport(t *testing.T) {
+	flags := d3d11DeviceCreationFlagCandidates()
+	if flags[0] != d3d11CreateDeviceBgraSupport|d3d11CreateDeviceVideoSupport {
+		t.Fatalf("first D3D11 creation flags = 0x%x, want BGRA and video support", flags[0])
+	}
+	if flags[1] != d3d11CreateDeviceBgraSupport {
+		t.Fatalf("fallback D3D11 creation flags = 0x%x, want BGRA only", flags[1])
+	}
+}
+
 func TestCaptureDisplayDXGI(t *testing.T) {
 	if displayCount() == 0 {
 		t.Skip("no displays detected")

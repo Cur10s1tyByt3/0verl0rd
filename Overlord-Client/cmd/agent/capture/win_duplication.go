@@ -1365,31 +1365,47 @@ func findOutput(factory *idxgiFactory1, desiredName string, desiredBounds image.
 }
 
 func createD3DDevice(adapter *idxgiAdapter1) (*d3d11Device, *d3d11DeviceContext, error) {
-	var device *d3d11Device
-	var context *d3d11DeviceContext
-	var featureLevel uint32
-	hr, _, _ := procD3D11CreateDevice.Call(
-		uintptr(unsafe.Pointer(adapter)),
-		uintptr(d3dDriverTypeUnknown),
-		0,
-		uintptr(d3d11CreateDeviceBgraSupport|d3d11CreateDeviceVideoSupport),
-		0,
-		0,
-		uintptr(d3d11SdkVersion),
-		uintptr(unsafe.Pointer(&device)),
-		uintptr(unsafe.Pointer(&featureLevel)),
-		uintptr(unsafe.Pointer(&context)),
-	)
-	if hr != S_OK || device == nil || context == nil {
+	flags := d3d11DeviceCreationFlagCandidates()
+	var firstHR uintptr
+	for attempt, creationFlags := range flags {
+		var device *d3d11Device
+		var context *d3d11DeviceContext
+		var featureLevel uint32
+		hr, _, _ := procD3D11CreateDevice.Call(
+			uintptr(unsafe.Pointer(adapter)),
+			uintptr(d3dDriverTypeUnknown),
+			0,
+			uintptr(creationFlags),
+			0,
+			0,
+			uintptr(d3d11SdkVersion),
+			uintptr(unsafe.Pointer(&device)),
+			uintptr(unsafe.Pointer(&featureLevel)),
+			uintptr(unsafe.Pointer(&context)),
+		)
+		if hr == S_OK && device != nil && context != nil {
+			return device, context, nil
+		}
 		if context != nil {
 			context.Release()
 		}
 		if device != nil {
 			device.Release()
 		}
-		return nil, nil, fmt.Errorf("dxgi: D3D11CreateDevice failed 0x%x", hr)
+		if attempt == 0 {
+			firstHR = hr
+			continue
+		}
+		return nil, nil, fmt.Errorf("dxgi: D3D11CreateDevice failed video=0x%x fallback=0x%x", firstHR, hr)
 	}
-	return device, context, nil
+	return nil, nil, errors.New("dxgi: D3D11CreateDevice had no creation modes")
+}
+
+func d3d11DeviceCreationFlagCandidates() [2]uint32 {
+	return [2]uint32{
+		d3d11CreateDeviceBgraSupport | d3d11CreateDeviceVideoSupport,
+		d3d11CreateDeviceBgraSupport,
+	}
 }
 
 func convertBGRA(src []byte, pitch, width, height int, rotation uint32) *image.RGBA {

@@ -37,7 +37,8 @@ const (
 	mftMessageNotifyEndOfStream    = 0x10000002
 	mftMessageNotifyEndStreaming   = 0x10000001
 
-	mftOutputStreamProvidesSamples = 0x00000100
+	mftOutputStreamProvidesSamples   = 0x00000100
+	mftOutputStreamCanProvideSamples = 0x00000200
 
 	mfETransformNeedMoreInput = 0xC00D6D72
 	mfETransformStreamChange  = 0xC00D6D61
@@ -1067,7 +1068,7 @@ func (e *mfH264Encoder) processOutput() ([]byte, error) {
 	}
 
 	var outSample *mfSample
-	if info.flags&mftOutputStreamProvidesSamples == 0 {
+	if !mftCanAllocateOutputSample(info.flags) {
 		size := int(info.cbSize)
 		minSize := e.width * e.height * 3 / 2
 		if size < minSize {
@@ -1098,7 +1099,11 @@ func (e *mfH264Encoder) processOutput() ([]byte, error) {
 		return nil, nil
 	default:
 		if failedHR(hr) {
-			return nil, fmt.Errorf("mf h264: ProcessOutput failed 0x%x", hr)
+			allocation := "transform"
+			if outSample != nil {
+				allocation = "caller"
+			}
+			return nil, fmt.Errorf("mf h264: ProcessOutput failed 0x%x stream_flags=0x%x output_sample=%s", hr, info.flags, allocation)
 		}
 	}
 	if output.sample == nil {
@@ -1108,6 +1113,10 @@ func (e *mfH264Encoder) processOutput() ([]byte, error) {
 		defer output.sample.Release()
 	}
 	return sampleBytes(output.sample)
+}
+
+func mftCanAllocateOutputSample(flags uint32) bool {
+	return flags&(mftOutputStreamProvidesSamples|mftOutputStreamCanProvideSamples) != 0
 }
 
 func createVideoType(subtype windows.GUID, width, height, fps int) (*mfMediaType, error) {
