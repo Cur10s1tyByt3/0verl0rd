@@ -18,15 +18,16 @@ import (
 )
 
 const (
-	d3d11SdkVersion                      = 7
-	d3d11CreateDeviceBgraSupport         = 0x20
-	d3dDriverTypeUnknown                 = 0
-	dxgiErrorNotFound            uintptr = 0x887A0002
-	dxgiErrorWaitTimeout         uintptr = 0x887A0027
-	dxgiErrorAccessLost          uintptr = 0x887A0026
-	dxgiErrorDeviceRemoved       uintptr = 0x887A0005
-	dxgiErrorDeviceReset         uintptr = 0x887A0007
-	S_OK                         uintptr = 0
+	d3d11SdkVersion                       = 7
+	d3d11CreateDeviceBgraSupport          = 0x20
+	d3d11CreateDeviceVideoSupport         = 0x800
+	d3dDriverTypeUnknown                  = 0
+	dxgiErrorNotFound             uintptr = 0x887A0002
+	dxgiErrorWaitTimeout          uintptr = 0x887A0027
+	dxgiErrorAccessLost           uintptr = 0x887A0026
+	dxgiErrorDeviceRemoved        uintptr = 0x887A0005
+	dxgiErrorDeviceReset          uintptr = 0x887A0007
+	S_OK                          uintptr = 0
 )
 
 var (
@@ -1371,7 +1372,7 @@ func createD3DDevice(adapter *idxgiAdapter1) (*d3d11Device, *d3d11DeviceContext,
 		uintptr(unsafe.Pointer(adapter)),
 		uintptr(d3dDriverTypeUnknown),
 		0,
-		uintptr(d3d11CreateDeviceBgraSupport),
+		uintptr(d3d11CreateDeviceBgraSupport|d3d11CreateDeviceVideoSupport),
 		0,
 		0,
 		uintptr(d3d11SdkVersion),
