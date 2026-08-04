@@ -214,6 +214,7 @@ export const COMMAND_TYPES = [
   "file_search",
   "file_thumb",
   "file_upload",
+  "file_upload_desktop",
   "file_upload_http",
   "file_write",
   "file_zip",
@@ -599,6 +600,10 @@ export const COMMAND_VERSION_SUPPORT = {
     "max": 1
   },
   "file_upload": {
+    "min": 1,
+    "max": 1
+  },
+  "file_upload_desktop": {
     "min": 1,
     "max": 1
   },

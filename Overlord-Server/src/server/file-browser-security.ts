@@ -80,6 +80,17 @@ export function validateFileBrowserCommandPayload(
           || !/^\/api\/file\/upload\/pull\/[0-9a-f-]{36}$/i.test(payload.url)) return null;
       if (!Number.isSafeInteger(Number(payload.total)) || Number(payload.total) < 0) return null;
       return payload;
+    case "file_upload_desktop":
+      if (!safeString(payload.fileName, 255) || /[\\/]/.test(payload.fileName as string)
+          || payload.fileName === "." || payload.fileName === ".."
+          || typeof payload.url !== "string"
+          || !/^\/api\/file\/upload\/pull\/[0-9a-f-]{36}$/i.test(payload.url)) return null;
+      if (!Number.isSafeInteger(Number(payload.total)) || Number(payload.total) < 0) return null;
+      if ((payload.x === undefined) !== (payload.y === undefined)) return null;
+      if (payload.x !== undefined && (!Number.isSafeInteger(Number(payload.x)) || Math.abs(Number(payload.x)) > 1_000_000)) return null;
+      if (payload.y !== undefined && (!Number.isSafeInteger(Number(payload.y)) || Math.abs(Number(payload.y)) > 1_000_000)) return null;
+      if (payload.display !== undefined && (!Number.isSafeInteger(Number(payload.display)) || Number(payload.display) < 0 || Number(payload.display) > 128)) return null;
+      return payload;
     default:
       return null;
   }

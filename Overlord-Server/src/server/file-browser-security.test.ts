@@ -35,4 +35,19 @@ describe("file browser command payload validation", () => {
       path: "C:\\ok.bin", url: "https://attacker.invalid/payload", total: 10,
     })).toBeNull();
   });
+
+  test("validates remote desktop uploads as safe basenames", () => {
+    const valid = {
+      fileName: "report.pdf",
+      url: "/api/file/upload/pull/123e4567-e89b-42d3-a456-426614174000",
+      total: 10,
+    };
+    expect(validateFileBrowserCommandPayload("file_upload_desktop", valid)).not.toBeNull();
+    expect(validateFileBrowserCommandPayload("file_upload_desktop", { ...valid, display: 1, x: 640, y: 360 })).not.toBeNull();
+    expect(validateFileBrowserCommandPayload("file_upload_desktop", { ...valid, x: 640 })).toBeNull();
+    expect(validateFileBrowserCommandPayload("file_upload_desktop", { ...valid, x: 640.5, y: 360 })).toBeNull();
+    expect(validateFileBrowserCommandPayload("file_upload_desktop", { ...valid, fileName: "../report.pdf" })).toBeNull();
+    expect(validateFileBrowserCommandPayload("file_upload_desktop", { ...valid, fileName: "folder/report.pdf" })).toBeNull();
+    expect(validateFileBrowserCommandPayload("file_upload_desktop", { ...valid, url: "https://attacker.invalid/file" })).toBeNull();
+  });
 });

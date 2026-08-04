@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"overlord-client/cmd/agent/capture"
 	"overlord-client/cmd/agent/config"
 	rt "overlord-client/cmd/agent/runtime"
 	"overlord-client/cmd/agent/wire"
@@ -520,6 +521,88 @@ func TestHandleFileUploadHTTP(t *testing.T) {
 	}
 	if !result.OK {
 		t.Fatalf("expected OK=true, got false: %s", result.Message)
+	}
+}
+
+func TestDesktopUploadPath(t *testing.T) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("resolve home directory: %v", err)
+	}
+	got, err := desktopUploadPath("report.pdf")
+	if err != nil {
+		t.Fatalf("desktopUploadPath failed: %v", err)
+	}
+	want := filepath.Join(homeDir, "Desktop", "report.pdf")
+	if got != want {
+		t.Fatalf("desktop upload path = %q, want %q", got, want)
+	}
+	for _, invalid := range []string{"", ".", "..", "../report.pdf", `folder\\report.pdf`, "bad\x00name"} {
+		if _, err := desktopUploadPath(invalid); err == nil {
+			t.Fatalf("desktopUploadPath(%q) should fail", invalid)
+		}
+	}
+}
+
+func TestDesktopUploadTargetFromHitUsesHoveredFolder(t *testing.T) {
+	base := t.TempDir()
+	hovered := filepath.Join(base, "Reports")
+	if err := os.Mkdir(hovered, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fallback := filepath.Join(base, "Desktop", "report.pdf")
+
+	got, place := desktopUploadTargetFromHit(fallback, "report.pdf", capture.ShellDropHit{
+		Directory: base,
+		ItemName:  "Reports",
+	})
+	if got != filepath.Join(hovered, "report.pdf") || place {
+		t.Fatalf("desktopUploadTargetFromHit() = %q, %v", got, place)
+	}
+}
+
+func TestDesktopUploadTargetFromHitPositionsDesktopBackground(t *testing.T) {
+	desktop := t.TempDir()
+	fallback := filepath.Join(desktop, "report.pdf")
+	got, place := desktopUploadTargetFromHit(fallback, "report.pdf", capture.ShellDropHit{
+		Directory: desktop,
+		Desktop:   true,
+	})
+	if got != fallback || !place {
+		t.Fatalf("desktopUploadTargetFromHit() = %q, %v", got, place)
+	}
+}
+
+func TestHandleFileUploadDesktopRejectsBackstageModes(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		activate func(*rt.Env)
+	}{
+		{name: "hidden desktop", activate: func(env *rt.Env) {
+			_, env.BackstageCancel = context.WithCancel(context.Background())
+		}},
+		{name: "virtual backstage", activate: func(env *rt.Env) {
+			_, env.VirtualCancel = context.WithCancel(context.Background())
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			writer := &testWriter{}
+			env := &rt.Env{Conn: writer}
+			test.activate(env)
+			if err := HandleFileUploadDesktop(context.Background(), env, "blocked-drop", "report.pdf", "/unused", 10, 0, 10, 10, true); err != nil {
+				t.Fatalf("HandleFileUploadDesktop failed: %v", err)
+			}
+			if len(writer.msgs) != 1 {
+				t.Fatalf("expected one rejection result, got %d", len(writer.msgs))
+			}
+			var result wire.CommandResult
+			if err := msgpack.Unmarshal(writer.msgs[0], &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.OK || !strings.Contains(result.Message, "backstage mode") {
+				t.Fatalf("unexpected result: %+v", result)
+			}
+		})
 	}
 }
 

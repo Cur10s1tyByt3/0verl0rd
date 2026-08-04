@@ -152,6 +152,7 @@
     "file_search",
     "file_thumb",
     "file_upload",
+    "file_upload_desktop",
     "file_upload_http",
     "file_write",
     "file_zip",

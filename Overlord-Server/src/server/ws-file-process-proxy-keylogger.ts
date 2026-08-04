@@ -4,6 +4,7 @@ import { AuditAction, logAudit } from "../auditLog";
 import * as clientManager from "../clientManager";
 import { logger } from "../logger";
 import { metrics } from "../metrics";
+import { versionCommandForClient } from "../command-compatibility";
 import { encodeMessage } from "../protocol";
 import { getSessionByTokenHash } from "../db";
 import * as sessionManager from "../sessions/sessionManager";
@@ -248,6 +249,35 @@ export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, 
           action: AuditAction.FILE_UPLOAD,
           targetClientId: clientId,
           details: JSON.stringify({ path: actualPayload.path || "", mode: "http_pull" }),
+          success: true,
+        });
+        break;
+      case "file_upload_desktop":
+        try {
+          target.ws.send(encodeMessage(versionCommandForClient(target, {
+            type: "command",
+            commandType: "file_upload_desktop",
+            id: routedId,
+            payload: actualPayload,
+          } as any)));
+        } catch (error) {
+          finishFileBrowserCommand(routedId);
+          safeSendViewer(ws, {
+            type: "command_result",
+            commandId: routedId,
+            ok: false,
+            message: error instanceof Error ? error.message : "Desktop upload is unsupported by this client",
+          });
+          break;
+        }
+        metrics.recordCommand("file_upload_desktop");
+        logAudit({
+          timestamp: Date.now(),
+          username: (ws.data as any).username || "unknown",
+          ip: ws.data.ip || "unknown",
+          action: AuditAction.FILE_UPLOAD,
+          targetClientId: clientId,
+          details: JSON.stringify({ fileName: actualPayload.fileName || "", destination: "remote_pointer", display: actualPayload.display, x: actualPayload.x, y: actualPayload.y, mode: "http_pull" }),
           success: true,
         });
         break;

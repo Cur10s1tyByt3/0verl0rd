@@ -348,6 +348,24 @@
                 height: auto;
               "
             ></video>
+            <div id="rdFileDropOverlay" class="rd-file-drop-overlay" hidden aria-hidden="true">
+              <div id="rdFileDragGhost" class="rd-file-drag-ghost">
+                <i class="fa-solid fa-file-arrow-up"></i>
+                <span id="rdFileDragLabel">Copy file</span>
+              </div>
+              <div class="rd-file-drop-hint">
+                <i class="fa-solid fa-copy"></i>
+                <strong>Drop at the remote pointer</strong>
+                <span>Folders receive the file; Desktop drops keep this position</span>
+              </div>
+            </div>
+            <div id="rdUploadStatus" class="rd-upload-status" hidden role="status" aria-live="polite">
+              <div class="rd-upload-status-row">
+                <i id="rdUploadStatusIcon" class="fa-solid fa-cloud-arrow-up"></i>
+                <span id="rdUploadStatusText">Preparing upload…</span>
+              </div>
+              <div class="rd-upload-progress"><div id="rdUploadProgressBar"></div></div>
+            </div>
             <div id="remoteCursor" hidden aria-hidden="true" class="absolute pointer-events-none" style="left: 0; top: 0; z-index: 30; will-change: transform">
               <img id="remoteCursorImage" alt="" draggable="false" style="display: block; width: 100%; height: 100%" />
             </div>
@@ -668,6 +686,74 @@
             font-size: 12px;
           }
           .rd-diagnostics-hud.hidden { display: none; }
+          .rd-file-drop-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 45;
+            pointer-events: none;
+            border: 3px dashed rgba(56, 189, 248, .95);
+            border-radius: 12px;
+            background: rgba(2, 132, 199, .14);
+            box-shadow: inset 0 0 80px rgba(14, 165, 233, .16);
+          }
+          .rd-file-drop-overlay[hidden], .rd-upload-status[hidden] { display: none; }
+          .rd-file-drop-hint {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            transform: translate(-50%, -50%);
+            padding: 18px 24px;
+            border: 1px solid rgba(125, 211, 252, .55);
+            border-radius: 14px;
+            color: #e0f2fe;
+            background: rgba(2, 6, 23, .9);
+            box-shadow: 0 18px 45px rgba(0, 0, 0, .45);
+            backdrop-filter: blur(10px);
+          }
+          .rd-file-drop-hint i { color: #7dd3fc; font-size: 24px; }
+          .rd-file-drop-hint span { color: #94a3b8; font-size: 11px; }
+          .rd-file-drag-ghost {
+            position: absolute;
+            left: 0;
+            top: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            max-width: 240px;
+            padding: 8px 11px;
+            border: 1px solid rgba(125, 211, 252, .65);
+            border-radius: 9px;
+            color: #f0f9ff;
+            background: rgba(15, 23, 42, .94);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, .5);
+            transform: translate(14px, 14px);
+            will-change: left, top;
+          }
+          .rd-file-drag-ghost i { color: #7dd3fc; }
+          .rd-file-drag-ghost span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          .rd-upload-status {
+            position: absolute;
+            left: 50%;
+            bottom: 20px;
+            z-index: 46;
+            width: min(420px, calc(100% - 32px));
+            padding: 11px 13px;
+            border: 1px solid rgba(71, 85, 105, .9);
+            border-radius: 11px;
+            color: #e2e8f0;
+            background: rgba(2, 6, 23, .92);
+            box-shadow: 0 14px 38px rgba(0, 0, 0, .48);
+            transform: translateX(-50%);
+            backdrop-filter: blur(10px);
+          }
+          .rd-upload-status-row { display: flex; align-items: center; gap: 9px; font-size: 12px; }
+          .rd-upload-status-row i { color: #38bdf8; }
+          .rd-upload-progress { height: 4px; margin-top: 9px; overflow: hidden; border-radius: 999px; background: #1e293b; }
+          .rd-upload-progress > div { width: 0; height: 100%; border-radius: inherit; background: #38bdf8; transition: width .15s ease; }
           .rd-diagnostics-header, .rd-diagnostics-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
           .rd-diagnostics-title { color: #f8fafc; font-size: 14px; font-weight: 700; }
           .rd-diagnostics-summary { margin-top: 2px; color: #67e8f9; }
@@ -688,6 +774,6 @@
     <script defer src="/vendor/msgpackr/msgpackr.js"></script>
     <script defer src="/assets/remotedesktop-settings-menu.js"></script>
     <script type="module" src="/assets/nav.js"></script>
-    <script type="module" src="/assets/remotedesktop.js"></script>
+    <script type="module" src="/assets/remotedesktop.js?v=desktop-file-drop-20260803-2"></script>
   </body>
 </html>

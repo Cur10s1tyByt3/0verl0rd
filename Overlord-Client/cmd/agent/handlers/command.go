@@ -2689,6 +2689,20 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		sourceURL, _ := payload["url"].(string)
 		total := payloadNumberToInt64(payload["total"])
 		return HandleFileUploadHTTP(ctx, env, cmdID, path, sourceURL, total)
+	case "file_upload_desktop":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		fileName, _ := payload["fileName"].(string)
+		sourceURL, _ := payload["url"].(string)
+		total := payloadNumberToInt64(payload["total"])
+		_, hasX := payload["x"]
+		_, hasY := payload["y"]
+		x := int32(payloadNumberToInt64(payload["x"]))
+		y := int32(payloadNumberToInt64(payload["y"]))
+		display := env.SelectedDisplay
+		if _, ok := payload["display"]; ok {
+			display = int(payloadNumberToInt64(payload["display"]))
+		}
+		return HandleFileUploadDesktop(ctx, env, cmdID, fileName, sourceURL, total, display, x, y, hasX && hasY)
 	case "file_delete":
 		path, _ := envelopePayloadString(envelope, "path")
 		return HandleFileDelete(ctx, env, cmdID, path)

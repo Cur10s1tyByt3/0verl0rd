@@ -80,6 +80,13 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
   const canvas = document.getElementById("frameCanvas");
   const canvasContainer = document.getElementById("canvasContainer");
   const renderSurface = document.getElementById("renderSurface");
+  const rdFileDropOverlay = document.getElementById("rdFileDropOverlay");
+  const rdFileDragGhost = document.getElementById("rdFileDragGhost");
+  const rdFileDragLabel = document.getElementById("rdFileDragLabel");
+  const rdUploadStatus = document.getElementById("rdUploadStatus");
+  const rdUploadStatusIcon = document.getElementById("rdUploadStatusIcon");
+  const rdUploadStatusText = document.getElementById("rdUploadStatusText");
+  const rdUploadProgressBar = document.getElementById("rdUploadProgressBar");
   const remoteCursor = document.getElementById("remoteCursor");
   const remoteCursorImage = document.getElementById("remoteCursorImage");
   const ctx = canvas.getContext("2d");
@@ -222,6 +229,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
   let elevationPending = false;
   let clientOs = "";
   let clientIsAdmin = false;
+  let desktopFileUploadSupported = true;
   let firewallWarningAcked = false;
   let firstFrameLogged = false;
 
@@ -536,6 +544,242 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
       recordMode: recordMode?.value || "normal",
       recordFps: recordFps?.value || "",
     };
+  }
+
+  let fileTransferWs = null;
+  let fileTransferConnectPromise = null;
+  const pendingDesktopUploads = new Map();
+  let desktopUploadHideTimer = null;
+
+  function hasDraggedFiles(event) {
+    return Array.from(event.dataTransfer?.types || []).includes("Files");
+  }
+
+  function draggedFileLabel(dataTransfer) {
+    const files = Array.from(dataTransfer?.files || []);
+    if (files.length === 1) return files[0].name;
+    if (files.length > 1) return `${files.length} files`;
+    const count = Array.from(dataTransfer?.items || []).filter((item) => item.kind === "file").length;
+    return count === 1 ? "Copy file" : (count > 1 ? `Copy ${count} files` : "Copy files");
+  }
+
+  function setDesktopFileDragUi(active, event) {
+    if (!rdFileDropOverlay) return;
+    rdFileDropOverlay.hidden = !active;
+    rdFileDropOverlay.setAttribute("aria-hidden", active ? "false" : "true");
+    if (!active || !event || !rdFileDragGhost || !renderSurface) return;
+    if (rdFileDragLabel) rdFileDragLabel.textContent = draggedFileLabel(event.dataTransfer);
+    const rect = renderSurface.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width - 40, event.clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height - 40, event.clientY - rect.top));
+    rdFileDragGhost.style.left = `${x}px`;
+    rdFileDragGhost.style.top = `${y}px`;
+  }
+
+  function showDesktopUploadStatus(text, progress, state = "uploading") {
+    if (!rdUploadStatus) return;
+    if (desktopUploadHideTimer) {
+      clearTimeout(desktopUploadHideTimer);
+      desktopUploadHideTimer = null;
+    }
+    rdUploadStatus.hidden = false;
+    if (rdUploadStatusText) rdUploadStatusText.textContent = text;
+    if (rdUploadProgressBar) {
+      rdUploadProgressBar.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+      rdUploadProgressBar.style.background = state === "error" ? "#fb7185" : (state === "success" ? "#34d399" : "#38bdf8");
+    }
+    if (rdUploadStatusIcon) {
+      rdUploadStatusIcon.className = state === "error"
+        ? "fa-solid fa-circle-exclamation"
+        : (state === "success" ? "fa-solid fa-circle-check" : "fa-solid fa-cloud-arrow-up");
+      rdUploadStatusIcon.style.color = state === "error" ? "#fb7185" : (state === "success" ? "#34d399" : "#38bdf8");
+    }
+    if (state !== "uploading") {
+      desktopUploadHideTimer = setTimeout(() => { rdUploadStatus.hidden = true; }, state === "success" ? 3500 : 6500);
+    }
+  }
+
+  function rejectPendingDesktopUploads(error) {
+    for (const pending of pendingDesktopUploads.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+    }
+    pendingDesktopUploads.clear();
+  }
+
+  function handleFileTransferMessage(event) {
+    const msg = decodeMsgpack(event.data);
+    if (!msg) return;
+    if (msg.type === "command_error") {
+      rejectPendingDesktopUploads(new Error(msg.error || "Remote file transfer was rejected"));
+      return;
+    }
+    if (msg.type !== "command_result" || typeof msg.commandId !== "string") return;
+    const pending = pendingDesktopUploads.get(msg.commandId);
+    if (!pending) return;
+    pendingDesktopUploads.delete(msg.commandId);
+    clearTimeout(pending.timeout);
+    if (msg.ok) pending.resolve(msg);
+    else pending.reject(new Error(msg.message || "Remote file transfer failed"));
+  }
+
+  function ensureFileTransferSocket() {
+    if (fileTransferWs?.readyState === WebSocket.OPEN) return Promise.resolve(fileTransferWs);
+    if (fileTransferConnectPromise) return fileTransferConnectPromise;
+
+    fileTransferConnectPromise = new Promise((resolve, reject) => {
+      const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      const socket = new WebSocket(`${protocol}//${location.host}/api/clients/${encodeURIComponent(clientId)}/files/ws`);
+      socket.binaryType = "arraybuffer";
+      const timeout = setTimeout(() => {
+        try { socket.close(); } catch {}
+        reject(new Error("File transfer connection timed out"));
+      }, 10_000);
+      socket.addEventListener("open", () => {
+        clearTimeout(timeout);
+        fileTransferWs = socket;
+        resolve(socket);
+      }, { once: true });
+      socket.addEventListener("message", handleFileTransferMessage);
+      socket.addEventListener("error", () => {
+        if (socket.readyState !== WebSocket.OPEN) {
+          clearTimeout(timeout);
+          reject(new Error("File upload permission is unavailable"));
+        }
+      });
+      socket.addEventListener("close", () => {
+        clearTimeout(timeout);
+        if (fileTransferWs === socket) fileTransferWs = null;
+        rejectPendingDesktopUploads(new Error("File transfer connection closed"));
+      });
+    }).finally(() => {
+      fileTransferConnectPromise = null;
+    });
+    return fileTransferConnectPromise;
+  }
+
+  function waitForDesktopUpload(commandId) {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pendingDesktopUploads.delete(commandId);
+        reject(new Error("Timed out waiting for the remote file transfer"));
+      }, 30 * 60 * 1000);
+      pendingDesktopUploads.set(commandId, { resolve, reject, timeout });
+    });
+  }
+
+  async function stageDesktopUpload(file, progressBase, progressSpan) {
+    const request = await fetch("/api/file/upload/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ clientId, path: file.name, fileName: file.name }),
+    });
+    if (!request.ok) throw new Error((await request.text()) || "Upload request failed");
+    const intent = await request.json();
+    if (!intent?.uploadUrl) throw new Error("Upload request did not return a staging URL");
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", intent.uploadUrl, true);
+      xhr.withCredentials = true;
+      xhr.responseType = "text";
+      xhr.timeout = 30 * 60 * 1000;
+      xhr.setRequestHeader("Content-Type", "application/octet-stream");
+      xhr.upload.onprogress = (uploadEvent) => {
+        const total = uploadEvent.total || file.size || 1;
+        const ratio = Math.max(0, Math.min(1, uploadEvent.loaded / total));
+        showDesktopUploadStatus(`Copying ${file.name} to the remote target…`, progressBase + ratio * progressSpan);
+      };
+      xhr.onerror = () => reject(new Error("Upload staging failed"));
+      xhr.ontimeout = () => reject(new Error("Upload staging timed out"));
+      xhr.onload = () => {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new Error(xhr.responseText || "Upload staging failed"));
+          return;
+        }
+        try {
+          const staged = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+          if (!staged.pullUrl) throw new Error("Upload staging did not return a pull URL");
+          resolve(staged);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      xhr.send(file);
+    });
+  }
+
+  async function uploadFilesToRemoteDesktop(files, dropPoint) {
+    if (!desktopFileUploadSupported) {
+      throw new Error("Update the remote agent to enable integrated desktop file drop");
+    }
+    const socket = await ensureFileTransferSocket();
+    const totalFiles = files.length;
+    for (let index = 0; index < totalFiles; index += 1) {
+      const file = files[index];
+      const fileBase = (index / totalFiles) * 100;
+      const fileSpan = 100 / totalFiles;
+      showDesktopUploadStatus(`Preparing ${file.name}…`, fileBase);
+      const staged = await stageDesktopUpload(file, fileBase, fileSpan * 0.72);
+      const commandId = `rd-desktop-upload-${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`;
+      const completed = waitForDesktopUpload(commandId);
+      socket.send(encodeMsgpack({
+        type: "command",
+        commandType: "file_upload_desktop",
+        id: commandId,
+        payload: {
+          fileName: file.name,
+          url: staged.pullUrl,
+          total: file.size,
+          display: Number(displaySelect?.value || 0),
+          x: dropPoint.x + index * 18,
+          y: dropPoint.y + index * 18,
+        },
+      }));
+      showDesktopUploadStatus(`Dropping ${file.name} at the remote pointer…`, fileBase + fileSpan * 0.78);
+      await completed;
+      showDesktopUploadStatus(`Copied ${file.name} to the remote target`, fileBase + fileSpan);
+    }
+    showDesktopUploadStatus(`${totalFiles} file${totalFiles === 1 ? "" : "s"} copied to the remote target`, 100, "success");
+  }
+
+  function setupRemoteDesktopFileDrop() {
+    if (!renderSurface) return;
+    renderSurface.addEventListener("dragenter", (event) => {
+      if (!hasDraggedFiles(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      setDesktopFileDragUi(true, event);
+    });
+    renderSurface.addEventListener("dragover", (event) => {
+      if (!hasDraggedFiles(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      setDesktopFileDragUi(true, event);
+    });
+    renderSurface.addEventListener("dragleave", (event) => {
+      if (!hasDraggedFiles(event)) return;
+      if (event.relatedTarget instanceof Node && renderSurface.contains(event.relatedTarget)) return;
+      setDesktopFileDragUi(false);
+    });
+    renderSurface.addEventListener("drop", async (event) => {
+      if (!hasDraggedFiles(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDesktopFileDragUi(false);
+      const files = Array.from(event.dataTransfer?.files || []);
+      if (files.length === 0) return;
+      const dropPoint = getRenderPoint(event);
+      if (!dropPoint) return;
+      try {
+        await uploadFilesToRemoteDesktop(files, dropPoint);
+      } catch (error) {
+        console.error("rd: desktop file drop failed", error);
+        showDesktopUploadStatus(error instanceof Error ? error.message : "Remote desktop file transfer failed", 100, "error");
+      }
+    });
+    document.addEventListener("dragend", () => setDesktopFileDragUi(false));
   }
 
   applySharedSettings(await loadSharedUiSettings("remote_desktop"));
@@ -1629,6 +1873,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
         clientLabel.textContent = `${client.host || client.id} (${client.os || ""})`;
         clientOs = (client.os || "").toLowerCase();
         clientIsAdmin = !!client.isAdmin;
+        desktopFileUploadSupported = !client.commandVersions || !!client.commandVersions.file_upload_desktop;
       }
       if (client) {
         populateDisplays(client.monitors, client.monitorInfo);
@@ -3247,10 +3492,15 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
     }
     disconnectAudio();
     destroyVideoDecoder();
+    if (fileTransferWs) {
+      try { fileTransferWs.close(1000, "page hidden"); } catch {}
+      fileTransferWs = null;
+    }
   }
 
   window.addEventListener("beforeunload", stopOnExit);
   window.addEventListener("pagehide", stopOnExit);
 
+  setupRemoteDesktopFileDrop();
   fetchClientInfo();
 })();

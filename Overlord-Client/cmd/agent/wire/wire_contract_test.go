@@ -6,7 +6,7 @@ func TestGeneratedWireContract(t *testing.T) {
 	if WireProtocolVersion != 1 {
 		t.Fatalf("unexpected wire protocol version: %d", WireProtocolVersion)
 	}
-	if len(CommandTypes) != 142 {
+	if len(CommandTypes) != 143 {
 		t.Fatalf("unexpected command count: %d", len(CommandTypes))
 	}
 	if len(CommandVersionSupport) != len(CommandTypes) {
@@ -32,6 +32,9 @@ func TestGeneratedWireContract(t *testing.T) {
 	}
 	if !IsCommandType("virtual_window_list") {
 		t.Fatal("virtual_window_list must be a known command")
+	}
+	if !IsCommandType("file_upload_desktop") {
+		t.Fatal("file_upload_desktop must be a known command")
 	}
 	if IsCommandType("not_a_command") {
 		t.Fatal("unknown command was accepted")
