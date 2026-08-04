@@ -2,7 +2,9 @@
 
 #include "bridge_windows.h"
 #include <windows.h>
+#include <d3d10.h>
 #include <d3d11.h>
+#include <dxgi.h>
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -111,6 +113,34 @@ bool init_session(QSVEncoder* s, std::string& error) {
     return true;
 }
 
+bool validate_intel_device(QSVEncoder* s, std::string& error) {
+    IDXGIDevice* dxgiDevice = nullptr;
+    HRESULT hr = s->device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgiDevice));
+    if (FAILED(hr)) { error = hr_error("IDXGIDevice", hr); return false; }
+    IDXGIAdapter* adapter = nullptr;
+    hr = dxgiDevice->GetAdapter(&adapter);
+    dxgiDevice->Release();
+    if (FAILED(hr) || !adapter) { error = hr_error("IDXGIDevice::GetAdapter", hr); return false; }
+    DXGI_ADAPTER_DESC desc = {};
+    hr = adapter->GetDesc(&desc);
+    adapter->Release();
+    if (FAILED(hr)) { error = hr_error("IDXGIAdapter::GetDesc", hr); return false; }
+    if (desc.VendorId != 0x8086) {
+        error = "Intel Quick Sync requires the selected display to use an Intel adapter";
+        return false;
+    }
+    return true;
+}
+
+bool protect_device_context(QSVEncoder* s, std::string& error) {
+    ID3D10Multithread* multithread = nullptr;
+    HRESULT hr = s->context->QueryInterface(__uuidof(ID3D10Multithread), reinterpret_cast<void**>(&multithread));
+    if (FAILED(hr)) { error = hr_error("ID3D10Multithread", hr); return false; }
+    multithread->SetMultithreadProtected(TRUE);
+    multithread->Release();
+    return true;
+}
+
 bool init_video_processor(QSVEncoder* s, std::string& error) {
     HRESULT hr = s->device->QueryInterface(__uuidof(ID3D11VideoDevice), reinterpret_cast<void**>(&s->videoDevice));
     if (FAILED(hr)) { error = hr_error("ID3D11VideoDevice", hr); return false; }
@@ -174,7 +204,9 @@ extern "C" int overlord_qsv_create(void* device, int input_width, int input_heig
     *output = nullptr; auto* s = new QSVEncoder(); std::string error;
     s->device = static_cast<ID3D11Device*>(device); s->device->AddRef(); s->device->GetImmediateContext(&s->context);
     s->inputWidth = input_width; s->inputHeight = input_height; s->width = width; s->height = height;
-    if (!s->api.open(error) || !init_session(s, error)) goto fail;
+    if (!s->context) { error = "ID3D11Device::GetImmediateContext returned null"; goto fail; }
+    if (!validate_intel_device(s, error) || !protect_device_context(s, error) ||
+        !s->api.open(error) || !init_session(s, error)) goto fail;
     {
         mfxStatus sts = s->api.SetHandle(s->session, MFX_HANDLE_D3D11_DEVICE, device);
         if (sts != MFX_ERR_NONE) { error = status_error("MFXVideoCORE_SetHandle", sts); goto fail; }
@@ -205,7 +237,7 @@ extern "C" int overlord_qsv_encode(overlord_qsv_encoder opaque, void* texture, i
     {
         mfxSurfaceD3D11Tex2D ext = {};
         ext.SurfaceInterface.Header.SurfaceType = MFX_SURFACE_TYPE_D3D11_TEX2D;
-        ext.SurfaceInterface.Header.SurfaceFlags = MFX_SURFACE_FLAG_IMPORT_SHARED;
+        ext.SurfaceInterface.Header.SurfaceFlags = MFX_SURFACE_FLAG_IMPORT_COPY;
         ext.SurfaceInterface.Header.StructSize = sizeof(ext); ext.texture2D = s->nv12;
         mfxFrameSurface1* surface = nullptr;
         mfxStatus sts = s->memory->ImportFrameSurface(s->memory, MFX_SURFACE_COMPONENT_ENCODE,

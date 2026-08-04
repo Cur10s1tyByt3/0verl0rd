@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -129,6 +130,8 @@ func probeDesktopEncoderCapabilities(ctx context.Context, display int, bounds im
 	fpsOptions := []int{240, 165, 144, 120, 90, 60, 30}
 	sizes := desktopProbeSizes(nativeWidth, nativeHeight)
 	providersByProfile := make(map[string][]string)
+	lastProbeErrors := make(map[string]string)
+	successfulProbes := make(map[string]bool)
 probeLoop:
 	for _, size := range sizes {
 		for _, probe := range probes {
@@ -150,7 +153,11 @@ probeLoop:
 				frameBudget := time.Second / time.Duration(fps)
 				if err == nil && averageEncode <= frameBudget+frameBudget/5 {
 					maxFPS = fps
+					successfulProbes[probe.name] = true
 					break
+				}
+				if err != nil {
+					lastProbeErrors[probe.name] = err.Error()
 				}
 			}
 			if maxFPS == 0 {
@@ -165,6 +172,11 @@ probeLoop:
 		}
 	}
 	hardwareProfilesFound := len(providersByProfile) > 0
+	for provider, probeErr := range lastProbeErrors {
+		if !successfulProbes[provider] {
+			log.Printf("capture: desktop encoder capability probe provider=%s unavailable: %s", provider, probeErr)
+		}
+	}
 
 	for _, safe := range safeDesktopProfiles(nativeWidth, nativeHeight) {
 		key := desktopProfileKey(safe.Width, safe.Height, safe.FPS)

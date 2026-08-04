@@ -1926,7 +1926,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
   function ensureDuplicationForH264() {
     if (!duplicationCtrl || duplicationCtrl.disabled) return;
     const isWindows = clientOs.includes("windows") || clientOs.includes("win");
-    if (!isWindows || duplicationCtrl.checked) return;
+    if (!isWindows) return;
     duplicationCtrl.checked = true;
     sendCmd("desktop_set_duplication", { enabled: true });
   }
