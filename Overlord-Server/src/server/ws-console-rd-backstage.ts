@@ -237,7 +237,11 @@ function sendDesktopCommandWithId(target: ClientInfo | undefined, commandType: s
     return false;
   }
   try {
-    logger.debug(`[rd-debug] send command command=${commandType} client=${target.id} id=${commandId} payload=${JSON.stringify(payload || {})}`);
+    const isInteractiveInput = commandType.startsWith("desktop_mouse_") ||
+      commandType.startsWith("desktop_key_") || commandType === "desktop_text";
+    if (!isInteractiveInput) {
+      logger.debug(`[rd-debug] send command command=${commandType} client=${target.id} id=${commandId} payload=${JSON.stringify(payload || {})}`);
+    }
     target.ws.send(encodeMessage({ type: "command", commandType: commandType as any, payload, id: commandId }));
     metrics.recordCommand(commandType);
     return true;
@@ -648,14 +652,22 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
       if (!state.isStreaming) break;
       const commandId = uuidv4();
       recordRdInput(commandId, clientId, "mouse_down");
-      sendDesktopCommandWithId(target, "desktop_mouse_down", { button: Number(payload.button) || 0 }, commandId);
+      const hasPoint = Number.isFinite(Number((payload as any).x)) && Number.isFinite(Number((payload as any).y));
+      sendDesktopCommandWithId(target, "desktop_mouse_down", {
+        button: Number(payload.button) || 0,
+        ...(hasPoint ? { x: Number((payload as any).x), y: Number((payload as any).y) } : {}),
+      }, commandId);
       break;
     }
     case "mouse_up": {
       if (!state.isStreaming) break;
       const commandId = uuidv4();
       recordRdInput(commandId, clientId, "mouse_up");
-      sendDesktopCommandWithId(target, "desktop_mouse_up", { button: Number(payload.button) || 0 }, commandId);
+      const hasPoint = Number.isFinite(Number((payload as any).x)) && Number.isFinite(Number((payload as any).y));
+      sendDesktopCommandWithId(target, "desktop_mouse_up", {
+        button: Number(payload.button) || 0,
+        ...(hasPoint ? { x: Number((payload as any).x), y: Number((payload as any).y) } : {}),
+      }, commandId);
       break;
     }
     case "mouse_wheel": {

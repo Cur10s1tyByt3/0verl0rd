@@ -209,6 +209,35 @@ test("WebRTC input stays inactive until start and then forwards mouse and keyboa
   ]));
 
   await page.evaluate(() => {
+    const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;
+    sent.length = 0;
+    const video = document.querySelector<HTMLVideoElement>("#webrtcVideo")!;
+    video.style.objectFit = "contain";
+    video.getBoundingClientRect = () => ({
+      x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 1000,
+      width: 1000, height: 1000, toJSON() { return this; },
+    });
+    video.dispatchEvent(new MouseEvent("mousedown", { clientX: 500, clientY: 100, button: 0, bubbles: true }));
+  });
+  await page.waitForTimeout(20);
+  await expect.poll(async () => page.evaluate(async () => {
+    const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;
+    const { decodeMsgpack } = await import("/assets/msgpack-helpers.js");
+    return sent.map((message) => decodeMsgpack(message))
+      .filter((message) => /^(mouse_|key_|text_input)/.test(message.type));
+  })).toEqual([]);
+
+  await page.evaluate(() => {
+    const video = document.querySelector<HTMLVideoElement>("#webrtcVideo")!;
+    video.dispatchEvent(new MouseEvent("mousedown", { clientX: 250, clientY: 360, button: 0, bubbles: true }));
+  });
+  await expect.poll(async () => page.evaluate(async () => {
+    const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;
+    const { decodeMsgpack } = await import("/assets/msgpack-helpers.js");
+    return sent.map((message) => decodeMsgpack(message));
+  })).toContainEqual(expect.objectContaining({ type: "mouse_down", button: 0, x: 480, y: 271 }));
+
+  await page.evaluate(() => {
     const socket = (window as typeof window & { __rdSocket: EventTarget }).__rdSocket;
     const framePacket = Uint8Array.from([0x46, 0x52, 0x4d, 0, 0, 0, 0, 0]).buffer;
     socket.dispatchEvent(new MessageEvent("message", { data: framePacket }));

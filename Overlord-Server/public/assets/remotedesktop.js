@@ -152,10 +152,11 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
   let frameWidth = 0;
   let frameHeight = 0;
   let latencyAvg = null;
-  let smoothingPct = 20;
+  let smoothingPct = 0;
   let smoothPoint = null;
   let pendingMove = null;
-  let moveFrame = 0;
+  let moveTimer = 0;
+  let lastMoveSentAt = 0;
   let frameDecodeBusy = false;
   let pendingFrame = null;
   let videoDecoder = null;
@@ -185,6 +186,11 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
   const H264_MAX_RECOVERY_ATTEMPTS = 1;
   const H264_DECODE_WARN_THROTTLE_MS = 2000;
   const inputBackpressureBytes = 256 * 1024;
+  const inputMoveIntervalMs = 8;
+  const highFrequencyInputTypes = new Set([
+    "mouse_move", "mouse_down", "mouse_up", "mouse_wheel",
+    "key_down", "key_up", "text_input",
+  ]);
   const VIEWER_FRAME_GAP_KEYFRAME_THROTTLE_MS = 1000;
   let lastViewerKeyframeRequestAt = 0;
   const diagnostics = {
@@ -540,7 +546,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
       privacy: !!privacyCtrl?.checked,
       audio: !!audioCtrl?.checked,
       audioTransport: getAudioTransport(),
-      smoothing: Number(smoothingSlider?.value || 20),
+      smoothing: Number(smoothingSlider?.value || 0),
       recordMode: recordMode?.value || "normal",
       recordFps: recordFps?.value || "",
     };
@@ -1696,7 +1702,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
       return;
     }
     const msg = { type, ...payload };
-    if (type !== "desktop_decode_pressure") {
+    if (type !== "desktop_decode_pressure" && !highFrequencyInputTypes.has(type)) {
       rdDebug("send", {
         msg,
         readyState: ws.readyState,
@@ -2443,7 +2449,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
       remoteCursor.hidden = true;
       return;
     }
-    const surfaceRect = surface.getBoundingClientRect();
+    const surfaceRect = getContainedSurfaceRect(surface, sourceWidth, sourceHeight);
     const containerRect = renderSurface.getBoundingClientRect();
     const scaleX = surfaceRect.width / sourceWidth;
     const scaleY = surfaceRect.height / sourceHeight;
@@ -3390,6 +3396,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
       ? (webrtcVideo.videoHeight || frameHeight)
       : (canvas.height || frameHeight);
     if (!rect.width || !rect.height || !targetW || !targetH) return null;
+    rect = getContainedSurfaceRect(surface, targetW, targetH, rect);
+    if (e.clientX < rect.left || e.clientX > rect.right ||
+        e.clientY < rect.top || e.clientY > rect.bottom) return null;
     let x = ((e.clientX - rect.left) / rect.width) * targetW;
     let y = ((e.clientY - rect.top) / rect.height) * targetH;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
@@ -3398,14 +3407,32 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
     return { x, y };
   }
 
+  function getContainedSurfaceRect(surface, sourceWidth, sourceHeight, elementRect = surface.getBoundingClientRect()) {
+    if (!elementRect.width || !elementRect.height || !sourceWidth || !sourceHeight) return elementRect;
+    const fit = getComputedStyle(surface).objectFit;
+    if (fit !== "contain" && fit !== "scale-down") return elementRect;
+    let scale = Math.min(elementRect.width / sourceWidth, elementRect.height / sourceHeight);
+    if (fit === "scale-down") scale = Math.min(1, scale);
+    const width = sourceWidth * scale;
+    const height = sourceHeight * scale;
+    const left = elementRect.left + (elementRect.width - width) / 2;
+    const top = elementRect.top + (elementRect.height - height) / 2;
+    return {
+      x: left, y: top, left, top, right: left + width, bottom: top + height,
+      width, height, toJSON() { return this; },
+    };
+  }
+
   function scheduleMouseMove() {
-    if (!moveFrame) {
-      moveFrame = requestAnimationFrame(flushMouseMove);
-    }
+    if (moveTimer) return;
+    const wait = Math.max(0, inputMoveIntervalMs - (performance.now() - lastMoveSentAt));
+    if (wait === 0) flushMouseMove();
+    else moveTimer = window.setTimeout(flushMouseMove, wait);
   }
 
   function flushMouseMove() {
-    moveFrame = 0;
+    if (moveTimer) window.clearTimeout(moveTimer);
+    moveTimer = 0;
     if (!isInputActive() || !pendingMove || !mouseCtrl.checked) {
       smoothPoint = null;
       return;
@@ -3424,6 +3451,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
 
     if (ws && ws.bufferedAmount <= inputBackpressureBytes) {
       sendCmd("mouse_move", sendPoint);
+      lastMoveSentAt = performance.now();
     }
 
     if (Math.abs(pendingMove.x - smoothPoint.x) > 0.5 ||
@@ -3447,23 +3475,19 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
       canvasContainer.focus({ preventScroll: true });
       if (!isInputActive() || !mouseCtrl.checked) return;
       const pt = getRenderPoint(e);
-      if (pt) {
-        pendingMove = pt;
-        smoothPoint = { x: pt.x, y: pt.y };
-        sendCmd("mouse_move", pt);
-      }
-      sendCmd("mouse_down", { button: e.button, ...(pt || {}) });
+      if (!pt) return;
+      pendingMove = pt;
+      smoothPoint = { x: pt.x, y: pt.y };
+      sendCmd("mouse_down", { button: e.button, ...pt });
       e.preventDefault();
     });
     inputSurface.addEventListener("mouseup", function (e) {
       if (!isInputActive() || !mouseCtrl.checked) return;
       const pt = getRenderPoint(e);
-      if (pt) {
-        pendingMove = pt;
-        smoothPoint = { x: pt.x, y: pt.y };
-        sendCmd("mouse_move", pt);
-      }
-      sendCmd("mouse_up", { button: e.button, ...(pt || {}) });
+      if (!pt) return;
+      pendingMove = pt;
+      smoothPoint = { x: pt.x, y: pt.y };
+      sendCmd("mouse_up", { button: e.button, ...pt });
       e.preventDefault();
     });
     inputSurface.addEventListener("contextmenu", function (e) {
