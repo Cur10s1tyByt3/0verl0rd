@@ -187,8 +187,7 @@ func NowWebcam(ctx context.Context, env *rt.Env) error {
 		return nil
 	}
 	if outFormat == "h264" && webrtcpub.IsActive(webrtcpub.KindWebcam) {
-		dur := time.Second / time.Duration(frameFPS)
-		if werr := webrtcpub.WriteH264(webrtcpub.KindWebcam, frameBytes, dur); werr != nil {
+		if werr := webrtcpub.WriteH264(webrtcpub.KindWebcam, frameBytes, time.Now()); werr != nil {
 			log.Printf("webrtc: write webcam h264 failed: %v", werr)
 		}
 		return nil

@@ -126,12 +126,12 @@ func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP st
 	}
 
 	var (
-		videoTrack  *webrtc.TrackLocalStaticSample
+		videoTrack  *webrtc.TrackLocalStaticRTP
 		audioTrack  *webrtc.TrackLocalStaticSample
 		audioWriter AudioWriter
 	)
 	if hasVideo {
-		videoTrack, err = webrtc.NewTrackLocalStaticSample(
+		videoTrack, err = webrtc.NewTrackLocalStaticRTP(
 			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264},
 			"overlord-video-p2p-"+string(kind), "overlord-"+string(kind),
 		)
@@ -214,6 +214,25 @@ func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP st
 			sess.closeAndUnregister()
 		}
 	})
+	pc.OnDataChannel(func(channel *webrtc.DataChannel) {
+		if opts.OnInput == nil || (channel.Label() != "overlord-input-reliable" && channel.Label() != "overlord-input-motion") {
+			return
+		}
+		if channel.Label() == "overlord-input-reliable" {
+			channel.OnOpen(func() {
+				if err := channel.SendText(`{"type":"input_ready","version":1}`); err != nil {
+					log.Printf("webrtcpub: P2P input readiness send failed: %v", err)
+				}
+			})
+		}
+		channel.OnMessage(func(message webrtc.DataChannelMessage) {
+			if len(message.Data) == 0 || len(message.Data) > 4096 {
+				return
+			}
+			payload := append([]byte(nil), message.Data...)
+			opts.OnInput(payload)
+		})
+	})
 
 	if err := pc.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
@@ -238,7 +257,7 @@ func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP st
 	p2pMu.Unlock()
 	writerID := p2pWriterID(kind, sessionID)
 	if videoTrack != nil {
-		registerVideoWriter(kind, writerID, &h264TrackWriter{t: videoTrack})
+		registerVideoWriter(kind, writerID, newH264TrackWriter(videoTrack))
 	}
 	if audioTrack != nil {
 		registerAudioWriter(kind, writerID, audioWriter)

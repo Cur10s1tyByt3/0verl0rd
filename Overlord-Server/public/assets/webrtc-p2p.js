@@ -31,8 +31,13 @@ export class P2PClient {
     this.send = opts.send;
     this.onState = opts.onState || (() => {});
     this.onStats = opts.onStats || (() => {});
+    this.onInputState = opts.onInputState || (() => {});
     this.iceServers = Array.isArray(opts.iceServers) ? opts.iceServers : null;
+    this.enableInput = opts.enableInput === true;
     this.pc = null;
+    this.reliableInput = null;
+    this.motionInput = null;
+    this.inputReady = false;
     this.pendingRemoteCandidates = [];
     this.statsSampler = null;
   }
@@ -49,8 +54,26 @@ export class P2PClient {
 
     if (this.videoEl) pc.addTransceiver("video", { direction: "recvonly" });
     if (this.audioEl) pc.addTransceiver("audio", { direction: "recvonly" });
+    if (this.enableInput) {
+      this.reliableInput = pc.createDataChannel("overlord-input-reliable", { ordered: true });
+      this.motionInput = pc.createDataChannel("overlord-input-motion", { ordered: false, maxRetransmits: 0 });
+      this.reliableInput.onmessage = (event) => {
+        try {
+          const message = JSON.parse(String(event.data || ""));
+          if (message?.type === "input_ready" && message?.version === 1) {
+            this.inputReady = true;
+            this.onInputState(true);
+          }
+        } catch {}
+      };
+      this.reliableInput.onclose = () => {
+        this.inputReady = false;
+        this.onInputState(false);
+      };
+    }
 
     pc.ontrack = (ev) => {
+      this.applyLowLatencyReceiverHints();
       const stream = ev.streams[0] || new MediaStream([ev.track]);
       if (ev.track.kind === "video" && this.videoEl) {
         this.videoEl.srcObject = stream;
@@ -104,11 +127,41 @@ export class P2PClient {
   async onAnswer(sdp) {
     if (!this.pc || !sdp) return;
     await this.pc.setRemoteDescription({ type: "answer", sdp });
+    this.applyLowLatencyReceiverHints();
     // Drain any ICE candidates that arrived before the answer.
     const drain = this.pendingRemoteCandidates;
     this.pendingRemoteCandidates = [];
     for (const c of drain) {
       try { await this.pc.addIceCandidate(c); } catch (e) { console.warn("p2p: queued ice add failed", e); }
+    }
+  }
+
+  applyLowLatencyReceiverHints() {
+    if (!this.pc) return;
+    for (const receiver of this.pc.getReceivers()) {
+      if (receiver.track?.kind !== "video") continue;
+      try {
+        if ("playoutDelayHint" in receiver) receiver.playoutDelayHint = 0;
+        if ("jitterBufferTarget" in receiver) receiver.jitterBufferTarget = 0;
+      } catch (error) {
+        console.debug("p2p: browser rejected low-latency receiver hint", error);
+      }
+    }
+  }
+
+  sendInput(message) {
+    if (!this.enableInput || !this.inputReady || !message || typeof message.type !== "string") return false;
+    const motion = message.type === "mouse_move";
+    const channel = motion ? this.motionInput : this.reliableInput;
+    if (!channel || channel.readyState !== "open") return false;
+    // Never build a motion backlog. Reliable key/button events are tiny and
+    // must stay on one ordered path so a key-up cannot overtake a key-down.
+    if (motion && channel.bufferedAmount > 64 * 1024) return true;
+    try {
+      channel.send(JSON.stringify(message));
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -135,6 +188,10 @@ export class P2PClient {
     this.statsSampler?.stop();
     this.statsSampler = null;
     this.pendingRemoteCandidates = [];
+    this.reliableInput = null;
+    this.motionInput = null;
+    this.inputReady = false;
+    this.onInputState(false);
     if (pc) {
       try { pc.close(); } catch {}
     }

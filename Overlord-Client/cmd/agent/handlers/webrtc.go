@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
@@ -182,6 +183,11 @@ func handleWebrtcP2POffer(ctx context.Context, env *runtime.Env, cmdID string, p
 				log.Printf("webrtc: P2P congestion target=%d Mbps applied=%d Mbps", bps/1_000_000, applied/1_000_000)
 			}
 		},
+		OnInput: func(data []byte) {
+			if kind == webrtcpub.KindDesktop {
+				handleP2PDesktopInput(env, data)
+			}
+		},
 	}
 
 	answerSDP, err := webrtcpub.StartP2POffer(ctx, kind, sessionID, offerSDP, callbacks, hasVideo, hasAudio)
@@ -204,6 +210,67 @@ func handleWebrtcP2POffer(ctx context.Context, env *runtime.Env, cmdID string, p
 	})
 	sendCommandResultSafe(env, cmdID, true, "")
 	return nil
+}
+
+type p2pDesktopInput struct {
+	Type   string `json:"type"`
+	X      int32  `json:"x"`
+	Y      int32  `json:"y"`
+	Button int    `json:"button"`
+	Delta  int32  `json:"delta"`
+	Code   string `json:"code"`
+	Text   string `json:"text"`
+}
+
+func handleP2PDesktopInput(env *runtime.Env, data []byte) {
+	if env == nil || len(data) == 0 || len(data) > 4096 {
+		return
+	}
+	var input p2pDesktopInput
+	if err := json.Unmarshal(data, &input); err != nil {
+		return
+	}
+	move := func() {
+		absX, absY := resolveDesktopPoint(env.SelectedDisplay, input.X, input.Y)
+		setCursorPos(absX, absY)
+	}
+	switch input.Type {
+	case "mouse_move":
+		if env.MouseControl {
+			move()
+		}
+	case "mouse_down":
+		if env.MouseControl {
+			move()
+			sendMouseDown(input.Button)
+		}
+	case "mouse_up":
+		if env.MouseControl {
+			move()
+			sendMouseUp(input.Button)
+		}
+	case "mouse_wheel":
+		if env.MouseControl {
+			move()
+			sendMouseWheel(input.Delta)
+		}
+	case "key_down":
+		if env.KeyboardControl {
+			if vk := keyCodeToVK(input.Code); vk != 0 {
+				sendKeyDown(vk)
+			}
+		}
+	case "key_up":
+		if env.KeyboardControl {
+			if vk := keyCodeToVK(input.Code); vk != 0 {
+				sendKeyUp(vk)
+			}
+		}
+	case "text_input":
+		if env.KeyboardControl && input.Text != "" {
+			sendTextInput(input.Text)
+		}
+	}
 }
 
 func parseICEServers(value interface{}) []webrtcpub.ICEServer {

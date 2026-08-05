@@ -205,12 +205,8 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 		return nil
 	}
 	if frame.Header.Format == "h264" && webrtcpub.IsActive(webrtcpub.KindDesktop) {
-		dur := time.Second / time.Duration(fps)
-		if dur <= 0 {
-			dur = 33 * time.Millisecond
-		}
 		sendStart := time.Now()
-		if werr := webrtcpub.WriteH264(webrtcpub.KindDesktop, frame.Data, dur); werr != nil {
+		if werr := webrtcpub.WriteH264(webrtcpub.KindDesktop, frame.Data, now); werr != nil {
 			log.Printf("webrtc: write h264 failed: %v", werr)
 		}
 		sendDur := time.Since(sendStart)
@@ -283,12 +279,8 @@ func sendCompletedFrame(ctx context.Context, env *rt.Env, frame wire.Frame, disp
 		return nil
 	}
 	if frame.Header.Format == "h264" && webrtcpub.IsActive(webrtcpub.KindDesktop) {
-		dur := time.Second / time.Duration(fps)
-		if dur <= 0 {
-			dur = 33 * time.Millisecond
-		}
 		sendStart := time.Now()
-		if werr := webrtcpub.WriteH264(webrtcpub.KindDesktop, frame.Data, dur); werr != nil {
+		if werr := webrtcpub.WriteH264(webrtcpub.KindDesktop, frame.Data, now); werr != nil {
 			log.Printf("webrtc: write h264 failed: %v", werr)
 		}
 		sendDur := time.Since(sendStart)
@@ -1929,11 +1921,7 @@ func captureAndSendVirtual(ctx context.Context, env *rt.Env) error {
 		return nil
 	}
 	if frame.Header.Format == "h264" && webrtcpub.IsActive(webrtcpub.Kindbackstage) {
-		dur := time.Second / time.Duration(fps)
-		if dur <= 0 {
-			dur = 33 * time.Millisecond
-		}
-		if werr := webrtcpub.WriteH264(webrtcpub.Kindbackstage, frame.Data, dur); werr != nil {
+		if werr := webrtcpub.WriteH264(webrtcpub.Kindbackstage, frame.Data, now); werr != nil {
 			log.Printf("webrtc: write hidden h264 failed: %v", werr)
 		}
 		if slotAcquired {
@@ -1976,11 +1964,7 @@ func virtualSendCompletedFrame(ctx context.Context, env *rt.Env, frame wire.Fram
 		return nil
 	}
 	if frame.Header.Format == "h264" && webrtcpub.IsActive(webrtcpub.Kindbackstage) {
-		dur := time.Second / time.Duration(fps)
-		if dur <= 0 {
-			dur = 33 * time.Millisecond
-		}
-		if werr := webrtcpub.WriteH264(webrtcpub.Kindbackstage, frame.Data, dur); werr != nil {
+		if werr := webrtcpub.WriteH264(webrtcpub.Kindbackstage, frame.Data, now); werr != nil {
 			log.Printf("webrtc: write hidden h264 failed: %v", werr)
 		}
 		return nil
@@ -2079,11 +2063,7 @@ func captureAndSendbackstage(ctx context.Context, env *rt.Env) error {
 		return nil
 	}
 	if frame.Header.Format == "h264" && webrtcpub.IsActive(webrtcpub.Kindbackstage) {
-		dur := time.Second / time.Duration(fps)
-		if dur <= 0 {
-			dur = 33 * time.Millisecond
-		}
-		if werr := webrtcpub.WriteH264(webrtcpub.Kindbackstage, frame.Data, dur); werr != nil {
+		if werr := webrtcpub.WriteH264(webrtcpub.Kindbackstage, frame.Data, now); werr != nil {
 			log.Printf("webrtc: write backstage h264 failed: %v", werr)
 		}
 		if slotAcquired {

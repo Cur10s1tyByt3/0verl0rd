@@ -22,7 +22,6 @@ import (
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
-	"github.com/pion/webrtc/v4/pkg/media"
 )
 
 func drainRTCP(sender *webrtc.RTPSender, kind Kind) {
@@ -96,14 +95,6 @@ func honorRTCPKeyframes() bool {
 	default:
 		return true
 	}
-}
-
-type h264TrackWriter struct {
-	t *webrtc.TrackLocalStaticSample
-}
-
-func (w *h264TrackWriter) WriteH264(nalu []byte, dur time.Duration) error {
-	return w.t.WriteSample(media.Sample{Data: nalu, Duration: dur})
 }
 
 type Publisher struct {
@@ -187,12 +178,12 @@ func Start(ctx context.Context, kind Kind, opts Options) (*Publisher, error) {
 	}
 
 	var (
-		videoTrack  *webrtc.TrackLocalStaticSample
+		videoTrack  *webrtc.TrackLocalStaticRTP
 		audioTrack  *webrtc.TrackLocalStaticSample
 		audioWriter AudioWriter
 	)
 	if opts.HasVideo {
-		videoTrack, err = webrtc.NewTrackLocalStaticSample(
+		videoTrack, err = webrtc.NewTrackLocalStaticRTP(
 			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264},
 			"overlord-video-"+string(kind), "overlord-"+string(kind),
 		)
@@ -296,7 +287,7 @@ func Start(ctx context.Context, kind Kind, opts Options) (*Publisher, error) {
 	whipByKind[kind] = pub
 	whipMu.Unlock()
 	if videoTrack != nil {
-		registerVideoWriter(kind, writerID, &h264TrackWriter{t: videoTrack})
+		registerVideoWriter(kind, writerID, newH264TrackWriter(videoTrack))
 	}
 	if audioTrack != nil {
 		registerAudioWriter(kind, writerID, audioWriter)

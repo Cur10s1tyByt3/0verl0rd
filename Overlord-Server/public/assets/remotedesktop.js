@@ -152,6 +152,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
   let frameWidth = 0;
   let frameHeight = 0;
   let latencyAvg = null;
+  let directInputActive = false;
   let smoothingPct = 0;
   let smoothPoint = null;
   let pendingMove = null;
@@ -1173,7 +1174,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
     if (ms < 0 || !Number.isFinite(ms)) return;
     latencyAvg = latencyAvg == null ? ms : latencyAvg * 0.8 + ms * 0.2;
     if (inputLatency) {
-      inputLatency.textContent = `${Math.round(latencyAvg)} ms`;
+      inputLatency.textContent = directInputActive ? "P2P direct" : `${Math.round(latencyAvg)} ms`;
     }
   }
 
@@ -1286,7 +1287,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
     if (fsHudFps) {
       fsHudFps.textContent = `${snapshot.fps == null ? "--" : Math.round(snapshot.fps)} → ${snapshot.viewerRate == null ? "--" : Math.round(snapshot.viewerRate)} FPS`;
     }
-    if (fsHudLatency) fsHudLatency.textContent = `${msText(latencyAvg)} input`;
+    if (fsHudLatency) fsHudLatency.textContent = directInputActive ? "P2P direct input" : `${msText(latencyAvg)} input`;
     if (fsHudNetwork) {
       const networkParts = [];
       if (snapshot.bitrate != null) networkParts.push(`${snapshot.bitrate.toFixed(1)} Mbps`);
@@ -1395,14 +1396,15 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
     } else if ((finite(media.lossPercent) ?? 0) > 3 || (finite(network.rttMs) ?? 0) > 150 || (finite(media.jitterMs) ?? 0) > 35) {
       summary = "Network conditions are causing delay";
       severity = "bad";
+    } else if ((finite(media.jitterBufferMs) ?? 0) > Math.max(80, frameBudget * 4)) {
+      summary = `Browser playout buffer is adding ${Math.round(media.jitterBufferMs)} ms`;
+      severity = "bad";
     } else if (
-      mode === "off" &&
       fps != null &&
       viewerRate != null &&
-      viewerRate < fps * 0.8 &&
-      diagnostics.coalescedFrames > 0
+      viewerRate < fps * 0.8
     ) {
-      summary = `Display is presenting ${Math.round(viewerRate)} of ${Math.round(fps)} decoded FPS`;
+      summary = `Viewer is presenting ${Math.round(viewerRate)} of ${Math.round(fps)} FPS`;
       severity = "warn";
     } else if ((queue ?? 0) > 2 || (renderMs != null && renderMs > frameBudget)) {
       summary = "Viewer render queue is backing up";
@@ -1432,7 +1434,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
     diagnosticEls.Queue.textContent = queue == null ? "managed by browser" : String(queue);
     diagnosticEls.Dropped.textContent = `${Math.round(dropped)} / ${diagnostics.coalescedFrames}`;
     diagnosticEls.Fps.textContent = `${fps == null ? "--" : Math.round(fps)} → ${viewerRate == null ? "--" : Math.round(viewerRate)}`;
-    diagnosticEls.Input.textContent = msText(latencyAvg);
+    diagnosticEls.Input.textContent = directInputActive ? "P2P direct" : msText(latencyAvg);
     renderFullscreenHud();
   }
 
@@ -1702,6 +1704,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
       return;
     }
     const msg = { type, ...payload };
+    if (highFrequencyInputTypes.has(type) && getWebrtcMode() === "p2p" && p2pClient?.sendInput(msg)) {
+      return;
+    }
     if (type !== "desktop_decode_pressure" && !highFrequencyInputTypes.has(type)) {
       rdDebug("send", {
         msg,
@@ -1808,6 +1813,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
     if (!webrtcVideo) return;
     p2pClient = new P2PClient({
       videoEl: webrtcVideo,
+      enableInput: true,
       send: (msg) => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(encodeMsgpack(msg));
@@ -1815,6 +1821,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
       },
       onState: (s) => onWebrtcState("WebRTC P2P", s),
       onStats: updateNetworkStats,
+      onInputState: setDirectInputActive,
     });
     try {
       await p2pClient.start();
@@ -1830,6 +1837,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
   }
 
   async function stopAllWebrtc() {
+    setDirectInputActive(false);
     stopWebrtcFrameTicker();
     setWebrtcViewActive(false);
     const w = whepClient;
@@ -3405,6 +3413,12 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
     x = Math.max(0, Math.min(targetW - 1, Math.floor(x)));
     y = Math.max(0, Math.min(targetH - 1, Math.floor(y)));
     return { x, y };
+  }
+
+  function setDirectInputActive(active) {
+    directInputActive = !!active;
+    if (inputLatency) inputLatency.textContent = directInputActive ? "P2P direct" : msText(latencyAvg);
+    renderDiagnostics();
   }
 
   function getContainedSurfaceRect(surface, sourceWidth, sourceHeight, elementRect = surface.getBoundingClientRect()) {

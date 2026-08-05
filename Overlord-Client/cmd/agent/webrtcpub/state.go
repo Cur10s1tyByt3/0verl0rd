@@ -18,7 +18,7 @@ const (
 )
 
 type VideoWriter interface {
-	WriteH264(nalu []byte, dur time.Duration) error
+	WriteH264(nalu []byte, capturedAt time.Time) error
 }
 
 type AudioWriter interface {
@@ -30,12 +30,14 @@ type writerEntry struct {
 	audio AudioWriter
 }
 
-const maxPendingVideoFrames = 6
+// Keep at most one frame behind the frame currently being packetized. Remote
+// desktop latency is more important than preserving stale predictive frames.
+const maxPendingVideoFrames = 1
 
 type queuedVideoFrame struct {
-	data []byte
-	dur  time.Duration
-	key  bool
+	data       []byte
+	capturedAt time.Time
+	key        bool
 }
 
 type latestVideoWriter struct {
@@ -54,7 +56,7 @@ func newLatestVideoWriter(kind Kind, writer VideoWriter) *latestVideoWriter {
 	return queued
 }
 
-func (w *latestVideoWriter) enqueue(frame []byte, dur time.Duration) {
+func (w *latestVideoWriter) enqueue(frame []byte, capturedAt time.Time) {
 	isKey := h264util.IsIDR(frame)
 	w.mu.Lock()
 	if w.closed {
@@ -69,10 +71,22 @@ func (w *latestVideoWriter) enqueue(frame []byte, dur time.Duration) {
 
 	requestKeyframe := false
 	if len(w.pending) >= maxPendingVideoFrames {
+		// Never evict a recovery IDR in favor of a dependent P-frame. It is
+		// already the newest independently decodable state available. Since the
+		// discarded P-frame can be referenced later, request another recovery
+		// point before accepting subsequent deltas.
+		if w.pending[len(w.pending)-1].key && !isKey {
+			w.needsKeyframe = true
+			w.mu.Unlock()
+			RequestKeyframe(w.kind)
+			return
+		}
 		w.pending = nil
-		w.needsKeyframe = true
-		requestKeyframe = true
-		if !isKey {
+		if isKey {
+			w.needsKeyframe = false
+		} else {
+			w.needsKeyframe = true
+			requestKeyframe = true
 			w.mu.Unlock()
 			RequestKeyframe(w.kind)
 			return
@@ -83,7 +97,7 @@ func (w *latestVideoWriter) enqueue(frame []byte, dur time.Duration) {
 		w.needsKeyframe = false
 		requestKeyframe = false
 	}
-	w.pending = append(w.pending, queuedVideoFrame{data: frame, dur: dur, key: isKey})
+	w.pending = append(w.pending, queuedVideoFrame{data: frame, capturedAt: capturedAt, key: isKey})
 	w.mu.Unlock()
 	if requestKeyframe {
 		RequestKeyframe(w.kind)
@@ -121,7 +135,7 @@ func (w *latestVideoWriter) run() {
 			w.pending[0] = queuedVideoFrame{}
 			w.pending = w.pending[1:]
 			w.mu.Unlock()
-			err := w.writer.WriteH264(frame.data, frame.dur)
+			err := w.writer.WriteH264(frame.data, frame.capturedAt)
 			requestKeyframe := false
 			w.mu.Lock()
 			if err != nil {
@@ -229,7 +243,7 @@ func ConsumeKeyframeRequest(kind Kind) bool {
 	return keyframeRequestFlag(kind).Swap(false)
 }
 
-func WriteH264(kind Kind, nalu []byte, dur time.Duration) error {
+func WriteH264(kind Kind, nalu []byte, capturedAt time.Time) error {
 	if len(nalu) == 0 {
 		return nil
 	}
@@ -244,7 +258,7 @@ func WriteH264(kind Kind, nalu []byte, dur time.Duration) error {
 	}
 	writersMu.RUnlock()
 	for _, target := range targets {
-		target.enqueue(frame, dur)
+		target.enqueue(frame, capturedAt)
 	}
 	return nil
 }
@@ -302,4 +316,5 @@ type P2POfferCallbacks struct {
 	OnICE               func(c ICECandidate)
 	OnClose             func()
 	OnBandwidthEstimate func(bps int)
+	OnInput             func(payload []byte)
 }

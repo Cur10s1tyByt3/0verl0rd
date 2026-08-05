@@ -15,7 +15,7 @@ type blockingVideoWriter struct {
 	frames  [][]byte
 }
 
-func (w *blockingVideoWriter) WriteH264(frame []byte, _ time.Duration) error {
+func (w *blockingVideoWriter) WriteH264(frame []byte, _ time.Time) error {
 	w.mu.Lock()
 	w.frames = append(w.frames, append([]byte(nil), frame...))
 	count := len(w.frames)
@@ -46,7 +46,7 @@ func TestWriteH264DoesNotBlockAndRequestsRecoveryAfterDroppingDelta(t *testing.T
 	defer unregisterWriter(kind, id)
 	_ = ConsumeKeyframeRequest(kind)
 
-	if err := WriteH264(kind, annexBDelta(1), time.Millisecond); err != nil {
+	if err := WriteH264(kind, annexBDelta(1), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -57,7 +57,7 @@ func TestWriteH264DoesNotBlockAndRequestsRecoveryAfterDroppingDelta(t *testing.T
 
 	started := time.Now()
 	for frame := 2; frame <= maxPendingVideoFrames+2; frame++ {
-		_ = WriteH264(kind, annexBDelta(byte(frame)), time.Millisecond)
+		_ = WriteH264(kind, annexBDelta(byte(frame)), time.Now())
 	}
 	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
 		t.Fatalf("capture path blocked for %s", elapsed)
@@ -65,7 +65,7 @@ func TestWriteH264DoesNotBlockAndRequestsRecoveryAfterDroppingDelta(t *testing.T
 	if !ConsumeKeyframeRequest(kind) {
 		t.Fatal("dropping a predictive frame did not request a keyframe")
 	}
-	_ = WriteH264(kind, annexBKey(9), time.Millisecond)
+	_ = WriteH264(kind, annexBKey(9), time.Now())
 	close(writer.release)
 
 	deadline := time.Now().Add(time.Second)
@@ -82,6 +82,40 @@ func TestWriteH264DoesNotBlockAndRequestsRecoveryAfterDroppingDelta(t *testing.T
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("recovery keyframe was not delivered")
+}
+
+func TestLatestFrameQueuePreservesPendingRecoveryFrame(t *testing.T) {
+	kind := Kind("keyframe-queue-test")
+	id := "slow-writer"
+	writer := &blockingVideoWriter{started: make(chan struct{}), release: make(chan struct{})}
+	registerVideoWriter(kind, id, writer)
+	defer unregisterWriter(kind, id)
+	_ = ConsumeKeyframeRequest(kind)
+
+	_ = WriteH264(kind, annexBDelta(1), time.Now())
+	select {
+	case <-writer.started:
+	case <-time.After(time.Second):
+		t.Fatal("writer did not receive first frame")
+	}
+	_ = WriteH264(kind, annexBKey(9), time.Now())
+	_ = WriteH264(kind, annexBDelta(3), time.Now())
+	close(writer.release)
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		writer.mu.Lock()
+		frames := append([][]byte(nil), writer.frames...)
+		writer.mu.Unlock()
+		if len(frames) >= 2 {
+			if !h264util.IsIDR(frames[1]) {
+				t.Fatalf("pending recovery frame was replaced by a delta: %v", frames)
+			}
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("pending recovery frame was not delivered")
 }
 
 func TestKeyframeRequestsAreIsolatedByStreamKind(t *testing.T) {
