@@ -87,11 +87,9 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 # Server source (Overlord-Server/dist-clients may carry pre-built MSVC DLLs from CI)
 COPY Overlord-Server/ ./
 
-# Backstage sources for the cross-compile fallback (used only if no pre-built MSVC DLL).
+# BackstageInjection source for the cross-compile fallback (used only if no pre-built MSVC DLL).
 COPY BackstageInjection/ ./BackstageInjection/
 COPY scripts/build-backstage-dll.sh ./scripts/
-COPY BackstageCapture/ ./BackstageCapture/
-COPY scripts/build-backstage-capture-dll.sh ./scripts/
 
 RUN mkdir -p dist-clients && \
     if [ -f dist-clients/BackstageInjection.x64.dll ]; then \
@@ -100,14 +98,6 @@ RUN mkdir -p dist-clients && \
       chmod +x scripts/build-backstage-dll.sh && \
       BACKSTAGE_SRC_DIR=BackstageInjection/src BACKSTAGE_OUT_DIR=dist-clients bash scripts/build-backstage-dll.sh || \
       echo "WARNING: BackstageInjection DLL not available (build with MSVC on Windows)"; \
-    fi
-
-RUN if [ -f dist-clients/BackstageCapture.x64.dll ]; then \
-      echo "Using pre-built MSVC BackstageCapture DLL"; \
-    else \
-      chmod +x scripts/build-backstage-capture-dll.sh && \
-      BACKSTAGE_CAPTURE_SRC_DIR=BackstageCapture/src BACKSTAGE_CAPTURE_OUT_DIR=dist-clients bash scripts/build-backstage-capture-dll.sh || \
-      echo "WARNING: BackstageCapture DLL not available (build with MSVC on Windows)"; \
     fi
 
 # Keep production build phases separate so BuildKit reports the exact slow or

@@ -43,17 +43,12 @@ jobs:
         shell: cmd
         run: call scripts\build-backstage-dll.bat
 
-      - name: Build BackstageCapture DLL with MSVC
-        shell: cmd
-        run: call scripts\build-backstage-capture-dll.bat
-
       - name: Upload backstage DLLs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: backstage-dll
           path: |
             Overlord-Server/dist-clients/BackstageInjection.x64.dll
-            Overlord-Server/dist-clients/BackstageCapture.x64.dll
           if-no-files-found: error
           retention-days: 1
 

