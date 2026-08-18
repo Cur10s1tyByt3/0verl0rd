@@ -556,7 +556,7 @@
                       <div class="flex gap-2">
                         <input type="text" id="server-url" name="server-url"
                           class="min-w-0 flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 transition-colors" />
-                        <button type="button" id="server-url-current-btn" aria-label="Use current website host"
+                        <button type="button" id="server-url-current-btn" aria-label="Use current website host" aria-pressed="false"
                           title="Use current website host"
                           class="shrink-0 w-10 h-10 inline-flex items-center justify-center rounded-lg bg-slate-800/70 border border-slate-700 text-slate-300 hover:text-blue-300 hover:border-blue-500 transition-colors">
                           <i class="fa-solid fa-globe"></i>
@@ -578,6 +578,16 @@
                       <p id="server-url-raw-hint" class="hidden text-xs text-slate-500 mt-1">
                         When enabled, the URL above must be a raw HTTPS link with one wss:// endpoint per line.
                       </p>
+                      <div id="server-url-local-warning" role="alert" aria-live="assertive"
+                        class="hidden mt-3 p-3 rounded-lg border-2 border-red-500 bg-red-950/70 text-red-100 shadow-lg shadow-red-950/40">
+                        <div class="flex items-start gap-3">
+                          <i class="fa-solid fa-triangle-exclamation text-red-400 text-xl mt-0.5"></i>
+                          <div>
+                            <p class="font-bold uppercase tracking-wide">Local address — outbound connections will not work</p>
+                            <p class="text-sm text-red-200 mt-1">This build can only connect from the same machine or local network. Use a publicly reachable domain or IP for devices connecting from outside your network.</p>
+                          </div>
+                        </div>
+                      </div>
                       <label class="mt-2 flex items-center gap-2 text-xs text-slate-400">
                         <input type="checkbox" id="sol-memo" name="sol-memo" class="w-4 h-4" />
                         Use Solana memo lookup (resolve server from blockchain)
