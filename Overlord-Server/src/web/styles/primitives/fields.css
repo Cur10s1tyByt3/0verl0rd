@@ -1,0 +1,48 @@
+/* Inputs nested inside a styled shell should not paint a second surface. */
+input.bg-transparent,
+.graph-field input {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.graph-field,
+.graph-select {
+  border-color: var(--ui-border-subtle);
+  background: var(--ui-surface-1);
+  color: var(--ui-text);
+}
+
+.graph-field:focus-within,
+.graph-select:focus {
+  border-color: var(--ui-border-strong) !important;
+  box-shadow: none !important;
+}
+
+.graph-field input::placeholder {
+  color: var(--ui-text-faint);
+}
+
+#upload-file {
+  padding: 0 0.75rem 0 0;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+}
+
+#upload-file::file-selector-button {
+  height: 100%;
+  margin-right: 0.75rem;
+  padding: 0 0.875rem;
+  border: 0;
+  border-right: 1px solid var(--ui-border-subtle);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#upload-file:hover::file-selector-button {
+  background: var(--ui-surface-2);
+}

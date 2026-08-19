@@ -1,0 +1,118 @@
+.app-notifications .notifications-shell {
+  gap: 1rem;
+}
+
+.app-notifications .notification-panel,
+.app-notifications .notification-section {
+  border-color: var(--ui-border);
+  border-radius: 0.875rem;
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-sm);
+}
+
+.app-notifications .notification-section {
+  overflow: clip;
+}
+
+.app-notifications .notification-section__summary,
+.app-notifications .notification-advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.app-notifications .notification-section__summary {
+  justify-content: space-between;
+  min-height: 3.5rem;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+}
+
+.app-notifications .notification-section__summary::-webkit-details-marker,
+.app-notifications .notification-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.app-notifications .notification-section__summary:hover,
+.app-notifications .notification-section__summary:focus-visible {
+  background: rgb(30 41 59 / 0.45);
+}
+
+.app-notifications .notification-section__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.app-notifications .notification-section__body {
+  padding: 1rem;
+  border-top: 1px solid var(--ui-border);
+}
+
+.app-notifications .notification-chevron {
+  color: var(--ui-text-muted);
+  font-size: 0.75rem;
+  transition: transform 160ms ease;
+}
+
+.app-notifications details[open] > summary > .notification-chevron {
+  transform: rotate(180deg);
+}
+
+.app-notifications .notification-advanced {
+  border-top: 1px solid var(--ui-border);
+}
+
+.app-notifications .notification-advanced > summary {
+  min-height: 2.75rem;
+  color: var(--ui-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.app-notifications .notification-advanced > summary .notification-chevron {
+  margin-left: auto;
+}
+
+.app-notifications .notification-advanced__body {
+  padding: 0.25rem 0 0.25rem;
+}
+
+.app-notifications .notification-choice {
+  min-height: 2.75rem;
+  padding-block: 0.625rem;
+}
+
+.app-notifications .template-variables {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.375rem;
+  color: var(--ui-text-muted);
+  font-size: 0.75rem;
+}
+
+.app-notifications .template-variables code {
+  padding: 0.125rem 0.35rem;
+  border: 1px solid var(--ui-border);
+  border-radius: 0.25rem;
+  background: var(--ui-canvas);
+}
+
+@media (max-width: 640px) {
+  .app-notifications main {
+    padding-inline: 0.875rem;
+  }
+
+  .app-notifications #notification-search {
+    width: min(100%, 18rem);
+  }
+
+  .app-notifications .notification-section__body,
+  .app-notifications .notification-panel {
+    padding: 0.875rem;
+  }
+}

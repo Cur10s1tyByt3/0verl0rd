@@ -55,7 +55,10 @@ async function loadFiles() {
 
     if (!data.files || data.files.length === 0) {
       fileList.innerHTML = `<tr><td colspan="7" class="px-6 py-12 text-center text-slate-500">
-        <i class="fa-solid fa-folder-open text-2xl mb-2 block"></i>No files shared yet
+        <div class="file-share-empty inline-flex flex-col items-center gap-3">
+          <i class="fa-solid fa-folder-open text-2xl" aria-hidden="true"></i>
+          <span>No files shared yet</span>
+        </div>
       </td></tr>`;
       return;
     }

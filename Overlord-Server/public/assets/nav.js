@@ -19,6 +19,9 @@ import {
   turboVisit,
 } from "./turbo-navigation.js";
 import { showOnboardingIfNeeded } from "./onboarding.js";
+import { applyConciseUi } from "./concise-ui.js";
+
+applyConciseUi();
 
 const host = document.getElementById("top-nav");
 if (host) {
@@ -226,6 +229,7 @@ if (host) {
     onPathChange: (path) => {
       applyActivePath(path);
       applyBranding();
+      applyConciseUi();
     },
   });
 }

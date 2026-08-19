@@ -18,7 +18,11 @@ export async function login(
 export async function navigateFromMenu(page: Page, linkId: string): Promise<void> {
   const link = page.locator(`#${linkId}`);
   const wrapper = link.locator("xpath=ancestor::*[contains(@class, 'nav-dd-wrapper')][1]");
-  await wrapper.locator(":scope > .nav-dd-group-btn").click();
+  const groupButton = wrapper.locator(":scope > .nav-dd-group-btn");
+  if (!(await groupButton.isVisible())) {
+    await page.locator("#topbar-nav-toggle").click();
+  }
+  await groupButton.click();
   await expect(link).toBeVisible();
   await link.click();
 }
