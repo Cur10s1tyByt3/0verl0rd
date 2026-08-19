@@ -1,0 +1,49 @@
+.rust-lite-builder {
+  display: grid;
+  gap: 1rem;
+  color: #e2e8f0;
+}
+
+.rust-lite-builder header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.rust-lite-builder h2 {
+  margin: 0.15rem 0 0.35rem;
+  font-size: 1.5rem;
+}
+
+.rust-lite-builder p {
+  margin: 0;
+  color: #94a3b8;
+}
+
+.rust-lite-builder .eyebrow {
+  color: #fb923c;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rust-lite-builder button {
+  border: 1px solid #c2410c;
+  border-radius: 0.5rem;
+  background: #9a3412;
+  color: white;
+  cursor: pointer;
+  padding: 0.55rem 0.8rem;
+}
+
+.rust-lite-builder pre {
+  min-height: 8rem;
+  overflow: auto;
+  border: 1px solid #334155;
+  border-radius: 0.65rem;
+  background: #0f172a;
+  padding: 1rem;
+  white-space: pre-wrap;
+}

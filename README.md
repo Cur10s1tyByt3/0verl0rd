@@ -27,6 +27,7 @@ bare-metal installation is strongly recommended instead of Docker Desktop.
   - [Linux](#linux)
   - [macOS](#macos)
 - [Native Bare-Metal Installation](#native-bare-metal-installation)
+- [Rust Lite Agent](#rust-lite-agent)
 - [Production Package Scripts](#production-package-scripts)
 - [WebRTC Streaming](#webrtc-streaming)
 - [OIDC / SSO Login](#oidc--sso-login)
@@ -364,6 +365,15 @@ Production mode:
 
 ---
 
+## Rust Lite Agent
+
+`Overlord-Lite` is an experimental Rust client focused on authenticated
+connections, TLS identity pinning, and heartbeat/reconnect behavior. It
+supports interactive TTY console sessions while omitting plugins plus the full
+Go agent's desktop, webcam, audio, persistence, and OS-integration features.
+See [Overlord-Lite/README.md](Overlord-Lite/README.md) for build instructions,
+configuration, and Build-page integration.
+
 ## Production Package Scripts
 
 Build a production-ready package where the server can still build client binaries at runtime.
@@ -668,6 +678,10 @@ Restart Overlord after changing `.env`. The reverse proxy upstream is then
 and use timeouts/body limits suitable for long sessions and file uploads.
 
 Ready-to-copy Caddy and nginx configurations are in `deploy/reverse-proxy/`.
+Those examples accept TLS 1.3 only. This is also the required deployment mode
+when strict TLS 1.3 rejection is needed: Bun's native `Bun.serve` TLS listener
+currently negotiates TLS 1.3 by preference but does not expose an effective
+per-server minimum-version setting.
 
 When enabled:
 

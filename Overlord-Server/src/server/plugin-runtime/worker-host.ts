@@ -33,6 +33,7 @@ type PluginExports = {
   onBuildArtifact?: (ctx: PluginContext, payload: unknown) => unknown | Promise<unknown>;
   onBuildComplete?: (ctx: PluginContext, payload: unknown) => unknown | Promise<unknown>;
   onBuildFailed?: (ctx: PluginContext, payload: unknown) => unknown | Promise<unknown>;
+  onBuild?: (ctx: PluginBuildProviderContext, payload: unknown) => unknown | Promise<unknown>;
   teardown?: (ctx: PluginContext) => unknown | Promise<unknown>;
 };
 
@@ -48,6 +49,13 @@ type PluginContext = {
   };
   fetch: typeof fetch;
   broadcast: (channel: string, data: unknown) => void;
+};
+
+type PluginBuildProviderContext = PluginContext & {
+  build: {
+    output: (text: string, level?: "debug" | "info" | "warn" | "error" | "success") => void;
+    status: (text: string, progress?: number, etaSeconds?: number) => void;
+  };
 };
 
 let plugin: PluginExports | null = null;
@@ -99,7 +107,7 @@ self.onmessage = async (e: MessageEvent<WorkerInbound>) => {
         await plugin.setup(ctx);
       }
 
-      send({ type: "ready" });
+      send({ type: "ready", capabilities: ["build_provider"] });
     } catch (err) {
       const error = err instanceof Error ? `${err.message}\n${err.stack || ""}` : String(err);
       send({ type: "boot_error", error });
@@ -180,6 +188,47 @@ self.onmessage = async (e: MessageEvent<WorkerInbound>) => {
       const stack = err instanceof Error ? err.stack || "" : "";
       console.error(`[plugin-worker] build hook ${msg.hook} error: ${error}`, stack);
       send({ type: "build_hook_reply", id: msg.id, ok: false, error });
+    }
+    return;
+  }
+
+  if (msg.type === "build_provider") {
+    if (!plugin || !ctx) {
+      send({ type: "build_provider_reply", id: msg.id, ok: false, error: "Plugin not initialised" });
+      return;
+    }
+    if (typeof plugin.onBuild !== "function") {
+      send({ type: "build_provider_reply", id: msg.id, ok: false, error: "Plugin does not export onBuild" });
+      return;
+    }
+    const buildCtx: PluginBuildProviderContext = {
+      ...ctx,
+      build: {
+        output: (text, level = "info") => send({
+          type: "build_provider_output",
+          id: msg.id,
+          event: "output",
+          text: String(text),
+          level,
+        }),
+        status: (text, progress, etaSeconds) => send({
+          type: "build_provider_output",
+          id: msg.id,
+          event: "status",
+          text: String(text),
+          progress,
+          etaSeconds,
+        }),
+      },
+    };
+    try {
+      const result = await plugin.onBuild(buildCtx, msg.payload);
+      send({ type: "build_provider_reply", id: msg.id, ok: true, result: result ?? null });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack || "" : "";
+      console.error(`[plugin-worker] build provider error: ${error}`, stack);
+      send({ type: "build_provider_reply", id: msg.id, ok: false, error });
     }
     return;
   }

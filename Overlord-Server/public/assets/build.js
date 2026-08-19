@@ -14,6 +14,8 @@ const form = document.getElementById("build-form");
 const buildBtn = document.getElementById("build-btn");
 const buildStatus = document.getElementById("build-status");
 const buildStatusText = document.getElementById("build-status-text");
+const buildProgressTrack = document.getElementById("build-progress-track");
+const buildProgressBar = document.getElementById("build-progress-bar");
 const buildOutputDiv = document.getElementById("build-output");
 const buildOutputContainer = document.getElementById("build-output-container");
 const buildLogIssueCount = document.getElementById("build-log-issue-count");
@@ -59,6 +61,8 @@ const platformInputs = document.querySelectorAll('input[name="platform"]');
 const buildPluginsSection = document.getElementById("build-plugins-section");
 const buildPluginsList = document.getElementById("build-plugins-list");
 const buildPluginsCount = document.getElementById("build-plugins-count");
+const buildProviderSelect = document.getElementById("build-provider");
+const buildProviderDescription = document.getElementById("build-provider-description");
 const macosSdkUploadSection = document.getElementById("macos-sdk-upload-section");
 const macosSdkFileInput = document.getElementById("macos-sdk-file");
 const macosSdkRightsInput = document.getElementById("macos-sdk-rights");
@@ -88,6 +92,7 @@ async function loadMacosSdkStatus() {
 }
 
 function needsMacosSdkUpload() {
+  if (buildProviderSelect?.value) return false;
   const hasDarwin = Array.from(document.querySelectorAll('input[name="platform"]:checked'))
     .some((input) => input.value.startsWith("darwin-"));
   return macosSdkRequiredForDarwinCgo && hasDarwin && !document.querySelector('input[name="disable-cgo"]')?.checked;
@@ -231,6 +236,20 @@ let isBuilding = false;
 const BUILD_LOG_MAX_VISIBLE_LINES = 5000;
 const BUILD_LOG_WRAP_KEY = "overlord.buildLog.wrap.v1";
 let buildLogRawChunks = [];
+
+function updateBuildProgress(progress) {
+  const value = Number(progress);
+  const visible = progress !== null && progress !== undefined && Number.isFinite(value);
+  buildProgressTrack?.classList.toggle("hidden", !visible);
+  if (!visible) {
+    if (buildProgressBar) buildProgressBar.style.width = "0%";
+    buildProgressTrack?.removeAttribute("aria-valuenow");
+    return;
+  }
+  const clamped = Math.max(0, Math.min(100, value));
+  if (buildProgressBar) buildProgressBar.style.width = `${clamped}%`;
+  buildProgressTrack?.setAttribute("aria-valuenow", String(Math.round(clamped)));
+}
 let buildLogLineCount = 0;
 let buildLogIssueTotal = 0;
 let buildLogFollow = true;
@@ -476,8 +495,64 @@ function collectBuildPluginSettings() {
   return result;
 }
 
+function selectedBuildProviderPlugin() {
+  const id = buildProviderSelect?.value || "";
+  return id ? buildPlugins.find((plugin) => plugin.id === id && plugin.build?.provider) : null;
+}
+
+function updateBuildProviderUi() {
+  const provider = selectedBuildProviderPlugin();
+  const supported = provider ? new Set(provider.build.provider.platforms || []) : null;
+  for (const input of document.querySelectorAll('input[name="platform"]')) {
+    const allowed = !supported || supported.has(input.value);
+    input.disabled = !allowed;
+    input.closest("label")?.classList.toggle("opacity-40", !allowed);
+    if (!allowed) input.checked = false;
+  }
+  if (provider && !document.querySelector('input[name="platform"]:checked:not(:disabled)')) {
+    const first = document.querySelector('input[name="platform"]:not(:disabled)');
+    if (first) first.checked = true;
+  }
+  if (provider) {
+    if (buildProviderDescription) {
+      buildProviderDescription.textContent = provider.build.provider.description
+        || provider.build.description
+        || `Uses the ${provider.name || provider.id} build provider.`;
+    }
+    const enabled = document.querySelector(`[data-build-plugin-enable="${provider.id}"]`);
+    if (enabled) enabled.checked = true;
+  } else if (buildProviderDescription) {
+    buildProviderDescription.textContent = "Uses the built-in full-featured Go client builder.";
+  }
+  updateWindowsSectionVisibility();
+  updateMacosSdkVisibility();
+}
+
+function renderBuildProviders() {
+  if (!buildProviderSelect) return;
+  const selected = buildProviderSelect.value;
+  buildProviderSelect.innerHTML = '<option value="">Full Go Agent</option>';
+  for (const plugin of buildPlugins) {
+    if (!plugin.build?.provider || plugin.enabled === false) continue;
+    const option = document.createElement("option");
+    option.value = plugin.id;
+    option.textContent = plugin.build.provider.label || plugin.build.label || plugin.name || plugin.id;
+    buildProviderSelect.appendChild(option);
+  }
+  if (Array.from(buildProviderSelect.options).some((option) => option.value === selected)) {
+    buildProviderSelect.value = selected;
+  }
+  updateBuildProviderUi();
+}
+
+buildProviderSelect?.addEventListener("change", () => {
+  updateBuildProviderUi();
+  saveFormSettings();
+});
+
 function setBuildField(field, value) {
   const fieldMap = {
+    buildProvider: "#build-provider",
     useDonut: "#donut-mode",
     donutSingleThreaded: "#donut-single-threaded",
     donutExitMode: "#donut-exit-mode",
@@ -738,9 +813,17 @@ async function loadBuildPlugins() {
     const data = await res.json();
     buildPlugins = Array.isArray(data.plugins) ? data.plugins : [];
     renderBuildPlugins();
+    renderBuildProviders();
     try {
       const raw = localStorage.getItem(BUILD_SETTINGS_KEY);
-      if (raw) applyBuildPluginSettings(JSON.parse(raw).buildPlugins);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        applyBuildPluginSettings(saved.buildPlugins);
+        if (buildProviderSelect && typeof saved.buildProvider === "string") {
+          buildProviderSelect.value = saved.buildProvider;
+          updateBuildProviderUi();
+        }
+      }
     } catch {}
   } catch (err) {
     console.warn("Failed to load build plugins:", err);
@@ -751,6 +834,7 @@ const BUILD_SETTINGS_KEY = "overlord_build_settings";
 
 function collectFormSettings() {
   return {
+    buildProvider: buildProviderSelect?.value || "",
     platforms: Array.from(document.querySelectorAll('input[name="platform"]')).map((el) => ({ value: el.value, checked: el.checked })),
     serverUrl: document.getElementById("server-url")?.value ?? "",
     rawServerList: document.getElementById("raw-server-list")?.checked ?? false,
@@ -818,6 +902,11 @@ function applyFormSettings(settings) {
     const el = document.querySelector(sel);
     if (el && val !== undefined) el.checked = !!val;
   };
+
+  if (settings.buildProvider !== undefined && buildProviderSelect) {
+    buildProviderSelect.value = String(settings.buildProvider || "");
+    updateBuildProviderUi();
+  }
 
   if (Array.isArray(settings.platforms)) {
     settings.platforms.forEach(({ value, checked }) => {
@@ -2025,7 +2114,7 @@ form?.addEventListener("submit", async (e) => {
   if (isBuilding) return;
 
   const platformCheckboxes = form.querySelectorAll(
-    'input[name="platform"]:checked',
+    'input[name="platform"]:checked:not(:disabled)',
   );
   const platforms = Array.from(platformCheckboxes).map((cb) => cb.value);
 
@@ -2034,12 +2123,12 @@ form?.addEventListener("submit", async (e) => {
     return;
   }
 
-  if (!validateStartupName()) {
+  if (!buildProviderSelect?.value && !validateStartupName()) {
     document.getElementById("startup-name")?.focus();
     return;
   }
 
-  if (disableCgoInput?.checked && !confirm(
+  if (!buildProviderSelect?.value && disableCgoInput?.checked && !confirm(
     "CGO is disabled. Native features such as voice/audio, macOS keystroke capture and permission checks, native Linux/macOS plugins, and Windows GPU encoder integrations may not work.\n\nContinue with a limited CGO-disabled build?"
   )) {
     disableCgoInput.focus();
@@ -2108,6 +2197,7 @@ form?.addEventListener("submit", async (e) => {
 
   const buildConfig = {
     platforms,
+    buildProvider: buildProviderSelect?.value || undefined,
     serverUrl: serverUrl || undefined,
     rawServerList,
     solMemo: document.getElementById("sol-memo")?.checked || false,
@@ -2235,6 +2325,7 @@ async function startBuild(config) {
 
   revealElement(buildStatus, { duration: 220, offset: 6 });
   buildStatusText.textContent = "Starting build...";
+  updateBuildProgress(null);
   buildStatus.querySelector("div").className =
     "flex items-center gap-2 p-3 rounded-lg bg-blue-900/40 border border-blue-700/60";
   buildStatus.querySelector("i").className = "fa-solid fa-spinner fa-spin";
@@ -2277,13 +2368,14 @@ async function startBuild(config) {
     await streamBuildOutput(buildId, config);
   } catch (err) {
     addBuildOutput(`\nERROR: ${err.message}\n`, "error");
-    if (!config.disableCgo) {
+    if (!config.buildProvider && !config.disableCgo) {
       addBuildOutput(
         "Hint: This build used CGO. If it keeps failing, try enabling the 'Disable CGO' option and build again.\n",
         "warn",
       );
     }
     buildStatusText.textContent = "Build failed";
+    updateBuildProgress(null);
     buildStatus.querySelector("div").className =
       "flex items-center gap-2 p-3 rounded-lg bg-red-900/40 border border-red-700/60";
     buildStatus.querySelector("i").className = "fa-solid fa-circle-xmark";
@@ -2429,6 +2521,7 @@ async function streamBuildOutput(buildId, config = {}) {
               addBuildOutput(data.text, data.level || "info");
             } else if (data.type === "status") {
               buildStatusText.textContent = data.text;
+              updateBuildProgress(data.progress);
             } else if (data.type === "file_share_uploaded") {
               uploadedShareFiles.push({
                 id: data.id,
@@ -2437,6 +2530,7 @@ async function streamBuildOutput(buildId, config = {}) {
                 size: data.size,
               });
             } else if (data.type === "complete") {
+              updateBuildProgress(data.success ? 100 : null);
               buildStatusText.textContent = data.success
                 ? "Build completed successfully!"
                 : "Build failed";

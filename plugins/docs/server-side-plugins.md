@@ -297,6 +297,55 @@ Buttons in `build.actions` can set core builder fields through `setBuild` and pl
 
 See `plugins/sample-build-hooks` for a minimal server-only build plugin with its own build button and artifact replacement.
 
+## Custom Build Providers
+
+A server-only plugin can replace the built-in Go compilation step while keeping the normal Build page, permissions, audit log, progress stream, artifact hooks, file-share upload, build history, and expiration handling. Declare the provider and export `onBuild`:
+
+```json
+{
+  "runtime": "server",
+  "build": {
+    "provider": {
+      "label": "My Lite Agent",
+      "description": "Builds the reduced agent implementation.",
+      "icon": "fa-solid fa-feather",
+      "platforms": ["windows-amd64", "linux-amd64"]
+    }
+  }
+}
+```
+
+```js
+export default {
+  async onBuild(ctx, payload) {
+    ctx.build.status("Compiling lite agent...");
+    ctx.build.output("Compiler started", "info");
+
+    // Write only inside payload.outputDir.
+    const filename = `lite-${payload.platforms[0]}`;
+    await compileAgent({ output: `${payload.outputDir}/${filename}` });
+    return {
+      artifacts: [{
+        name: "Lite Agent",
+        filename,
+        platform: payload.platforms[0],
+        version: "1.0.0"
+      }]
+    };
+  }
+};
+```
+
+The provider payload contains `buildId`, `providerId`, `runtimeRoot`, a temporary `outputDir`, selected `platforms`, `serverUrl`, `agentToken`, signed `buildTag`, `tlsSpkiPins`, `initialClientTag`, `outputName`, provider `settings`, and the sanitized full build `config`.
+
+An artifact entry must contain a selected `platform` and either `filename` or a relative `path` beneath `outputDir`. Optional fields are `name` and `version`. Provider output is limited to 32 regular, non-symlink files of at most 512 MB each. The server validates containment, copies approved files into `dist-clients`, adds the build ID suffix, then invokes normal artifact and completion hooks.
+
+`ctx.build.output(text, level)` accepts `debug`, `info`, `success`, `warn`, or `error`. `ctx.build.status(text, progress?, etaSeconds?)` changes the Build page status line and can display a progress bar and estimated time remaining. Progress is a number from 0 through 100. These methods exist only during `onBuild`.
+
+The selected provider must be enabled, include server code, support every requested target, and be accessible to the building user. A provider plugin is forced on for its own build, even if a modified request marks its hook settings as disabled.
+
+See `plugins/rust-lite-builder` for a complete provider that invokes Cargo and embeds authenticated connection defaults into Overlord Lite.
+
 ## RBAC And Build Plugin Access
 
 Build-hook plugins use the normal per-user plugin access policy. Admins can open a user in the Users page, choose Plugin Access, and set one of these modes:

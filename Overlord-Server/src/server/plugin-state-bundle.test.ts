@@ -175,6 +175,35 @@ describe("loadPluginBundle", () => {
     expect(manifest.dashboard.clientBadges[0].imageUrl).toBe("/plugins/demo/assets/icon.png");
   });
 
+  test("preserves a sanitized custom build provider declaration", async () => {
+    const root = await createTempRoot();
+    const AdmZip = require("adm-zip");
+    const zip = new AdmZip();
+    zip.addFile("config.json", Buffer.from(JSON.stringify({
+      name: "Rust Builder",
+      runtime: "server",
+      build: {
+        provider: {
+          label: "Rust Lite",
+          icon: "fa-brands fa-rust",
+          platforms: ["windows-amd64", "linux-arm64", "../../invalid"],
+        },
+      },
+    })));
+    zip.addFile("rust-builder.html", Buffer.from("<main></main>"));
+    zip.addFile("rust-builder.css", Buffer.from("main { display: block; }"));
+    zip.addFile("rust-builder.js", Buffer.from("document.body.dataset.builder = 'rust';"));
+    zip.addFile("server.js", Buffer.from("export default { onBuild() { return { artifacts: [] }; } };"));
+    zip.writeZip(join(root, "rust-builder.zip"));
+
+    await ensurePluginExtracted(root, "rust-builder", (name) => name);
+    const manifest = JSON.parse(await readFile(join(root, "rust-builder", "manifest.json"), "utf-8"));
+
+    expect(manifest.build.provider.label).toBe("Rust Lite");
+    expect(manifest.build.provider.platforms).toEqual(["windows-amd64", "linux-arm64"]);
+    expect(manifest.hasServer).toBe(true);
+  });
+
   test("computes stable need hashes and invalidates changed approvals", () => {
     const state: PluginState = {
       enabled: {},

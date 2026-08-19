@@ -247,6 +247,10 @@ const WINRE_ROOT = path.join(DATA_DIR, "winre");
 const FILE_SHARE_ROOT = path.join(DATA_DIR, "file-share");
 
 function resolvePluginWorkerHostUrl(): string {
+  const currentModulePath = fileURLToPath(import.meta.url);
+  if (currentModulePath.endsWith(`${path.sep}src${path.sep}main-server.ts`)) {
+    return new URL("./server/plugin-runtime/worker-host.ts", import.meta.url).href;
+  }
   const builtWorker = path.join(RUNTIME_ROOT, "dist", "server", "plugin-runtime", "worker-host.js");
   if (existsSync(builtWorker)) {
     return pathToFileURL(builtWorker).href;
@@ -311,6 +315,8 @@ const startBuildProcess = (buildId: string, buildConfig: any) =>
     sanitizeOutputName,
     fileShareRoot: FILE_SHARE_ROOT,
     runBuildHookForAll: (hook, payload) => pluginRuntime.runBuildHookForAll(hook, payload),
+    runBuildProvider: (pluginId, payload, onOutput) =>
+      pluginRuntime.runBuildProvider(pluginId, payload, onOutput),
   });
 
 const pendingHttpDownloads = new Map<string, PendingHttpDownload>();

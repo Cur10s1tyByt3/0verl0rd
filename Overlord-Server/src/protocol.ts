@@ -394,9 +394,17 @@ export type PluginBuildIntegration = {
   enabledByDefault?: boolean;
   label?: string;
   description?: string;
+  provider?: PluginBuildProvider;
   settings?: PluginBuildSetting[];
   actions?: PluginBuildAction[];
   requires?: PluginBuildRequirement[];
+};
+
+export type PluginBuildProvider = {
+  label?: string;
+  description?: string;
+  icon?: string;
+  platforms: string[];
 };
 
 export type PluginBuildSetting = {

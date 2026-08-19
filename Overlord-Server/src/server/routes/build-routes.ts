@@ -95,12 +95,21 @@ async function sanitizeBuildPlugins(
   deps: BuildRouteDeps,
   user: any,
   buildConfig: any,
+  requiredProviderId?: string,
 ): Promise<{ value: Record<string, any>; error?: string }> {
-  if (!raw || typeof raw !== "object" || !deps.listPluginManifests) return { value: {} };
+  if (!deps.listPluginManifests) return { value: {} };
   const manifests = await deps.listPluginManifests();
   const byId = new Map(manifests.map((m) => [m.id, m]));
   const value: Record<string, any> = {};
-  for (const [pluginId, rawPlugin] of Object.entries(raw)) {
+  const requested = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
+  if (requiredProviderId) {
+    const providerRecord = requested[requiredProviderId];
+    requested[requiredProviderId] = {
+      ...(providerRecord && typeof providerRecord === "object" ? providerRecord : {}),
+      enabled: true,
+    };
+  }
+  for (const [pluginId, rawPlugin] of Object.entries(requested)) {
     if (!/^[A-Za-z0-9._-]{1,128}$/.test(pluginId)) continue;
     const manifest = byId.get(pluginId);
     if (!manifest?.build || !canUserAccessPlugin(user.userId, user.role, pluginId)) continue;
@@ -183,6 +192,7 @@ export async function handleBuildRoutes(
       const body = await req.json();
       const {
         platforms,
+        buildProvider,
         serverUrl,
         rawServerList,
         solMemo,
@@ -261,6 +271,37 @@ export async function handleBuildRoutes(
       );
       if (allowedPlatforms.length === 0) {
         return Response.json({ error: "No valid platforms specified" }, { status: 400 });
+      }
+
+      let safeBuildProvider: string | undefined;
+      if (buildProvider !== undefined && buildProvider !== null && String(buildProvider).trim()) {
+        const providerId = String(buildProvider).trim();
+        if (!/^[A-Za-z0-9._-]{1,128}$/.test(providerId) || !deps.listPluginManifests) {
+          return Response.json({ error: "Invalid build provider" }, { status: 400 });
+        }
+        const manifests = await deps.listPluginManifests();
+        const manifest = manifests.find((item) => item?.id === providerId);
+        if (
+          !manifest?.build?.provider ||
+          manifest?.hasServer !== true ||
+          manifest?.enabled === false ||
+          !canUserAccessPlugin(user.userId, user.role, providerId)
+        ) {
+          return Response.json({ error: "Build provider is unavailable" }, { status: 403 });
+        }
+        const providerPlatforms = new Set(
+          Array.isArray(manifest.build.provider.platforms)
+            ? manifest.build.provider.platforms
+            : [],
+        );
+        const unsupported = allowedPlatforms.filter((platform) => !providerPlatforms.has(platform));
+        if (unsupported.length > 0) {
+          return Response.json(
+            { error: `Build provider ${manifest.name || providerId} does not support: ${unsupported.join(", ")}` },
+            { status: 400 },
+          );
+        }
+        safeBuildProvider = providerId;
       }
 
       const safeRawServerList = !!rawServerList;
@@ -383,7 +424,7 @@ export async function handleBuildRoutes(
         username: user.username,
         ip,
         action: AuditAction.COMMAND,
-        details: `Started build ${buildId} for platforms: ${allowedPlatforms.join(", ")}`,
+        details: `Started ${safeBuildProvider ? `${safeBuildProvider} provider ` : ""}build ${buildId} for platforms: ${allowedPlatforms.join(", ")}`,
         success: true,
       });
 
@@ -438,7 +479,7 @@ export async function handleBuildRoutes(
           { status: 400 },
         );
       }
-      const needsMacosSdk = hasDarwinTarget && !disableCgo && process.platform === "linux";
+      const needsMacosSdk = !safeBuildProvider && hasDarwinTarget && !disableCgo && process.platform === "linux";
       if (safeOutputSgnTxt) {
         const hasSgnCapableTarget = allowedPlatforms.some((p) =>
           (!!useDonut && p.startsWith("windows-")) ||
@@ -515,6 +556,7 @@ export async function handleBuildRoutes(
 
       const safeBuildConfig: any = {
         platforms: allowedPlatforms,
+        buildProvider: safeBuildProvider,
         serverUrl: safeServerUrl,
         rawServerList: safeRawServerList,
         solMemo: safeSolMemo,
@@ -572,7 +614,13 @@ export async function handleBuildRoutes(
         uploadToFileShare: safeUploadToFileShare,
       };
 
-      const pluginBuildResult = await sanitizeBuildPlugins(buildPlugins, deps, user, safeBuildConfig);
+      const pluginBuildResult = await sanitizeBuildPlugins(
+        buildPlugins,
+        deps,
+        user,
+        safeBuildConfig,
+        safeBuildProvider,
+      );
       if (pluginBuildResult.error) {
         if (rateLimitActive) recordBuildEnd(user.userId);
         return Response.json({ error: pluginBuildResult.error }, { status: 400 });

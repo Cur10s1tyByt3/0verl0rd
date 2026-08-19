@@ -40,8 +40,9 @@ Use `runtime: "native"` for agent-side plugins that need direct OS APIs, native 
 
 | Directory | Purpose |
 |-----------|---------|
+| `rust-lite-builder` | Server-side custom provider that builds the authenticated Rust Lite agent. |
 | `sample-build-hooks` | Server-only build plugin with its own Build page button and artifact replacement example. |
 | `sample-ts-fullstack` | TypeScript UI plus TypeScript server runtime. |
 | `sample-c`, `sample-cpp`, `sample-go`, `sample-rust` | Native agent plugin examples. |
 
-Start with [docs/server-side-plugins.md](docs/server-side-plugins.md) if you are building uploaders, custom build buttons, artifact post-processing, or internal release hooks.
+Start with [docs/server-side-plugins.md](docs/server-side-plugins.md) if you are building custom agent providers, uploaders, build buttons, artifact post-processing, or internal release hooks.

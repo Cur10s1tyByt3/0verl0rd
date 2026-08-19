@@ -11,6 +11,7 @@ server {
 
     ssl_certificate     /etc/letsencrypt/live/overlord.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/overlord.example.com/privkey.pem;
+    ssl_protocols       TLSv1.3;
 
     # Keep this at least as large as the uploads allowed by Overlord.
     client_max_body_size 2g;

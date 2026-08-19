@@ -25,6 +25,8 @@ import { resolveContainedPath } from "./upload-security";
 import { createIsolatedBuildEnv } from "./build-environment";
 import { cleanupMacosSdkUpload, extractAndValidateMacosSdk } from "./macos-sdk-manager";
 import { getActiveTlsSpkiPins } from "./tls-bootstrap";
+import { installProviderArtifacts, providerStagingDirectory } from "./plugin-build-provider";
+import type { PluginBuildProviderOutput } from "./plugin-runtime/runtime";
 
 export function createAgentTlsPinsLdflag(pins: string[]): string {
   if (pins.length === 0) return "";
@@ -95,6 +97,7 @@ type BoundFile = {
 
 type BuildProcessConfig = {
   platforms: string[];
+  buildProvider?: string;
   serverUrl?: string;
   rawServerList?: boolean;
   mutex?: string;
@@ -287,6 +290,11 @@ type BuildProcessDeps = {
   sanitizeOutputName: (name: string) => string;
   fileShareRoot?: string;
   runBuildHookForAll?: BuildHookRunner;
+  runBuildProvider?: (
+    pluginId: string,
+    payload: unknown,
+    onOutput: (output: PluginBuildProviderOutput) => void,
+  ) => Promise<unknown>;
 };
 
 function guessMimeTypeForUpload(filename: string): string {
@@ -614,12 +622,76 @@ export async function startBuildProcess(
     }
   };
 
+  const finishSuccessfulBuild = async (outDir: string, buildTag?: string) => {
+    build.status = "completed";
+    logger.info(`[build:${buildId.substring(0, 8)}] Build completed successfully! Built ${build.files.length} file(s)`);
+    sendToStream({ type: "output", text: `\n[OK] Build completed successfully!\n`, level: "success" });
+
+    if (config.uploadToFileShare && config.builtByUserId && deps.fileShareRoot) {
+      try {
+        await uploadBuildFilesToFileShare(
+          build,
+          outDir,
+          deps.fileShareRoot,
+          config.builtByUserId,
+          sendToStream,
+        );
+      } catch (uploadErr: any) {
+        sendToStream({
+          type: "output",
+          text: `WARNING: File-share upload failed: ${uploadErr.message || uploadErr}\n`,
+          level: "warn",
+        });
+      }
+    } else if (config.uploadToFileShare && !deps.fileShareRoot) {
+      sendToStream({
+        type: "output",
+        text: "WARNING: File-share upload requested but file share is not configured on this server.\n",
+        level: "warn",
+      });
+    }
+
+    await runBuildHooks(
+      deps.runBuildHookForAll,
+      "complete",
+      {
+        buildId,
+        status: build.status,
+        files: build.files,
+        outputDir: outDir,
+        expiresAt: build.expiresAt,
+        userId: config.builtByUserId,
+        config,
+      },
+      sendToStream,
+    );
+
+    sendToStream({ type: "complete", success: true, files: build.files, buildId, expiresAt: build.expiresAt });
+
+    saveBuild({
+      id: build.id,
+      status: build.status,
+      startTime: build.startTime,
+      expiresAt: build.expiresAt,
+      files: build.files as any,
+      buildTag,
+      builtByUserId: config.builtByUserId,
+      initialClientTag: config.initialClientTag,
+    });
+
+    setTimeout(() => {
+      logger.info(`[build:${buildId.substring(0, 8)}] Cleaning up expired build`);
+      buildManager.deleteBuildStream(buildId);
+    }, SEVEN_DAYS_MS);
+  };
+
   let winresTempDir: string | null = null;
   const generatedSysoFiles: string[] = [];
   let binderGenPath: string | null = null;
   let binderFilesDir: string | null = null;
   let binderLockPath: string | null = null;
   let macosSdkRoot: string | null = null;
+  let providerStagingDir: string | null = null;
 
   const buildStartedAt = Date.now();
   const keepAliveTimer = setInterval(() => {
@@ -654,6 +726,136 @@ export async function startBuildProcess(
       );
     }
 
+    const rootDir = resolveRuntimeRoot();
+    const outDir = path.join(rootDir, "dist-clients");
+
+    if (config.buildProvider) {
+      if (!deps.runBuildProvider) {
+        throw new Error("Plugin build providers are not available");
+      }
+      const buildTag = await signBuildToken({
+        v: 1,
+        bid: buildId,
+        uid: config.builtByUserId ?? null,
+        iat: Math.floor(Date.now() / 1000),
+      });
+      providerStagingDir = providerStagingDirectory(rootDir, buildId);
+      fs.rmSync(providerStagingDir, { recursive: true, force: true });
+      fs.mkdirSync(providerStagingDir, { recursive: true });
+      fs.mkdirSync(outDir, { recursive: true });
+
+      sendToStream({ type: "status", text: `Starting ${config.buildProvider} build provider...` });
+      sendToStream({
+        type: "output",
+        text: `Build provider: ${config.buildProvider}\n`,
+        level: "info",
+      });
+      const providerResult = await deps.runBuildProvider(
+        config.buildProvider,
+        {
+          buildId,
+          providerId: config.buildProvider,
+          runtimeRoot: rootDir,
+          outputDir: providerStagingDir,
+          platforms: config.platforms,
+          serverUrl: config.serverUrl,
+          agentToken: buildAgentToken,
+          buildTag,
+          tlsSpkiPins: buildTlsSpkiPins,
+          initialClientTag: config.initialClientTag,
+          outputName: config.outputName,
+          settings: config.buildPlugins?.[config.buildProvider]?.settings || {},
+          config,
+        },
+        (output) => {
+          const text = String(output.text || "").slice(0, 64 * 1024);
+          if (!text) return;
+          if (output.event === "status") {
+            const progress = Number.isFinite(output.progress)
+              ? Math.max(0, Math.min(100, Number(output.progress)))
+              : undefined;
+            const etaSeconds = Number.isFinite(output.etaSeconds)
+              ? Math.max(0, Math.min(7 * 24 * 60 * 60, Math.round(Number(output.etaSeconds))))
+              : undefined;
+            sendToStream({ type: "status", text, progress, etaSeconds });
+          } else {
+            sendToStream({
+              type: "output",
+              text: text.endsWith("\n") ? text : `${text}\n`,
+              level: output.level || "info",
+            });
+          }
+        },
+      );
+
+      const providerFiles = installProviderArtifacts({
+        result: providerResult,
+        stagingDir: providerStagingDir,
+        outputDir: outDir,
+        buildId,
+        requestedPlatforms: config.platforms,
+        sanitizeOutputName: deps.sanitizeOutputName,
+      });
+
+      for (const installed of providerFiles) {
+        let finalFile = { ...installed };
+        const extraFiles: any[] = [];
+        const artifactPayload = {
+          buildId,
+          providerId: config.buildProvider,
+          platform: finalFile.platform,
+          outDir,
+          file: {
+            ...finalFile,
+            path: path.join(outDir, finalFile.filename),
+          },
+          files: cloneForHook(build.files),
+          config,
+        };
+        for (const item of await runBuildHooks(deps.runBuildHookForAll, "artifact", artifactPayload, sendToStream)) {
+          if (!isRecord(item.result)) continue;
+          const replacement = isRecord(item.result.file) ? item.result.file : item.result;
+          if (typeof replacement.filename === "string" && replacement.filename.trim()) {
+            const safeFilename = deps.sanitizeOutputName(path.basename(replacement.filename.trim()));
+            const candidatePath = resolveContainedPath(outDir, safeFilename);
+            if (fs.existsSync(candidatePath)) {
+              finalFile = {
+                ...finalFile,
+                filename: safeFilename,
+                size: fs.statSync(candidatePath).size,
+              };
+            } else {
+              sendToStream({
+                type: "output",
+                text: `[plugin:${item.pluginId}] WARNING: artifact hook returned missing file ${safeFilename}; keeping ${finalFile.filename}\n`,
+                level: "warn",
+              });
+            }
+          }
+          if (Array.isArray(item.result.files)) {
+            for (const rawFile of item.result.files) {
+              if (!isRecord(rawFile) || typeof rawFile.filename !== "string" || !rawFile.filename.trim()) continue;
+              const safeFilename = deps.sanitizeOutputName(path.basename(rawFile.filename.trim()));
+              const candidatePath = resolveContainedPath(outDir, safeFilename);
+              if (!fs.existsSync(candidatePath)) continue;
+              const stat = fs.statSync(candidatePath);
+              extraFiles.push({
+                name: typeof rawFile.name === "string" && rawFile.name.trim() ? rawFile.name.trim() : safeFilename,
+                filename: safeFilename,
+                platform: typeof rawFile.platform === "string" ? rawFile.platform : finalFile.platform,
+                version: typeof rawFile.version === "string" ? rawFile.version : finalFile.version,
+                size: stat.size,
+              });
+            }
+          }
+        }
+        (build.files as any[]).push(finalFile, ...extraFiles);
+      }
+
+      await finishSuccessfulBuild(outDir, buildTag);
+      return;
+    }
+
     sendToStream({ type: "status", text: "Preparing build environment..." });
 
     try {
@@ -671,7 +873,6 @@ export async function startBuildProcess(
       return;
     }
 
-    const rootDir = resolveRuntimeRoot();
     const clientDir = resolveClientModuleDir(rootDir);
     if (!clientDir) {
       throw new Error(
@@ -679,7 +880,6 @@ export async function startBuildProcess(
       );
     }
     const agentVersion = detectAgentVersion(clientDir);
-    const outDir = path.join(rootDir, "dist-clients");
     const cacheRoot = resolveClientBuildCacheRoot();
     const goBuildCacheDir = path.join(cacheRoot, "go-build");
     const goModCacheDir = path.join(cacheRoot, "go-mod");
@@ -2230,66 +2430,7 @@ func runBoundFiles() {
       }
     }
 
-    build.status = "completed";
-    logger.info(`[build:${buildId.substring(0, 8)}] Build completed successfully! Built ${build.files.length} file(s)`);
-    sendToStream({ type: "output", text: `\n[OK] Build completed successfully!\n`, level: "success" });
-
-    if (config.uploadToFileShare && config.builtByUserId && deps.fileShareRoot) {
-      try {
-        await uploadBuildFilesToFileShare(
-          build,
-          outDir,
-          deps.fileShareRoot,
-          config.builtByUserId,
-          sendToStream,
-        );
-      } catch (uploadErr: any) {
-        sendToStream({
-          type: "output",
-          text: `WARNING: File-share upload failed: ${uploadErr.message || uploadErr}\n`,
-          level: "warn",
-        });
-      }
-    } else if (config.uploadToFileShare && !deps.fileShareRoot) {
-      sendToStream({
-        type: "output",
-        text: "WARNING: File-share upload requested but file share is not configured on this server.\n",
-        level: "warn",
-      });
-    }
-
-    await runBuildHooks(
-      deps.runBuildHookForAll,
-      "complete",
-      {
-        buildId,
-        status: build.status,
-        files: build.files,
-        outputDir: outDir,
-        expiresAt: build.expiresAt,
-        userId: config.builtByUserId,
-        config,
-      },
-      sendToStream,
-    );
-
-    sendToStream({ type: "complete", success: true, files: build.files, buildId, expiresAt: build.expiresAt });
-
-    saveBuild({
-      id: build.id,
-      status: build.status,
-      startTime: build.startTime,
-      expiresAt: build.expiresAt,
-      files: build.files as any,
-      buildTag,
-      builtByUserId: config.builtByUserId,
-      initialClientTag: config.initialClientTag,
-    });
-
-    setTimeout(() => {
-      logger.info(`[build:${buildId.substring(0, 8)}] Cleaning up expired build`);
-      buildManager.deleteBuildStream(buildId);
-    }, SEVEN_DAYS_MS);
+    await finishSuccessfulBuild(outDir, buildTag);
   } catch (err: any) {
     build.status = "failed";
     logger.error(`[build:${buildId.substring(0, 8)}] Build failed:`, err);
@@ -2334,6 +2475,9 @@ func runBoundFiles() {
     }
     if (binderLockPath) {
       try { fs.unlinkSync(binderLockPath); } catch {}
+    }
+    if (providerStagingDir) {
+      try { fs.rmSync(providerStagingDir, { recursive: true, force: true }); } catch {}
     }
     cleanupMacosSdkUpload(config.macosSdkUploadDir);
   }

@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 SERVER_SRC="$ROOT/Overlord-Server"
 CLIENT_SRC="$ROOT/Overlord-Client"
+LITE_SRC="$ROOT/Overlord-Lite"
+LITE_PLUGIN_SRC="$ROOT/plugins/rust-lite-builder"
 DIST_CLIENTS_SRC="$ROOT/dist-clients"
 RELEASE_DIR="$ROOT/release/prod-package"
 
@@ -15,6 +17,16 @@ fi
 
 if [[ ! -f "$CLIENT_SRC/go.mod" ]]; then
   echo "[error] Overlord-Client not found at: $CLIENT_SRC" >&2
+  exit 1
+fi
+
+if [[ ! -f "$LITE_SRC/Cargo.toml" ]]; then
+  echo "[error] Overlord-Lite not found at: $LITE_SRC" >&2
+  exit 1
+fi
+
+if [[ ! -f "$LITE_PLUGIN_SRC/config.json" ]]; then
+  echo "[error] Rust Lite Builder plugin not found at: $LITE_PLUGIN_SRC" >&2
   exit 1
 fi
 
@@ -49,24 +61,28 @@ copy_tree_excluding() {
   fi
 }
 
-echo "[1/5] Building server bundle..."
+echo "[1/6] Building server bundle..."
 pushd "$SERVER_SRC" >/dev/null
 bun install
 bun run build:css
 bun run build
 popd >/dev/null
 
-echo "[2/5] Skipping prebuilt client binaries (prod package exports client source only)"
+echo "[2/6] Skipping prebuilt client binaries (prod package exports client source only)"
 
-echo "[3/5] Preparing release folder..."
+echo "[3/6] Preparing release folder..."
 rm -rf "$RELEASE_DIR"
 mkdir -p "$RELEASE_DIR"
 
-echo "[4/5] Exporting Overlord-Server..."
+echo "[4/6] Exporting Overlord-Server..."
 copy_tree_excluding "$SERVER_SRC" "$RELEASE_DIR/Overlord-Server" "node_modules" ".git" ".vscode"
 
-echo "[5/5] Exporting Overlord-Client source for runtime builds..."
+echo "[5/6] Exporting Overlord-Client source for runtime builds..."
 copy_tree_excluding "$CLIENT_SRC" "$RELEASE_DIR/Overlord-Client" "build" ".git" ".vscode"
+
+echo "[6/6] Exporting Overlord-Lite source and Rust builder plugin..."
+copy_tree_excluding "$LITE_SRC" "$RELEASE_DIR/Overlord-Lite" "target" ".git" ".vscode"
+copy_tree_excluding "$LITE_PLUGIN_SRC" "$RELEASE_DIR/Overlord-Server/plugins/rust-lite-builder" "data" "rust-lite-builder.zip"
 
 if [[ -d "$DIST_CLIENTS_SRC" ]]; then
   echo "[extra] Copying prebuilt dist-clients..."

@@ -1,0 +1,58 @@
+{
+  "name": "Rust Lite Builder",
+  "version": "1.2.0",
+  "apiVersion": 2,
+  "runtime": "server",
+  "description": "Adds a dedicated builder for the authenticated Rust Lite agent with an interactive TTY console.",
+  "build": {
+    "label": "Rust Lite Builder",
+    "description": "Builds the lightweight Rust client instead of the full Go agent.",
+    "enabledByDefault": true,
+    "provider": {
+      "label": "Rust Lite",
+      "description": "Authenticated sessions, TLS pinning, heartbeat, and an interactive TTY console.",
+      "icon": "fa-brands fa-rust",
+      "platforms": [
+        "windows-amd64",
+        "windows-arm64",
+        "linux-amd64",
+        "linux-arm64",
+        "darwin-amd64",
+        "darwin-arm64"
+      ]
+    },
+    "settings": [
+      {
+        "key": "locked",
+        "label": "Require Cargo.lock",
+        "type": "boolean",
+        "default": true,
+        "description": "Build with --locked for reproducible dependency resolution."
+      },
+      {
+        "key": "jobs",
+        "label": "Cargo Jobs",
+        "type": "number",
+        "default": 0,
+        "min": 0,
+        "max": 32,
+        "description": "Parallel Cargo jobs. Use 0 to let Cargo use the host's available CPUs."
+      }
+    ],
+    "actions": [
+      {
+        "id": "use-rust-lite",
+        "label": "Use Rust Lite Builder",
+        "icon": "fa-brands fa-rust",
+        "description": "Selects Rust Lite as the active agent builder.",
+        "setBuild": {
+          "buildProvider": "rust-lite-builder"
+        }
+      }
+    ]
+  },
+  "navbar": {
+    "label": "Rust Lite",
+    "icon": "fa-brands fa-rust"
+  }
+}

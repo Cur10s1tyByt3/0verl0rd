@@ -17,6 +17,18 @@ type PendingCall = {
   timer: ReturnType<typeof setTimeout>;
 };
 
+export type PluginBuildProviderOutput = {
+  event: "output" | "status";
+  text: string;
+  level?: "debug" | "info" | "warn" | "error" | "success";
+  progress?: number;
+  etaSeconds?: number;
+};
+
+type PendingBuildProviderCall = PendingCall & {
+  onOutput: (output: PluginBuildProviderOutput) => void;
+};
+
 type PluginInstance = {
   pluginId: string;
   worker: Worker;
@@ -26,12 +38,15 @@ type PluginInstance = {
   isReady: boolean;
   pending: Map<string, PendingCall>;
   pendingBuildHooks: Map<string, PendingCall>;
+  pendingBuildProviders: Map<string, PendingBuildProviderCall>;
+  capabilities: Set<string>;
   subscribers: Set<Subscriber>;
   startedAt: number;
 };
 
 const RPC_TIMEOUT_MS = 30_000;
 const BUILD_HOOK_TIMEOUT_MS = 5 * 60_000;
+const BUILD_PROVIDER_TIMEOUT_MS = 30 * 60_000;
 const SHUTDOWN_GRACE_MS = 750;
 
 export type PluginRuntime = {
@@ -52,6 +67,11 @@ export type PluginRuntime = {
   ) => Promise<unknown>;
   runBuildHook: (pluginId: string, hook: string, payload: unknown) => Promise<unknown>;
   runBuildHookForAll: (hook: string, payload: unknown) => Promise<Array<{ pluginId: string; result: unknown }>>;
+  runBuildProvider: (
+    pluginId: string,
+    payload: unknown,
+    onOutput: (output: PluginBuildProviderOutput) => void,
+  ) => Promise<unknown>;
   subscribe: (
     pluginId: string,
     send: (sse: string) => void,
@@ -111,6 +131,8 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
       isReady: false,
       pending: new Map(),
       pendingBuildHooks: new Map(),
+      pendingBuildProviders: new Map(),
+      capabilities: new Set(),
       subscribers: new Set(),
       startedAt: Date.now(),
     };
@@ -172,6 +194,11 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
       pending.reject(new Error("Plugin runtime stopped"));
     }
     inst.pendingBuildHooks.clear();
+    for (const pending of inst.pendingBuildProviders.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error("Plugin runtime stopped"));
+    }
+    inst.pendingBuildProviders.clear();
 
     try {
       const shutdownMsg: WorkerInbound = { type: "shutdown" };
@@ -293,6 +320,42 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
     return results;
   }
 
+  function runBuildProvider(
+    pluginId: string,
+    payload: unknown,
+    onOutput: (output: PluginBuildProviderOutput) => void,
+  ): Promise<unknown> {
+    const inst = instances.get(pluginId);
+    if (!inst) {
+      return Promise.reject(new Error("Plugin runtime not running"));
+    }
+    const callOnReady = () =>
+      new Promise((resolve, reject) => {
+        if (!inst.capabilities.has("build_provider")) {
+          reject(new Error(
+            "Plugin worker does not support build providers. Rebuild the server bundle and restart the server.",
+          ));
+          return;
+        }
+        const id = uuidv4();
+        const timer = setTimeout(() => {
+          if (inst.pendingBuildProviders.delete(id)) {
+            reject(new Error("Build provider timed out"));
+          }
+        }, BUILD_PROVIDER_TIMEOUT_MS);
+        inst.pendingBuildProviders.set(id, { resolve, reject, timer, onOutput });
+        const msg: WorkerInbound = { type: "build_provider", id, payload };
+        try {
+          inst.worker.postMessage(msg);
+        } catch (err) {
+          clearTimeout(timer);
+          inst.pendingBuildProviders.delete(id);
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
+      });
+    return inst.isReady ? callOnReady() : inst.ready.then(callOnReady);
+  }
+
   function subscribe(
     pluginId: string,
     send: (sse: string) => void,
@@ -309,6 +372,7 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
 
   function handleWorkerMessage(inst: PluginInstance, msg: WorkerOutbound) {
     if (msg.type === "ready") {
+      inst.capabilities = new Set(Array.isArray(msg.capabilities) ? msg.capabilities : []);
       inst.resolveReady();
       return;
     }
@@ -331,6 +395,27 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
       if (!pending) return;
       clearTimeout(pending.timer);
       inst.pendingBuildHooks.delete(msg.id);
+      if (msg.ok) pending.resolve(msg.result);
+      else pending.reject(new Error(msg.error));
+      return;
+    }
+    if (msg.type === "build_provider_output") {
+      const pending = inst.pendingBuildProviders.get(msg.id);
+      if (!pending) return;
+      pending.onOutput({
+        event: msg.event,
+        text: msg.text,
+        level: msg.level,
+        ...(msg.progress !== undefined && { progress: msg.progress }),
+        ...(msg.etaSeconds !== undefined && { etaSeconds: msg.etaSeconds }),
+      });
+      return;
+    }
+    if (msg.type === "build_provider_reply") {
+      const pending = inst.pendingBuildProviders.get(msg.id);
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      inst.pendingBuildProviders.delete(msg.id);
       if (msg.ok) pending.resolve(msg.result);
       else pending.reject(new Error(msg.error));
       return;
@@ -370,6 +455,7 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
     rpc,
     runBuildHook,
     runBuildHookForAll,
+    runBuildProvider,
     subscribe,
     isRunning,
     hasServerCode,

@@ -682,6 +682,24 @@ function normalizePluginBuildIntegration(raw: any): any | undefined {
   if (typeof raw.label === "string" && raw.label.trim()) build.label = raw.label.trim().slice(0, 80);
   if (typeof raw.description === "string" && raw.description.trim()) build.description = raw.description.trim().slice(0, 300);
 
+  if (raw.provider && typeof raw.provider === "object" && !Array.isArray(raw.provider)) {
+    const platforms = Array.isArray(raw.provider.platforms)
+      ? Array.from(new Set<string>(raw.provider.platforms
+          .filter((value: unknown): value is string => typeof value === "string")
+          .map((value: string) => value.trim().toLowerCase())
+          .filter((value: string) => /^(windows|linux|darwin|freebsd|android|ios)-(amd64|arm64|386|armv7)$/.test(value))))
+          .slice(0, 32)
+      : [];
+    if (platforms.length > 0) {
+      build.provider = {
+        platforms,
+        ...(typeof raw.provider.label === "string" && raw.provider.label.trim() && { label: raw.provider.label.trim().slice(0, 80) }),
+        ...(typeof raw.provider.description === "string" && raw.provider.description.trim() && { description: raw.provider.description.trim().slice(0, 300) }),
+        ...(typeof raw.provider.icon === "string" && raw.provider.icon.trim() && { icon: raw.provider.icon.trim().slice(0, 80) }),
+      };
+    }
+  }
+
   const settings: any[] = [];
   if (Array.isArray(raw.settings)) {
     for (const item of raw.settings.slice(0, 20)) {
