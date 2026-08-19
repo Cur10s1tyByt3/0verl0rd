@@ -3,9 +3,9 @@ setlocal EnableDelayedExpansion
 REM Build the BackstageInjection DLL for Windows x64 using cargo (GNU target).
 REM The GNU toolchain is required: the reflective loader manually maps the image
 REM without the MSVC CRT bootstrapping, and the MSVC CRT's TLS/CFG machinery
-REM fast-fails (0xC0000409) under a manual map. See
-REM BackstageInjection-Rust/build.rs and protocol/README.md. Requires the
-REM x86_64-pc-windows-gnu target and a mingw-w64 gcc for the cc crate.
+REM fast-fails (0xC0000409) under a manual map. The loader itself is pure Rust
+REM (BackstageInjection-Rust/src/reflective.rs). Requires the
+REM x86_64-pc-windows-gnu target.
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "ROOT=%%~fI\"

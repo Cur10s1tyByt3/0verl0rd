@@ -10,8 +10,8 @@
 //!     from the shared-section bytes, or falls back to Injecting the module's
 //!     own on-disk path via LoadLibraryW when no section is present.
 //!
-//! The cdylib also exports `ReflectiveLoader` (compiled from the vendored C
-//! loader in reflective/) so the initial injection itself can be reflective.
+//! The cdylib also exports `ReflectiveLoader` (implemented in pure Rust in
+//! `reflective.rs`) so the initial injection itself can be reflective.
 //!
 //! On DLL_PROCESS_DETACH all hooks are disabled best-effort.
 
@@ -23,6 +23,7 @@ mod config;
 mod hooks;
 mod inject;
 mod log;
+mod reflective;
 mod util;
 
 use core::ffi::c_void;
