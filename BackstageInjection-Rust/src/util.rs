@@ -4,10 +4,6 @@ use crate::abi::{CSTR_EQUAL, CompareStringOrdinal};
 
 pub const UNICODE_STRING_MAX_WCHARS: usize = 32767;
 
-pub fn wide_zstr(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(core::iter::once(0)).collect()
-}
-
 pub fn ci_eq(a: &[u16], b: &[u16]) -> bool {
     if a.is_empty() || b.is_empty() {
         return a.is_empty() && b.is_empty();
@@ -35,10 +31,9 @@ pub fn normalize_path(path: &[u16]) -> (&[u16], usize) {
     if path.len() >= 4 && path[0] == 0x005C && path[1] == 0x003F && path[2] == 0x003F && path[3] == 0x005C {
         return (&path[4..], 4);
     }
-    const DEVICE_PREFIX: &[u16] = &[
-        0x005C, 0x0044, 0x0065, 0x0076, 0x0069, 0x0063, 0x0065, 0x005C,
-    ];
-    if path.len() >= DEVICE_PREFIX.len() && ci_eq(&path[..DEVICE_PREFIX.len()], DEVICE_PREFIX) {
+    let dev_pfx = crate::obf16!(b"\\Device\\");
+    let pfx = &dev_pfx[..dev_pfx.len() - 1];
+    if path.len() >= pfx.len() && ci_eq(&path[..pfx.len()], pfx) {
         return (path, 0);
     }
     (path, 0)

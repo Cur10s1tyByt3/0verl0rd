@@ -12,12 +12,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use crate::abi;
+use crate::{obf16};
 
 static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 static LOG_HANDLE: OnceLock<Mutex<Option<usize>>> = OnceLock::new();
 
 pub fn init_from_env() {
-    let name = crate::util::wide_zstr("BackstageInjectionDebug");
+    let name = obf16!(b"BackstageInjectionDebug");
     let mut buf = [0u16; 8];
     unsafe {
         let len = abi::GetEnvironmentVariableW(name.as_ptr(), buf.as_mut_ptr(), buf.len() as u32);
@@ -102,28 +103,48 @@ fn open_log() -> Option<usize> {
 }
 
 fn log_paths() -> Option<(Vec<u16>, Vec<u16>, Vec<u16>)> {
-    let env_name = crate::util::wide_zstr("TEMP");
+    let env_name = obf16!(b"TEMP");
     let mut temp = [0u16; 32768];
     unsafe {
         let len = abi::GetEnvironmentVariableW(env_name.as_ptr(), temp.as_mut_ptr(), temp.len() as u32);
         if len == 0 || len >= temp.len() as u32 {
             return None;
         }
+        let prefix = &temp[..len as usize];
+        let base = concat_z(prefix, &obf16!(b"\\Overlord"));
+        let dir = concat_z(prefix, &obf16!(b"\\Overlord\\backstage"));
         let pid = abi::GetCurrentProcessId();
-        let base = concat_z(&temp[..len as usize], "\\Overlord");
-        let dir = concat_z(&temp[..len as usize], "\\Overlord\\backstage");
-        let file = concat_z(
-            &temp[..len as usize],
-            &format!("\\Overlord\\backstage\\BackstageInjection-debug-{pid}.log"),
-        );
+        let mut file = prefix.to_vec();
+        file.extend_from_slice(&obf16!(b"\\Overlord\\backstage\\BackstageInjection-debug-"));
+        append_pid(&mut file, pid);
+        file.extend_from_slice(&obf16!(b".log"));
+        file.push(0);
         Some((base, dir, file))
     }
 }
 
-fn concat_z(prefix: &[u16], suffix: &str) -> Vec<u16> {
-    let mut v = Vec::with_capacity(prefix.len() + suffix.encode_utf16().count() + 1);
+fn concat_z(prefix: &[u16], suffix: &[u16]) -> Vec<u16> {
+    let mut v = Vec::with_capacity(prefix.len() + suffix.len() + 1);
     v.extend_from_slice(prefix);
-    v.extend(suffix.encode_utf16());
+    v.extend_from_slice(suffix);
     v.push(0);
     v
+}
+
+fn append_pid(v: &mut Vec<u16>, mut pid: u32) {
+    if pid == 0 {
+        v.push(0x0030); // '0'
+        return;
+    }
+    let mut digits = [0u16; 10];
+    let mut n = 0;
+    while pid > 0 {
+        digits[n] = 0x0030 + (pid % 10) as u16;
+        pid /= 10;
+        n += 1;
+    }
+    while n > 0 {
+        n -= 1;
+        v.push(digits[n]);
+    }
 }

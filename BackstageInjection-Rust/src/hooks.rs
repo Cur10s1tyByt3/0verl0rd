@@ -5,7 +5,46 @@ use std::slice;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
-use minhook::MinHook;
+mod mh {
+    //! Thin FFI over the linked MinHook C engine. We bypass the `minhook`
+    //! crate's wrapper type so its panic/format strings are never emitted.
+
+    use core::ffi::{c_int, c_void};
+
+    pub const OK: c_int = 0;
+    const ALL_HOOKS: *mut c_void = -1isize as *mut c_void;
+
+    unsafe extern "system" {
+        fn MH_Initialize() -> c_int;
+        fn MH_CreateHook(target: *mut c_void, detour: *mut c_void, original: *mut *mut c_void)
+            -> c_int;
+        fn MH_EnableHook(target: *mut c_void) -> c_int;
+        fn MH_RemoveHook(target: *mut c_void) -> c_int;
+        fn MH_DisableHook(target: *mut c_void) -> c_int;
+    }
+
+    pub fn init() {
+        let _ = unsafe { MH_Initialize() };
+    }
+
+    pub fn disable_all() {
+        let _ = unsafe { MH_DisableHook(ALL_HOOKS) };
+    }
+
+    pub fn create_hook(target: *mut c_void, detour: *mut c_void) -> (c_int, *mut c_void) {
+        let mut original: *mut c_void = core::ptr::null_mut();
+        let status = unsafe { MH_CreateHook(target, detour, &mut original) };
+        (status, original)
+    }
+
+    pub fn enable_hook(target: *mut c_void) -> c_int {
+        unsafe { MH_EnableHook(target) }
+    }
+
+    pub fn remove_hook(target: *mut c_void) {
+        let _ = unsafe { MH_RemoveHook(target) };
+    }
+}
 
 use crate::abi::{
     self, CreateProcessWFn, IoStatusBlock, NtCreateFileFn, NtDeleteFileFn, NtOpenFileFn,
@@ -15,7 +54,7 @@ use crate::abi::{
 use crate::config::HookConfig;
 use crate::inject;
 use crate::util::{self, UNICODE_STRING_MAX_WCHARS};
-use crate::dbg_log;
+use crate::{dbg_log, obf, obf16};
 
 static HOOKS_CONFIG: OnceLock<HookConfig> = OnceLock::new();
 
@@ -374,7 +413,7 @@ pub extern "system" fn detour_create_process_w(
         let child_pid = unsafe { (*lp_process_information).dwProcessId };
         if !HOOKS_INITIALIZED.load(Ordering::SeqCst) {
             dbg_log!(
-                "CreateProcessW child pid={child_pid} created but hooks NOT active — skipping injection"
+                "cpr child pid={child_pid} created but hooks NOT active — skipping injection"
             );
         } else {
             let h_process = unsafe { (*lp_process_information).hProcess };
@@ -382,17 +421,17 @@ pub extern "system" fn detour_create_process_w(
                 unsafe { inject::inject_reflective(h_process, bytes) }
             } else if let Some(path) = inject::our_path() {
                 if path.is_empty() {
-                    dbg_log!("CreateProcessW child pid={child_pid} injection skipped: our_path empty");
+                    dbg_log!("cpr child pid={child_pid} injection skipped: our_path empty");
                     false
                 } else {
                     unsafe { inject::inject_library(h_process, path) }
                 }
             } else {
-                dbg_log!("CreateProcessW child pid={child_pid} injection skipped: no dll bytes or path");
+                dbg_log!("cpr child pid={child_pid} injection skipped: no dll bytes or path");
                 false
             };
             dbg_log!(
-                "CreateProcessW child pid={child_pid} app='{}' inject={injected} mode={} suspended_forced={}",
+                "cpr child pid={child_pid} app='{}' inject={injected} mode={} suspended_forced={}",
                 display_cmd(lp_application_name, lp_command_line),
                 if inject::dll_bytes().is_some() { "reflective" } else { "loadlibrary" },
                 !was_suspended,
@@ -405,7 +444,7 @@ pub extern "system" fn detour_create_process_w(
         }
     } else {
         dbg_log!(
-            "CreateProcessW failed or no proc info (result={result}) — no injection"
+            "cpr failed or no proc info (result={result}) — no injection"
         );
     }
 
@@ -447,30 +486,27 @@ fn install_one(
         );
         return false;
     }
-    match unsafe { MinHook::create_hook(target as *mut c_void, detour as *mut c_void) } {
-        Ok(orig) => match unsafe { MinHook::enable_hook(target as *mut c_void) } {
-            Ok(()) => {
-                store.store(orig as usize, Ordering::SeqCst);
-                true
-            }
-            Err(why) => {
-                let _ = unsafe { MinHook::remove_hook(target as *mut c_void) };
-                dbg_log!(
-                    "hook enable failed for '{}': {:?}",
-                    String::from_utf8_lossy(&proc_name[..proc_name.len().saturating_sub(1)]),
-                    why
-                );
-                false
-            }
-        },
-        Err(why) => {
-            dbg_log!(
-                "hook create failed for '{}': {:?}",
-                String::from_utf8_lossy(&proc_name[..proc_name.len().saturating_sub(1)]),
-                why
-            );
-            false
-        }
+    let (status, orig) = mh::create_hook(target as *mut c_void, detour as *mut c_void);
+    if status != mh::OK {
+        dbg_log!(
+            "hook create failed for '{}': status={}",
+            String::from_utf8_lossy(&proc_name[..proc_name.len().saturating_sub(1)]),
+            status
+        );
+        return false;
+    }
+    let status = mh::enable_hook(target as *mut c_void);
+    if status == mh::OK {
+        store.store(orig as usize, Ordering::SeqCst);
+        true
+    } else {
+        mh::remove_hook(target as *mut c_void);
+        dbg_log!(
+            "hook enable failed for '{}': status={}",
+            String::from_utf8_lossy(&proc_name[..proc_name.len().saturating_sub(1)]),
+            status
+        );
+        false
     }
 }
 
@@ -483,32 +519,30 @@ pub fn install(cfg: HookConfig) {
         redirect_on,
     );
     let _ = HOOKS_CONFIG.set(cfg);
+    mh::init();
 
-    let ntdll = util::wide_zstr("ntdll.dll");
-    let kernel32 = util::wide_zstr("kernel32.dll");
+    let ntdll = obf16!(b"ntdll.dll");
+    let kernel32 = obf16!(b"kernel32.dll");
 
-    let create = install_one(&ntdll, b"NtCreateFile\0", detour_nt_create_file as *const () as usize, &ORIG_NT_CREATE_FILE);
-    let open = install_one(&ntdll, b"NtOpenFile\0", detour_nt_open_file as *const () as usize, &ORIG_NT_OPEN_FILE);
-    let delete = install_one(&ntdll, b"NtDeleteFile\0", detour_nt_delete_file as *const () as usize, &ORIG_NT_DELETE_FILE);
-    let set_info = install_one(&ntdll, b"NtSetInformationFile\0", detour_nt_set_information_file as *const () as usize, &ORIG_NT_SET_INFORMATION_FILE);
-    let query_attrs = install_one(&ntdll, b"NtQueryAttributesFile\0", detour_nt_query_attributes_file as *const () as usize, &ORIG_NT_QUERY_ATTRIBUTES_FILE);
-    let query_full = install_one(&ntdll, b"NtQueryFullAttributesFile\0", detour_nt_query_full_attributes_file as *const () as usize, &ORIG_NT_QUERY_FULL_ATTRIBUTES_FILE);
-    let cpr = install_one(&kernel32, b"CreateProcessW\0", detour_create_process_w as *const () as usize, &ORIG_CREATE_PROCESS_W);
+    let create = install_one(&ntdll, &obf!(b"NtCreateFile"), detour_nt_create_file as *const () as usize, &ORIG_NT_CREATE_FILE);
+    let open = install_one(&ntdll, &obf!(b"NtOpenFile"), detour_nt_open_file as *const () as usize, &ORIG_NT_OPEN_FILE);
+    let delete = install_one(&ntdll, &obf!(b"NtDeleteFile"), detour_nt_delete_file as *const () as usize, &ORIG_NT_DELETE_FILE);
+    let set_info = install_one(&ntdll, &obf!(b"NtSetInformationFile"), detour_nt_set_information_file as *const () as usize, &ORIG_NT_SET_INFORMATION_FILE);
+    let query_attrs = install_one(&ntdll, &obf!(b"NtQueryAttributesFile"), detour_nt_query_attributes_file as *const () as usize, &ORIG_NT_QUERY_ATTRIBUTES_FILE);
+    let query_full = install_one(&ntdll, &obf!(b"NtQueryFullAttributesFile"), detour_nt_query_full_attributes_file as *const () as usize, &ORIG_NT_QUERY_FULL_ATTRIBUTES_FILE);
+    let cpr = install_one(&kernel32, &obf!(b"CreateProcessW"), detour_create_process_w as *const () as usize, &ORIG_CREATE_PROCESS_W);
 
     let _ = (delete, set_info, query_attrs, query_full);
 
-    dbg_log!(
-        "install: NtCreateFile={} NtOpenFile={} NtDeleteFile={} NtSetInformationFile={} NtQueryAttributesFile={} NtQueryFullAttributesFile={} CreateProcessW={}",
-        create, open, delete, set_info, query_attrs, query_full, cpr,
-    );
+dbg_log!("install: f0={} f1={} f2={} f3={} f4={} f5={} f6={}",
+            create, open, delete, set_info, query_attrs, query_full, cpr,
+        );
 
     if create && open {
         HOOKS_INITIALIZED.store(true, Ordering::SeqCst);
-        dbg_log!("install: hooks active (both NtCreateFile and NtOpenFile live)");
+        dbg_log!("install: hooks active (both create and open live)");
     } else {
-        unsafe {
-            let _ = MinHook::disable_all_hooks();
-        }
+        mh::disable_all();
         ORIG_NT_CREATE_FILE.store(0, Ordering::SeqCst);
         ORIG_NT_OPEN_FILE.store(0, Ordering::SeqCst);
         ORIG_NT_DELETE_FILE.store(0, Ordering::SeqCst);
@@ -521,9 +555,7 @@ pub fn install(cfg: HookConfig) {
 }
 
 pub fn remove() {
-    unsafe {
-        let _ = MinHook::disable_all_hooks();
-    }
+    mh::disable_all();
     unsafe {
         abi::Sleep(50);
     }

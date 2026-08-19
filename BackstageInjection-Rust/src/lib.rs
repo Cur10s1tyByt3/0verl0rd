@@ -18,6 +18,7 @@
 #![allow(clippy::missing_safety_doc)]
 #![allow(non_snake_case)]
 
+mod obf;
 mod abi;
 mod config;
 mod hooks;

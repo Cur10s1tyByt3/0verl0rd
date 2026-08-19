@@ -2,13 +2,14 @@
 name = "backstage-injection-rs"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [lib]
 name = "BackstageInjection"
 crate-type = ["cdylib"]
 
-[dependencies]
-minhook = "0.9.0"
+[build-dependencies]
+cc = "1"
 
 [profile.release]
 opt-level = 3

