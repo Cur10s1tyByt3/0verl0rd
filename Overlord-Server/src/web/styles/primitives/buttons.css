@@ -1,0 +1,80 @@
+.ui-button,
+.ui-icon-button {
+  border: 1px solid rgba(71, 85, 105, 0.72);
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-surface-solid);
+  color: #cbd5e1;
+  cursor: pointer;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.ui-button:hover,
+.ui-icon-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(129, 140, 248, 0.55);
+  background: var(--ui-surface-solid-hover);
+  color: var(--ui-text-strong);
+}
+
+.ui-button:disabled,
+.ui-icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--ui-control-height);
+  gap: var(--ui-space-2);
+  padding: 0 var(--ui-space-3);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ui-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ui-control-height);
+  height: var(--ui-control-height);
+  padding: 0;
+}
+
+.ui-icon-button[data-size="compact"] {
+  width: 34px;
+  height: 34px;
+  background: var(--ui-surface-2);
+  color: var(--ui-text-muted);
+  border-color: var(--ui-border-subtle);
+}
+
+.ui-icon-button[data-size="compact"]:hover {
+  transform: none;
+  background: var(--ui-surface-hover);
+  color: var(--ui-text);
+  border-color: var(--ui-border-strong);
+}
+
+.ui-icon-button:has(input:not(:checked)) {
+  color: var(--ui-text-faint);
+  background: rgba(15, 23, 42, 0.75);
+}
+
+.ui-icon-button input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ui-menu[open] > .ui-icon-button {
+  color: var(--ui-accent-secondary);
+  border-color: rgba(129, 140, 248, 0.55);
+  background: #20294a;
+}

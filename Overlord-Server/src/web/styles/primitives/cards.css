@@ -1,0 +1,22 @@
+.ui-card {
+  position: relative;
+  min-width: 0;
+  border: 1px solid var(--ui-border-subtle);
+  border-radius: var(--ui-radius-panel);
+  background: var(--ui-surface-1);
+  overflow: hidden;
+}
+
+.ui-card--interactive {
+  cursor: grab;
+}
+
+.ui-card--interactive:active {
+  cursor: grabbing;
+}
+
+.ui-card--interactive.is-dragging {
+  opacity: 0.52;
+  border-color: rgba(56, 189, 248, 0.62);
+}
+

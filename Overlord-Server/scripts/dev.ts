@@ -1,7 +1,7 @@
 /**
  * Development supervisor.
  *
- * Keeps the backend and generated Tailwind stylesheet up to date while
+ * Keeps the backend and generated stylesheets up to date while
  * preserving a single foreground process for the repository launchers.
  */
 
@@ -45,6 +45,14 @@ const styles = Bun.spawn(["bun", "run", "watch:css"], {
   stderr: "inherit",
 });
 
+const uiStyles = Bun.spawn(["bun", "run", "watch:ui"], {
+  cwd,
+  env,
+  stdin: "inherit",
+  stdout: "inherit",
+  stderr: "inherit",
+});
+
 const web = Bun.spawn(["bun", "run", "watch:web"], {
   cwd,
   env,
@@ -60,6 +68,7 @@ function stop(exitCode = 0): void {
   stopping = true;
   backend.kill();
   styles.kill();
+  uiStyles.kill();
   web.kill();
   process.exitCode = exitCode;
 }
@@ -70,6 +79,7 @@ process.on("SIGTERM", () => stop(143));
 const result = await Promise.race([
   backend.exited.then((exitCode) => ({ process: "backend", exitCode })),
   styles.exited.then((exitCode) => ({ process: "Tailwind watcher", exitCode })),
+  uiStyles.exited.then((exitCode) => ({ process: "UI stylesheet watcher", exitCode })),
   web.exited.then((exitCode) => ({ process: "browser TypeScript watcher", exitCode })),
 ]);
 
@@ -78,4 +88,4 @@ if (!stopping) {
   stop(result.exitCode || 1);
 }
 
-await Promise.allSettled([backend.exited, styles.exited, web.exited]);
+await Promise.allSettled([backend.exited, styles.exited, uiStyles.exited, web.exited]);

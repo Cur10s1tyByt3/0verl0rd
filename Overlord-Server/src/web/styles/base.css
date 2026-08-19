@@ -1,0 +1,18 @@
+/* A single visible keyboard-focus treatment replaces page-specific resets. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--ui-accent) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16) !important;
+}
+
+:where(a, button, input, select, textarea, summary, [tabindex]):focus:not(:focus-visible) {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(.ui-card, .ui-button, .ui-icon-button, .ui-popover) {
+    scroll-behavior: auto;
+    transition-duration: 0.01ms !important;
+  }
+}
+

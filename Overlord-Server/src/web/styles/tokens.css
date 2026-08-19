@@ -1,0 +1,41 @@
+:root {
+  /* Canvas and surfaces */
+  --ui-canvas: #04070d;
+  --ui-canvas-raised: #020617;
+  --ui-surface-1: rgba(15, 23, 42, 0.72);
+  --ui-surface-2: rgba(30, 41, 59, 0.7);
+  --ui-surface-hover: rgba(51, 65, 85, 0.78);
+  --ui-surface-solid: #172033;
+  --ui-surface-solid-hover: #1f2a3e;
+  --ui-popover: #111827;
+  --ui-popover-translucent: rgba(15, 23, 42, 0.98);
+
+  /* Content and borders */
+  --ui-text: #e2e8f0;
+  --ui-text-strong: #f8fafc;
+  --ui-text-muted: #94a3b8;
+  --ui-text-faint: #64748b;
+  --ui-border-subtle: rgba(51, 65, 85, 0.68);
+  --ui-border-strong: rgba(71, 85, 105, 0.8);
+
+  /* Intent */
+  --ui-accent: #38bdf8;
+  --ui-accent-secondary: #818cf8;
+  --ui-success: #22c55e;
+  --ui-warning: #fbbf24;
+  --ui-danger: #fb7185;
+
+  /* Shape, spacing, and motion */
+  --ui-radius-sm: 6px;
+  --ui-radius-control: 8px;
+  --ui-radius-panel: 10px;
+  --ui-radius-full: 999px;
+  --ui-control-height: 36px;
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-motion-fast: 140ms;
+  --ui-motion-normal: 220ms;
+  --ui-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+}

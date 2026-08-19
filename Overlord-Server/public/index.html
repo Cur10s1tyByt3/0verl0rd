@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="/vendor/gridstack/gridstack.min.css" />
     <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
     <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/ui.css" />
     <link rel="stylesheet" href="/assets/custom.css" />
     <script defer src="/vendor/animejs/anime.min.js"></script>
     <script defer src="/vendor/chart.js/chart.umd.js"></script>
@@ -36,10 +37,10 @@
             </div>
             <div class="dashboard-stats-controls" aria-label="Status overview controls">
               <details id="dashboard-card-menu" class="dashboard-card-menu">
-                <summary class="dashboard-stats-toggle" title="Dashboard cards" aria-label="Dashboard cards">
+                <summary class="dashboard-stats-toggle ui-icon-button" data-size="compact" title="Dashboard cards" aria-label="Dashboard cards">
                   <i class="fa-solid fa-table-cells-large"></i>
                 </summary>
-                <div id="dashboard-card-menu-panel" class="dashboard-card-menu-panel">
+                <div id="dashboard-card-menu-panel" class="dashboard-card-menu-panel ui-popover" data-size="compact">
                   <label><input type="checkbox" data-dashboard-card-toggle="online" checked /> Online</label>
                   <label><input type="checkbox" data-dashboard-card-toggle="sessions" checked /> Sessions</label>
                   <label><input type="checkbox" data-dashboard-card-toggle="trend" checked /> Clients Online</label>
@@ -47,19 +48,19 @@
                   <label><input type="checkbox" data-dashboard-card-toggle="pulse" checked /> Server Pulse</label>
                 </div>
               </details>
-              <button id="dashboard-stats-reset" class="dashboard-stats-toggle" type="button" title="Reset status overview">
+              <button id="dashboard-stats-reset" class="dashboard-stats-toggle ui-icon-button" data-size="compact" type="button" title="Reset status overview">
                 <i class="fa-solid fa-arrow-rotate-left"></i>
               </button>
-              <button id="dashboard-stats-toggle" class="dashboard-stats-toggle" type="button" aria-expanded="true" title="Hide status overview">
+              <button id="dashboard-stats-toggle" class="dashboard-stats-toggle ui-icon-button" data-size="compact" type="button" aria-expanded="true" title="Hide status overview">
                 <i class="fa-solid fa-eye-slash"></i>
               </button>
             </div>
           </div>
           <div id="dashboard-stats-content" class="dashboard-stats-content grid-stack">
             <div class="grid-stack-item" data-dashboard-card="online" gs-id="online" gs-x="0" gs-y="0" gs-w="2" gs-h="2" gs-min-w="2" gs-min-h="1">
-              <div class="grid-stack-item-content dashboard-stat-card dashboard-stat-card--online">
+              <div class="grid-stack-item-content dashboard-stat-card dashboard-stat-card--online ui-card ui-card--interactive">
                 <div class="dashboard-stat-topline">
-                  <span class="dashboard-live-dot is-live"></span>
+                  <span class="dashboard-live-dot ui-status-dot is-live"></span>
                   <span>Online</span>
                 </div>
                 <div id="dash-online-count" class="dashboard-stat-value">0</div>
@@ -70,7 +71,7 @@
               </div>
             </div>
             <div class="grid-stack-item" data-dashboard-card="sessions" gs-id="sessions" gs-x="2" gs-y="0" gs-w="2" gs-h="2" gs-min-w="2" gs-min-h="1">
-              <div class="grid-stack-item-content dashboard-stat-card dashboard-stat-card--sessions">
+              <div class="grid-stack-item-content dashboard-stat-card dashboard-stat-card--sessions ui-card ui-card--interactive">
                 <div class="dashboard-stat-topline">
                   <i class="fa-solid fa-wave-square"></i>
                   <span>Sessions</span>
@@ -83,13 +84,13 @@
               </div>
             </div>
             <div class="grid-stack-item" data-dashboard-card="trend" gs-id="trend" gs-x="4" gs-y="0" gs-w="3" gs-h="2" gs-min-w="2" gs-min-h="1">
-              <div class="grid-stack-item-content dashboard-chart-card">
+              <div class="grid-stack-item-content dashboard-chart-card ui-card ui-card--interactive">
                 <div class="dashboard-chart-head">
                   <div>
                     <span class="dashboard-chart-kicker">Past Week</span>
                     <strong>Clients Online</strong>
                   </div>
-                  <span id="dash-trend-status" class="dashboard-chart-pill">Live</span>
+                  <span id="dash-trend-status" class="dashboard-chart-pill ui-badge" data-tone="info">Live</span>
                 </div>
                 <div class="dashboard-chart-wrap">
                   <canvas id="dash-online-chart"></canvas>
@@ -97,13 +98,13 @@
               </div>
             </div>
             <div class="grid-stack-item" data-dashboard-card="fleet" gs-id="fleet" gs-x="7" gs-y="0" gs-w="3" gs-h="2" gs-min-w="2" gs-min-h="1">
-              <div class="grid-stack-item-content dashboard-chart-card">
+              <div class="grid-stack-item-content dashboard-chart-card ui-card ui-card--interactive">
                 <div class="dashboard-chart-head">
                   <div>
                     <span class="dashboard-chart-kicker">Fleet Mix</span>
                     <strong>Operating Systems</strong>
                   </div>
-                  <span id="dash-os-leader" class="dashboard-chart-pill">None</span>
+                  <span id="dash-os-leader" class="dashboard-chart-pill ui-badge" data-tone="info">None</span>
                 </div>
                 <div class="dashboard-chart-wrap dashboard-chart-wrap--donut">
                   <canvas id="dash-os-chart"></canvas>
@@ -111,27 +112,27 @@
               </div>
             </div>
             <div class="grid-stack-item" data-dashboard-card="pulse" gs-id="pulse" gs-x="10" gs-y="0" gs-w="2" gs-h="2" gs-min-w="2" gs-min-h="1">
-              <div class="grid-stack-item-content dashboard-health-card">
+              <div class="grid-stack-item-content dashboard-health-card ui-card ui-card--interactive">
                 <div class="dashboard-chart-head">
                   <div>
                     <span class="dashboard-chart-kicker">Status</span>
                     <strong>Server Pulse</strong>
                   </div>
-                  <span id="dash-last-refresh" class="dashboard-chart-pill">Waiting</span>
+                  <span id="dash-last-refresh" class="dashboard-chart-pill ui-badge" data-tone="info">Waiting</span>
                 </div>
                 <div class="dashboard-health-list">
                   <div class="dashboard-health-row" data-pulse-row="api" draggable="true">
-                    <span class="dashboard-live-dot is-live"></span>
+                    <span class="dashboard-live-dot ui-status-dot is-live"></span>
                     <span>API</span>
                     <strong id="dash-api-status">Live</strong>
                   </div>
                   <div class="dashboard-health-row" data-pulse-row="memory" draggable="true">
-                    <span id="dash-memory-dot" class="dashboard-live-dot is-live"></span>
+                    <span id="dash-memory-dot" class="dashboard-live-dot ui-status-dot is-live"></span>
                     <span>Memory</span>
                     <strong id="dash-memory-status">0%</strong>
                   </div>
                   <div class="dashboard-health-row" data-pulse-row="ping" draggable="true">
-                    <span id="dash-ping-dot" class="dashboard-live-dot is-muted"></span>
+                    <span id="dash-ping-dot" class="dashboard-live-dot ui-status-dot is-muted"></span>
                     <span>Ping Avg</span>
                     <strong id="dash-ping-status">-</strong>
                   </div>
@@ -150,10 +151,10 @@
             <span></span>
           </div>
         </section>
-        <div class="dashboard-toolbar">
+        <div class="dashboard-toolbar ui-toolbar">
           <label
             id="search-shell"
-            class="dashboard-search flex items-center gap-2 bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2"
+            class="dashboard-search ui-toolbar__search flex items-center gap-2 bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2"
           >
             <i class="fa-solid fa-magnifying-glass text-slate-500"></i>
             <input
@@ -163,14 +164,14 @@
               placeholder="Search by nickname, host, user, id"
             />
           </label>
-          <div class="dashboard-toolbar-actions">
-            <label class="dashboard-toggle" title="Show offline clients">
+          <div class="dashboard-toolbar-actions ui-toolbar__actions">
+            <label class="dashboard-toggle ui-icon-button" title="Show offline clients">
               <input id="toggle-offline" type="checkbox" checked />
               <i class="fa-solid fa-power-off"></i>
             </label>
-            <details class="dashboard-menu">
-              <summary title="Filters"><i class="fa-solid fa-filter"></i></summary>
-              <div class="dashboard-menu-panel dashboard-filter-panel">
+            <details class="dashboard-menu ui-menu">
+              <summary class="ui-icon-button" title="Filters"><i class="fa-solid fa-filter"></i></summary>
+              <div class="dashboard-menu-panel dashboard-filter-panel ui-popover">
                 <select id="filter-status">
                   <option value="all">All Status</option>
                   <option value="online">Online Only</option>
@@ -190,9 +191,9 @@
                 <div id="country-picker-anchor" class="relative"></div>
               </div>
             </details>
-            <details class="dashboard-menu">
-              <summary title="Sort"><i class="fa-solid fa-arrow-down-wide-short"></i></summary>
-              <div class="dashboard-menu-panel">
+            <details class="dashboard-menu ui-menu">
+              <summary class="ui-icon-button" title="Sort"><i class="fa-solid fa-arrow-down-wide-short"></i></summary>
+              <div class="dashboard-menu-panel ui-popover">
                 <select id="sort">
                   <option value="stable">Default</option>
                   <option value="last_seen_desc">Newest</option>
@@ -208,9 +209,9 @@
                 </select>
               </div>
             </details>
-            <details class="dashboard-menu">
-              <summary title="Visible fields"><i class="fa-solid fa-sliders"></i></summary>
-              <div id="display-fields-menu" class="dashboard-menu-panel dashboard-fields-panel">
+            <details class="dashboard-menu ui-menu">
+              <summary class="ui-icon-button" title="Visible fields"><i class="fa-solid fa-sliders"></i></summary>
+              <div id="display-fields-menu" class="dashboard-menu-panel dashboard-fields-panel ui-popover">
                 <label><input type="checkbox" data-field="user" checked /> User</label>
                 <label><input type="checkbox" data-field="ip" checked /> IP</label>
                 <label><input type="checkbox" data-field="hwid" /> HWID</label>
@@ -222,10 +223,10 @@
                 <label><input type="checkbox" data-field="battery" checked /> Battery</label>
               </div>
             </details>
-            <button id="select-all" class="dashboard-icon-btn" title="Select all">
+            <button id="select-all" class="dashboard-icon-btn ui-icon-button" title="Select all">
               <i class="fa-solid fa-check"></i>
             </button>
-            <button id="clear-selection" class="dashboard-icon-btn" title="Clear selection">
+            <button id="clear-selection" class="dashboard-icon-btn ui-icon-button" title="Clear selection">
               <i class="fa-solid fa-xmark"></i>
             </button>
             <div id="layout-toggle" role="group" aria-label="Layout" class="inline-flex items-center rounded-lg border border-slate-700/60 bg-slate-800/70 p-0.5">
