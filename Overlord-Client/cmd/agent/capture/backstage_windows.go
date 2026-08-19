@@ -236,6 +236,7 @@ type backstageTask struct {
 	dllBytes        []byte
 	searchPath      string
 	replacePath     string
+	method          string
 	queuedAt        time.Time
 	resp            chan backstageTaskResult
 }
@@ -561,7 +562,7 @@ func ensurebackstageThread() error {
 				case backstageTaskStartProcess:
 					result.pid, result.err = startbackstageProcessOnThread(task.filePath, task.display)
 				case backstageTaskStartProcessInjected:
-					result.pid, result.err = startbackstageProcessInjectedOnThread(task.filePath, task.dllBytes, task.searchPath, task.replacePath, task.display)
+					result.pid, result.err = startbackstageProcessInjectedOnThread(task.filePath, task.dllBytes, task.searchPath, task.replacePath, task.display, task.method)
 				case backstageTaskMouseMove:
 					result.err = backstageMouseMoveOnThread(task.display, task.x, task.y)
 				case backstageTaskMouseDown:
@@ -848,7 +849,7 @@ func backstageTaskDetails(task backstageTask) string {
 	case backstageTaskStartProcess:
 		return fmt.Sprintf("cmd=%q", task.filePath)
 	case backstageTaskStartProcessInjected:
-		return fmt.Sprintf("cmd=%q search=%q replace=%q dllSize=%d", task.filePath, task.searchPath, task.replacePath, len(task.dllBytes))
+		return fmt.Sprintf("cmd=%q search=%q replace=%q method=%s dllSize=%d", task.filePath, task.searchPath, task.replacePath, task.method, len(task.dllBytes))
 	default:
 		return ""
 	}

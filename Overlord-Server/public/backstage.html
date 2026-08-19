@@ -264,6 +264,13 @@
             <input type="checkbox" id="backstageKillIfRunningToggle" class="accent-violet-500 w-4 h-4 rounded" />
             <span class="text-xs text-slate-300">Kill browser if running</span>
           </label>
+          <label class="flex items-center justify-between gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-800/70 select-none">
+            <span class="text-xs text-slate-300">Injection method</span>
+            <select id="backstageInjectionMethod" class="bg-slate-800 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-200 focus:outline-none focus:border-violet-500">
+              <option value="reflective">Reflective (in-memory)</option>
+              <option value="loadlibrary">LoadLibrary (disk)</option>
+            </select>
+          </label>
           <div class="my-1 border-t border-slate-700/60"></div>
           <!-- Shells -->
           <div class="px-3 pt-2 pb-1 text-xs uppercase tracking-wide text-slate-500">Shells</div>

