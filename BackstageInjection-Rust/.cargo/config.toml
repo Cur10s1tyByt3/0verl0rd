@@ -1,0 +1,7 @@
+# Statically link the CRT so the injected DLL has no VCRUNTIME/UCRT DLL
+# dependency at runtime (Chrome and other targets may not have it preloaded).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "target-feature=+crt-static"]

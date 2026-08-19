@@ -1,51 +1,36 @@
 @echo off
 setlocal EnableDelayedExpansion
-REM Build BackstageInjection DLL for Windows x64 using MSBuild (vcxproj).
-REM Run from VS Developer Command Prompt, or let the script detect VS.
+REM Build the BackstageInjection DLL for Windows x64 using cargo (MSVC target).
+REM Requires a Rust toolchain with the x86_64-pc-windows-msvc target and MSVC
+REM build tools (auto-detected by the cc crate via vswhere).
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "ROOT=%%~fI\"
-set "PROJ=%ROOT%BackstageInjection\BackstageInjection.vcxproj"
+set "CRATE_DIR=%ROOT%BackstageInjection-Rust"
 set "OUT_DIR=%ROOT%Overlord-Server\dist-clients"
-set CONFIG=Release
-set PLATFORM=x64
+set "TARGET=x86_64-pc-windows-msvc"
+set "DLL_NAME=BackstageInjection.x64.dll"
 
-REM Locate MSBuild via vswhere if not already on PATH
-where msbuild.exe >nul 2>&1
+where cargo >nul 2>&1
 if %ERRORLEVEL% neq 0 (
-    echo msbuild.exe not found, searching for Visual Studio ...
-    set "FOUND_VS="
-    for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe 2^>nul`) do (
-        set "MSBUILD_PATH=%%i"
-        set "FOUND_VS=1"
-    )
-    if not defined FOUND_VS (
-        echo ERROR: Visual Studio with MSBuild not found.
-        exit /b 1
-    )
-    echo Found MSBuild at: !MSBUILD_PATH!
+    echo ERROR: cargo not found on PATH.
+    exit /b 1
 )
 
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 
-echo Building BackstageInjection.vcxproj [%CONFIG%^|%PLATFORM%] ...
-if defined MSBUILD_PATH (
-    "!MSBUILD_PATH!" "%PROJ%" /p:Configuration=%CONFIG% /p:Platform=%PLATFORM% /p:OutDir="%OUT_DIR%\\" /m /nologo /v:minimal
-) else (
-    msbuild.exe "%PROJ%" /p:Configuration=%CONFIG% /p:Platform=%PLATFORM% /p:OutDir="%OUT_DIR%\\" /m /nologo /v:minimal
-)
+echo Building BackstageInjection DLL for %TARGET% ...
+cargo build --release --target %TARGET% --manifest-path "%CRATE_DIR%\Cargo.toml"
 if %ERRORLEVEL% neq 0 goto :error
 
-if not exist "%OUT_DIR%\BackstageInjection.x64.dll" (
-    echo ERROR: DLL not found in output directory.
-    goto :error
-)
+set "SRC_DLL=%CRATE_DIR%\target\%TARGET%\release\BackstageInjection.dll"
+if not exist "%SRC_DLL%" goto :error
+
+copy /y "%SRC_DLL%" "%OUT_DIR%\%DLL_NAME%" >nul
+if %ERRORLEVEL% neq 0 goto :error
 
 echo.
-echo Built: %OUT_DIR%\BackstageInjection.x64.dll
-dir "%OUT_DIR%\BackstageInjection.x64.dll"
-
-echo Done.
+echo Built: %OUT_DIR%\%DLL_NAME%
 exit /b 0
 
 :error

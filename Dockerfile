@@ -48,6 +48,17 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     go install mvdan.cc/garble@latest
 
+# Rust toolchain for the BackstageInjection DLL cross-build (windows-gnu target).
+# `--target x86_64-pc-windows-gnu` also installs that target's rust-std.
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    RUST_VERSION=1.85.0
+RUN wget -q "https://sh.rustup.rs" -O rustup-init.sh \
+    && sh rustup-init.sh -y --default-toolchain "$RUST_VERSION" \
+       --profile minimal --target x86_64-pc-windows-gnu \
+    && rm -f rustup-init.sh
+ENV PATH="/usr/local/cargo/bin:${PATH}"
+
 # Pre-fetch the latest Donut shellcode converter binary.
 # The runtime donut-manager will re-check GitHub and update automatically;
 # this step just ensures a working binary is available offline / on first use.
@@ -84,20 +95,21 @@ COPY Overlord-Server/package.json Overlord-Server/bun.lock* ./
 RUN --mount=type=cache,target=/root/.bun/install/cache \
     bun install --frozen-lockfile
 
-# Server source (Overlord-Server/dist-clients may carry pre-built MSVC DLLs from CI)
+# Server source (Overlord-Server/dist-clients may carry a pre-built DLL from a dev build)
 COPY Overlord-Server/ ./
 
-# BackstageInjection source for the cross-compile fallback (used only if no pre-built MSVC DLL).
-COPY BackstageInjection/ ./BackstageInjection/
+# BackstageInjection-Rust source for the cross-compile fallback (used only if no
+# pre-built DLL is already present in dist-clients).
+COPY BackstageInjection-Rust/ ./BackstageInjection-Rust/
 COPY scripts/build-backstage-dll.sh ./scripts/
 
 RUN mkdir -p dist-clients && \
     if [ -f dist-clients/BackstageInjection.x64.dll ]; then \
-      echo "Using pre-built MSVC BackstageInjection DLL"; \
+      echo "Using pre-built BackstageInjection DLL"; \
     else \
       chmod +x scripts/build-backstage-dll.sh && \
-      BACKSTAGE_SRC_DIR=BackstageInjection/src BACKSTAGE_OUT_DIR=dist-clients bash scripts/build-backstage-dll.sh || \
-      echo "WARNING: BackstageInjection DLL not available (build with MSVC on Windows)"; \
+      BACKSTAGE_CRATE_DIR=BackstageInjection-Rust BACKSTAGE_OUT_DIR=dist-clients bash scripts/build-backstage-dll.sh || \
+      echo "WARNING: BackstageInjection DLL not available (build it with cargo/MSVC on Windows)"; \
     fi
 
 # Keep production build phases separate so BuildKit reports the exact slow or
