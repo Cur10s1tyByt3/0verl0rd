@@ -10,8 +10,9 @@
 //!     from the shared-section bytes, or falls back to Injecting the module's
 //!     own on-disk path via LoadLibraryW when no section is present.
 //!
-//! The cdylib also exports `ReflectiveLoader` (implemented in pure Rust in
-//! `reflective.rs`) so the initial injection itself can be reflective.
+//! The cdylib also exports a randomly named loader thunk (generated per-build
+//! by `build.rs` into `loader_entry.rs`) so the initial injection itself can
+//! be reflective; the implementation lives in `reflective.rs`.
 //!
 //! On DLL_PROCESS_DETACH all hooks are disabled best-effort.
 
@@ -23,6 +24,9 @@ mod abi;
 mod config;
 mod hooks;
 mod inject;
+mod loader_entry {
+    include!(concat!(env!("OUT_DIR"), "/loader_entry.rs"));
+}
 mod log;
 mod reflective;
 mod util;

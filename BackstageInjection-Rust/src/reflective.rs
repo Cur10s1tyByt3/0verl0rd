@@ -323,8 +323,12 @@ unsafe fn export_by_ordinal(base: usize, ordinal: u16) -> usize {
 /// Thread-start routine invoked by `inject_reflective` on the copied,
 /// un-relocated image. Returns the address of the newly loaded DLL's entry
 /// point, or 0 on failure.
-#[unsafe(no_mangle)]
-pub extern "system" fn ReflectiveLoader(lpParameter: usize) -> usize {
+///
+/// Not exported: the public `.edata` entry is the randomly named thunk emitted
+/// by `build.rs` (`loader_entry.rs`); keeping a fixed exported name out of the
+/// binary avoids a constant string in the export name table. The thunk is a
+/// relative call, so it adds no relocation and stays position independent.
+pub extern "system" fn loader_impl(lpParameter: usize) -> usize {
     unsafe {
         // STEP 0: locate our own (un-relocated) image base.
         let ui_lib = find_image_base(rip_here());
