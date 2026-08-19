@@ -1,14 +1,17 @@
 @echo off
 setlocal EnableDelayedExpansion
-REM Build the BackstageInjection DLL for Windows x64 using cargo (MSVC target).
-REM Requires a Rust toolchain with the x86_64-pc-windows-msvc target and MSVC
-REM build tools (auto-detected by the cc crate via vswhere).
+REM Build the BackstageInjection DLL for Windows x64 using cargo (GNU target).
+REM The GNU toolchain is required: the reflective loader manually maps the image
+REM without the MSVC CRT bootstrapping, and the MSVC CRT's TLS/CFG machinery
+REM fast-fails (0xC0000409) under a manual map. See
+REM BackstageInjection-Rust/build.rs and protocol/README.md. Requires the
+REM x86_64-pc-windows-gnu target and a mingw-w64 gcc for the cc crate.
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "ROOT=%%~fI\"
 set "CRATE_DIR=%ROOT%BackstageInjection-Rust"
 set "OUT_DIR=%ROOT%Overlord-Server\dist-clients"
-set "TARGET=x86_64-pc-windows-msvc"
+set "TARGET=x86_64-pc-windows-gnu"
 set "DLL_NAME=BackstageInjection.x64.dll"
 
 where cargo >nul 2>&1

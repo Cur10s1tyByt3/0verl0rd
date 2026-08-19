@@ -39,6 +39,9 @@ bin/
 *.out
 *.dll
 
+# Local BackstageInjection test harness (kept out of version control)
+tools/hooktest/
+
 # Certificates (auto-generated)
 certs/
 *.crt

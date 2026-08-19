@@ -1,7 +1,12 @@
-//! Child-process injection from disk: LoadLibraryW via CreateRemoteThread.
+//! Child-process injection.
 //!
-//! The injected module path is exactly the path this DLL was loaded from, so a
-//! child inherits the same staged copy the agent placed on disk.
+//! Two strategies mirror the C reference:
+//!   - in-memory reflective injection (default): raw DLL bytes come from the
+//!     `RDI_DLL_SECTION` page-file-backed named section passed in the child's
+//!     environment block, and each child runs our exported `ReflectiveLoader`
+//!     on a remote thread — no file on disk;
+//!   - disk fallback: the module's own on-disk path is injected with
+//!     LoadLibraryW when no section bytes were provided.
 
 use core::ffi::c_void;
 use std::ptr::null_mut;
@@ -11,6 +16,7 @@ use crate::abi::{self, GetModuleFileNameW};
 use crate::dbg_log;
 
 static OUR_PATH: OnceLock<Vec<u16>> = OnceLock::new();
+static DLL_BYTES: OnceLock<Vec<u8>> = OnceLock::new();
 
 /// Record the on-disk path of this DLL (called from DllMain on attach).
 pub fn set_our_path(h_instance: usize) {
@@ -22,6 +28,16 @@ pub fn our_path() -> Option<&'static Vec<u16>> {
     OUR_PATH.get()
 }
 
+/// Record the raw DLL bytes for in-memory child injection.
+pub fn set_dll_bytes(bytes: Vec<u8>) {
+    let _ = DLL_BYTES.set(bytes);
+}
+
+/// Raw DLL bytes loaded from the RDI_DLL_SECTION environment section, if any.
+pub fn dll_bytes() -> Option<&'static Vec<u8>> {
+    DLL_BYTES.get()
+}
+
 fn dll_path_from_hinst(h_instance: usize) -> Vec<u16> {
     let mut buf = vec![0u16; 1024];
     unsafe {
@@ -29,6 +45,238 @@ fn dll_path_from_hinst(h_instance: usize) -> Vec<u16> {
         buf.truncate(n as usize);
     }
     buf
+}
+
+/// Open the `RDI_DLL_SECTION`/`RDI_DLL_SIZE` environment section and copy the
+/// DLL bytes out of it. Returns None (without touching the section) when the
+/// parent did not provide it — the loadlibrary-mode disk fallback then applies.
+pub unsafe fn load_dll_bytes_from_section() -> Option<Vec<u8>> {
+    let name = crate::config::read_env(crate::config::RDI_DLL_SECTION);
+    let size_raw = crate::config::read_env(crate::config::RDI_DLL_SIZE);
+    if name.is_empty() || size_raw.is_empty() {
+        dbg_log!("section: no RDI_DLL_SECTION/RDI_DLL_SIZE env — reflective child inject disabled");
+        return None;
+    }
+
+    let mut size: usize = 0;
+    for &c in &size_raw {
+        if !(0x30..=0x39).contains(&c) {
+            dbg_log!("section: RDI_DLL_SIZE not ASCII digits — reflective child inject disabled");
+            return None;
+        }
+        size = size.saturating_mul(10).saturating_add((c - 0x30) as usize);
+    }
+    if size == 0 {
+        dbg_log!("section: RDI_DLL_SIZE is 0 — reflective child inject disabled");
+        return None;
+    }
+
+    let mut name_null = name.clone();
+    name_null.push(0);
+    let handle = unsafe { abi::OpenFileMappingW(abi::FILE_MAP_READ, 0, name_null.as_ptr()) };
+    if handle == 0 {
+        dbg_log!("section: OpenFileMappingW failed for '{}'", crate::log::display_wide(&name));
+        return None;
+    }
+
+    let view = unsafe { abi::MapViewOfFile(handle, abi::FILE_MAP_READ, 0, 0, size) };
+    if view == 0 {
+        unsafe {
+            abi::CloseHandle(handle);
+        }
+        dbg_log!("section: MapViewOfFile failed (size={size})");
+        return None;
+    }
+
+    let bytes = unsafe { std::slice::from_raw_parts(view as *const u8, size) }.to_vec();
+    unsafe {
+        abi::UnmapViewOfFile(view);
+        abi::CloseHandle(handle);
+    }
+    dbg_log!("section: loaded {size} DLL bytes for reflective child inject");
+    Some(bytes)
+}
+
+/// Locate the file offset of the `ReflectiveLoader` export within a raw PE
+/// image (raw memory offset == file offset because the bytes are copied 1:1).
+/// Reads are bounds-checked so a truncated image never faults.
+fn find_reflective_loader_offset(pe: &[u8]) -> Option<u32> {
+    if pe.len() < 64 || pe[0] != b'M' || pe[1] != b'Z' {
+        return None;
+    }
+    let lfanew = u32::from_le_bytes([pe[60], pe[61], pe[62], pe[63]]) as usize;
+    if lfanew + 4 > pe.len() {
+        return None;
+    }
+    if pe[lfanew..lfanew + 4] != [0x50, 0x45, 0x00, 0x00] {
+        return None;
+    }
+
+    let coff = lfanew + 4;
+    if coff + 20 > pe.len() {
+        return None;
+    }
+    let num_sections = u16::from_le_bytes([pe[coff + 2], pe[coff + 3]]);
+    let opt_size = u16::from_le_bytes([pe[coff + 16], pe[coff + 17]]) as usize;
+    let opt = coff + 20;
+    if opt + 2 > pe.len() {
+        return None;
+    }
+    let magic = u16::from_le_bytes([pe[opt], pe[opt + 1]]);
+
+    let dd_off = match magic {
+        0x20B => opt + 112, // PE32+ (x64)
+        0x10B => opt + 96,  // PE32
+        _ => return None,
+    };
+    if dd_off + 40 > pe.len() {
+        return None;
+    }
+    let export_rva = u32::from_le_bytes([pe[dd_off], pe[dd_off + 1], pe[dd_off + 2], pe[dd_off + 3]]);
+    if export_rva == 0 {
+        return None;
+    }
+
+    let section_off = opt + opt_size;
+    let export_off = rva_to_file_offset(export_rva, pe, section_off, num_sections)? as usize;
+    if export_off + 40 > pe.len() {
+        return None;
+    }
+
+    let names_rva = u32::from_le_bytes(pe[export_off + 32..export_off + 36].try_into().ok()?);
+    let funcs_rva = u32::from_le_bytes(pe[export_off + 28..export_off + 32].try_into().ok()?);
+    let ordinals_rva = u32::from_le_bytes(pe[export_off + 36..export_off + 40].try_into().ok()?);
+    let num_names = u32::from_le_bytes(pe[export_off + 24..export_off + 28].try_into().ok()?);
+
+    let names_off = rva_to_file_offset(names_rva, pe, section_off, num_sections)? as usize;
+    let funcs_off = rva_to_file_offset(funcs_rva, pe, section_off, num_sections)? as usize;
+    let ordinals_off = rva_to_file_offset(ordinals_rva, pe, section_off, num_sections)? as usize;
+
+    let find_name = b"ReflectiveLoader";
+    for i in 0..num_names as usize {
+        let name_ent = names_off + i * 4;
+        if name_ent + 4 > pe.len() {
+            return None;
+        }
+        let name_rva = u32::from_le_bytes(pe[name_ent..name_ent + 4].try_into().ok()?);
+        let Some(name_fo) = rva_to_file_offset(name_rva, pe, section_off, num_sections) else {
+            continue;
+        };
+        let name_fo = name_fo as usize;
+        if name_fo + find_name.len() > pe.len() {
+            continue;
+        }
+        let name = &pe[name_fo..name_fo + find_name.len()];
+        if name != find_name || pe.get(name_fo + find_name.len()) != Some(&0) {
+            continue;
+        }
+        let ord_ent = ordinals_off + i * 2;
+        if ord_ent + 2 > pe.len() {
+            return None;
+        }
+        let ordinal = u16::from_le_bytes([pe[ord_ent], pe[ord_ent + 1]]) as usize;
+        let func_ent = funcs_off + ordinal * 4;
+        if func_ent + 4 > pe.len() {
+            return None;
+        }
+        let func_rva = u32::from_le_bytes(pe[func_ent..func_ent + 4].try_into().ok()?);
+        return rva_to_file_offset(func_rva, pe, section_off, num_sections);
+    }
+    None
+}
+
+fn rva_to_file_offset(rva: u32, pe: &[u8], section_off: usize, num_sections: u16) -> Option<u32> {
+    for i in 0..num_sections as usize {
+        let s = section_off + i * 40;
+        if s + 40 > pe.len() {
+            return None;
+        }
+        let virtual_addr = u32::from_le_bytes(pe[s + 12..s + 16].try_into().ok()?);
+        let raw_size = u32::from_le_bytes(pe[s + 16..s + 20].try_into().ok()?);
+        let raw_ptr = u32::from_le_bytes(pe[s + 20..s + 24].try_into().ok()?);
+        if rva >= virtual_addr && rva < virtual_addr.saturating_add(raw_size) {
+            return Some(rva.wrapping_sub(virtual_addr).wrapping_add(raw_ptr));
+        }
+    }
+    // Header data lives before the first section's raw pointer.
+    if num_sections > 0 {
+        let s = section_off;
+        if s + 24 <= pe.len() {
+            let first_raw_ptr = u32::from_le_bytes(pe[s + 20..s + 24].try_into().ok()?);
+            if rva < first_raw_ptr {
+                return Some(rva);
+            }
+        }
+    }
+    None
+}
+
+/// Inject raw DLL bytes into `process` by copying them at their natural file
+/// offsets and running our exported `ReflectiveLoader` on a remote thread.
+/// Returns false on any failure; callers treat failure as fail-open.
+pub unsafe fn inject_reflective(process: usize, bytes: &[u8]) -> bool {
+    let Some(loader_offset) = find_reflective_loader_offset(bytes) else {
+        dbg_log!("inject-reflective: ReflectiveLoader export not found in DLL bytes");
+        return false;
+    };
+    dbg_log!("inject-reflective: loader offset=0x{loader_offset:x} size={}", bytes.len());
+
+    let base = unsafe {
+        abi::VirtualAllocEx(
+            process,
+            0,
+            bytes.len(),
+            abi::MEM_COMMIT | abi::MEM_RESERVE,
+            abi::PAGE_EXECUTE_READWRITE,
+        )
+    };
+    if base == 0 {
+        dbg_log!("inject-reflective: VirtualAllocEx failed");
+        return false;
+    }
+
+    let mut written = 0usize;
+    let ok = unsafe {
+        abi::WriteProcessMemory(
+            process,
+            base,
+            bytes.as_ptr() as *const c_void,
+            bytes.len(),
+            &mut written,
+        )
+    };
+    if ok == 0 || written != bytes.len() {
+        dbg_log!("inject-reflective: WriteProcessMemory failed (ok={ok} written={written})");
+        unsafe {
+            abi::VirtualFreeEx(process, base, 0, abi::MEM_RELEASE);
+        }
+        return false;
+    }
+
+    let mut thread_id = 0u32;
+    let h_thread = unsafe {
+        abi::CreateRemoteThread(
+            process,
+            null_mut(),
+            1024 * 1024,
+            base + loader_offset as usize,
+            0,
+            0,
+            &mut thread_id,
+        )
+    };
+    if h_thread == 0 {
+        dbg_log!("inject-reflective: CreateRemoteThread failed");
+        return false;
+    }
+
+    let wait = unsafe { abi::WaitForSingleObject(h_thread, 30000) };
+    unsafe {
+        abi::CloseHandle(h_thread);
+    }
+    let ok = wait == abi::WAIT_OBJECT_0;
+    dbg_log!("inject-reflective: remote thread wait=0x{wait:08X} thread_id={thread_id} -> {ok}");
+    ok
 }
 
 /// Inject `path` into `process` by writing the path into the target and running
@@ -110,4 +358,54 @@ pub unsafe fn inject_library(process: usize, path: &[u16]) -> bool {
         "inject: remote thread wait=0x{wait:08X} thread_id={thread_id} -> {ok}"
     );
     ok
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Locate the built DLL so the export resolver can be exercised against the
+    /// real artifact (wherever the tests run from one of the release outputs).
+    fn built_dll_bytes() -> Option<Vec<u8>> {
+        let root = std::env::var_os("CARGO_MANIFEST_DIR")?;
+        for path in [
+            "target/x86_64-pc-windows-msvc/release/BackstageInjection.dll",
+            "target/x86_64-pc-windows-gnu/release/BackstageInjection.dll",
+            "target/release/BackstageInjection.dll",
+        ] {
+            let p = std::path::Path::new(&root).join(path);
+            if let Ok(bytes) = std::fs::read(&p) {
+                return Some(bytes);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn find_loader_rejects_truncated_input_without_panicking() {
+        for len in [0usize, 1, 63, 64, 65, 100, 1000] {
+            let mut bytes = vec![0u8; len];
+            if len >= 2 {
+                bytes[0] = b'M';
+                bytes[1] = b'Z';
+            }
+            assert_eq!(find_reflective_loader_offset(&bytes), None, "len={len}");
+        }
+    }
+
+    #[test]
+    fn find_loader_rejects_garbage_pe() {
+        assert_eq!(find_reflective_loader_offset(b"RIFF this is not a pe file at all"), None);
+    }
+
+    #[test]
+    fn find_loader_finds_export_in_real_dll() {
+        let Some(dll) = built_dll_bytes() else {
+            eprintln!("skipping: built DLL not found (run cargo build first)");
+            return;
+        };
+        let offset = find_reflective_loader_offset(&dll).expect("ReflectiveLoader export in built DLL");
+        assert!(offset > 0, "loader offset must be inside the image");
+        assert!((offset as usize) < dll.len());
+    }
 }

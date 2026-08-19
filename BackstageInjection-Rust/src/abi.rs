@@ -10,7 +10,12 @@ pub const STATUS_UNSUCCESSFUL: i32 = 0xC000_0001u32 as i32;
 // ---- Memory allocation constants ----
 pub const MEM_COMMIT: u32 = 0x1000;
 pub const MEM_RESERVE: u32 = 0x2000;
+pub const MEM_RELEASE: u32 = 0x8000;
 pub const PAGE_READWRITE: u32 = 0x04;
+pub const PAGE_EXECUTE_READWRITE: u32 = 0x40;
+
+// ---- File mapping (RDI DLL section) constants ----
+pub const FILE_MAP_READ: u32 = 0x0004;
 
 // ---- CreateProcess flags ----
 pub const CREATE_SUSPENDED: u32 = 0x0000_0004;
@@ -180,6 +185,25 @@ extern "system" {
         flAllocationType: u32,
         flProtect: u32,
     ) -> usize;
+    pub fn VirtualFreeEx(
+        hProcess: usize,
+        lpAddress: usize,
+        dwSize: usize,
+        dwFreeType: u32,
+    ) -> i32;
+    pub fn OpenFileMappingW(
+        dwDesiredAccess: u32,
+        bInheritHandle: i32,
+        lpName: *const u16,
+    ) -> usize;
+    pub fn MapViewOfFile(
+        hFileMappingObject: usize,
+        dwDesiredAccess: u32,
+        dwFileOffsetHigh: u32,
+        dwFileOffsetLow: u32,
+        dwNumberOfBytesToMap: usize,
+    ) -> usize;
+    pub fn UnmapViewOfFile(lpBaseAddress: usize) -> i32;
     pub fn WriteProcessMemory(
         hProcess: usize,
         lpBaseAddress: usize,

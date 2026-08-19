@@ -2,10 +2,16 @@
 //!
 //! On DLL_PROCESS_ATTACH the DLL:
 //!   - reads the RDI_SEARCH_PATH / RDI_REPLACE_PATH environment configuration;
+//!   - opens the RDI_DLL_SECTION / RDI_DLL_SIZE page-file section passed by the
+//!     agent so child processes can be injected in-memory (reflective path);
 //!   - installs MinHook trampolines over ntdll path-resolution APIs and
 //!     kernel32!CreateProcessW;
-//!   - on CreateProcessW success for a child, injects this same DLL from its
-//!     on-disk path via LoadLibraryW.
+//!   - on CreateProcessW success for a child, reflectively injects this DLL
+//!     from the shared-section bytes, or falls back to Injecting the module's
+//!     own on-disk path via LoadLibraryW when no section is present.
+//!
+//! The cdylib also exports `ReflectiveLoader` (compiled from the vendored C
+//! loader in reflective/) so the initial injection itself can be reflective.
 //!
 //! On DLL_PROCESS_DETACH all hooks are disabled best-effort.
 
@@ -37,11 +43,16 @@ pub extern "system" fn DllMain(
         }
         log::init_from_env();
         let cfg = config::load();
+        if let Some(bytes) = unsafe { inject::load_dll_bytes_from_section() } {
+            inject::set_dll_bytes(bytes);
+        }
         dbg_log!(
-            "DllMain attach pid={} search={} replace={}",
+            "DllMain attach pid={} search={} replace={} have_section_bytes={} our_path='{}'",
             unsafe { abi::GetCurrentProcessId() },
             crate::log::display_wide(&cfg.search),
             crate::log::display_wide(&cfg.replace),
+            inject::dll_bytes().is_some(),
+            crate::log::display_wide(inject::our_path().unwrap_or(&Vec::new())),
         );
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             hooks::install(cfg);

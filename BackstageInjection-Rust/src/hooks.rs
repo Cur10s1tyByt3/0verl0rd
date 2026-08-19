@@ -376,19 +376,27 @@ pub extern "system" fn detour_create_process_w(
             dbg_log!(
                 "CreateProcessW child pid={child_pid} created but hooks NOT active — skipping injection"
             );
-        } else if let Some(path) = inject::our_path() {
-            if !path.is_empty() {
-                let ok = unsafe { inject::inject_library((*lp_process_information).hProcess, path) };
-                dbg_log!(
-                    "CreateProcessW child pid={child_pid} app='{}' inject={ok} suspended_forced={}",
-                    display_cmd(lp_application_name, lp_command_line),
-                    !was_suspended,
-                );
-            } else {
-                dbg_log!("CreateProcessW child pid={child_pid} injection skipped: our_path empty");
-            }
         } else {
-            dbg_log!("CreateProcessW child pid={child_pid} injection skipped: no dll path recorded");
+            let h_process = unsafe { (*lp_process_information).hProcess };
+            let injected = if let Some(bytes) = inject::dll_bytes() {
+                unsafe { inject::inject_reflective(h_process, bytes) }
+            } else if let Some(path) = inject::our_path() {
+                if path.is_empty() {
+                    dbg_log!("CreateProcessW child pid={child_pid} injection skipped: our_path empty");
+                    false
+                } else {
+                    unsafe { inject::inject_library(h_process, path) }
+                }
+            } else {
+                dbg_log!("CreateProcessW child pid={child_pid} injection skipped: no dll bytes or path");
+                false
+            };
+            dbg_log!(
+                "CreateProcessW child pid={child_pid} app='{}' inject={injected} mode={} suspended_forced={}",
+                display_cmd(lp_application_name, lp_command_line),
+                if inject::dll_bytes().is_some() { "reflective" } else { "loadlibrary" },
+                !was_suspended,
+            );
         }
         if !was_suspended {
             unsafe {
