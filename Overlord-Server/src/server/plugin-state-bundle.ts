@@ -66,11 +66,15 @@ export async function ensurePluginExtracted(
   }
 
   if (!zipStat) {
-    if (manifestStat) return;
+    if (manifestStat) {
+      await rejectUnsupportedWasmManifest(manifestPath, safeId);
+      return;
+    }
     throw new Error(`Plugin bundle not found: ${safeId}`);
   }
 
   if (manifestStat && manifestStat.mtimeMs >= zipStat.mtimeMs) {
+    await rejectUnsupportedWasmManifest(manifestPath, safeId);
     return;
   }
 
@@ -101,7 +105,6 @@ export async function ensurePluginExtracted(
   let jsEntry: Buffer | null = null;
   let serverEntry: Buffer | null = null;
   let configEntry: Buffer | null = null;
-  let wasmEntry: { filename: string; data: Buffer } | null = null;
   const sourceEntries: Map<string, Buffer> = new Map();
   const nativeBinaries: Map<string, Buffer> = new Map();
 
@@ -113,7 +116,7 @@ export async function ensurePluginExtracted(
     if (lower.endsWith(".so") || lower.endsWith(".dll") || lower.endsWith(".dylib")) {
       nativeBinaries.set(base, entry.getData());
     } else if (lower.endsWith(".wasm")) {
-      wasmEntry = { filename: base, data: entry.getData() };
+      throw new Error(`Invalid plugin bundle: ${safeId} (WASM plugins are not supported)`);
     } else if (lower === "server.js") {
       serverEntry = entry.getData();
     } else if (lower.endsWith(".html")) {
@@ -137,6 +140,10 @@ export async function ensurePluginExtracted(
     } catch (err) {
       warnPlugin(`[plugin] invalid config.json in bundle ${safeId}, ignoring: ${err}`);
     }
+  }
+
+  if (declaresWasmPlugin(extraConfig)) {
+    throw new Error(`Invalid plugin bundle: ${safeId} (WASM plugins are not supported)`);
   }
 
   const uiTsEntry = getConfiguredSourceEntry(extraConfig, ["uiEntry", "ui.entry", "build.ui", "build.uiEntry"], sourceEntries)
@@ -163,11 +170,6 @@ export async function ensurePluginExtracted(
       binariesMap[platformKey] = filename;
     }
   }
-  if (wasmEntry) {
-    await fs.writeFile(path.join(pluginDir, wasmEntry.filename), wasmEntry.data);
-    binariesMap["wasm32-wasi"] = wasmEntry.filename;
-  }
-
   if (sourceEntries.size > 0) {
     await fs.rm(path.join(pluginDir, "src"), { recursive: true, force: true });
     for (const [relPath, data] of sourceEntries) {
@@ -199,7 +201,7 @@ export async function ensurePluginExtracted(
     try { await fs.rm(serverScriptPath, { force: true }); } catch {}
   }
 
-  const runtime = normalizePluginRuntime(extraConfig.runtime, wasmEntry !== null);
+  const runtime = normalizePluginRuntime(extraConfig.runtime);
   const nativeLoader = normalizeNativeLoader(extraConfig.nativeLoader);
   const nativeEntrypoints = normalizeNativeEntrypoints(extraConfig.nativeEntrypoints);
   const needs = normalizePluginNeeds(extraConfig.needs);
@@ -207,7 +209,7 @@ export async function ensurePluginExtracted(
   const manifest: PluginManifest = {
     id: safeId,
     name: extraConfig.name || safeId,
-    apiVersion: Number(extraConfig.apiVersion) === 2 || runtime === "wasm" ? 2 : 1,
+    apiVersion: Number(extraConfig.apiVersion) === 2 ? 2 : 1,
     runtime,
     ...(nativeLoader && { nativeLoader }),
     ...(extraConfig.autoLoadByDefault === true && { autoLoadByDefault: true }),
@@ -215,7 +217,6 @@ export async function ensurePluginExtracted(
     version: extraConfig.version || "1.0.0",
     description: extraConfig.description,
     ...(typeof extraConfig.binary === "string" && extraConfig.binary && { binary: extraConfig.binary }),
-    ...(runtime === "wasm" && { wasm: String(extraConfig.wasm || wasmEntry?.filename || binariesMap["wasm32-wasi"] || "") }),
     ...(needs && { needs }),
     binaries: binariesMap,
     entry: `${safeId}.html`,
@@ -280,6 +281,10 @@ export async function listPluginManifests(
       try {
         const raw = await fs.readFile(manifestPath, "utf-8");
         const manifest = JSON.parse(raw) as PluginManifest;
+        if (declaresWasmPlugin(manifest)) {
+          warnPlugin(`[plugin] skipped ${ent.name}: WASM plugins are not supported`);
+          continue;
+        }
         const id = manifest.id || ent.name;
         const name = manifest.name || ent.name;
         if (pluginState.enabled[id] === undefined) {
@@ -318,14 +323,8 @@ export async function loadPluginBundle(
   manifest.id = manifest.id || pluginId;
   manifest.name = manifest.name || pluginId;
 
-  if (manifest.runtime === "wasm" || manifest.wasm || manifest.binaries?.["wasm32-wasi"]) {
-    const wasmName = manifest.wasm || manifest.binaries?.["wasm32-wasi"];
-    if (!wasmName) {
-      throw new Error(`No WASM module configured for ${pluginId}`);
-    }
-    const binaryPath = path.join(dir, wasmName);
-    const stat = await fs.stat(binaryPath);
-    return { manifest: { ...manifest, runtime: "wasm", apiVersion: 2 }, binaryPath, size: stat.size };
+  if (declaresWasmPlugin(manifest)) {
+    throw new Error(`WASM plugins are not supported: ${pluginId}`);
   }
 
   manifest.runtime = manifest.runtime || "native";
@@ -632,11 +631,28 @@ export function normalizePluginNeeds(raw: any): PluginNeeds | undefined {
   return files.length > 0 ? { files } : undefined;
 }
 
-function normalizePluginRuntime(runtime: any, hasWasm: boolean): "native" | "wasm" | "server" {
+function normalizePluginRuntime(runtime: any): "native" | "server" {
   const value = typeof runtime === "string" ? runtime.trim().toLowerCase() : "";
-  if (value === "wasm" || hasWasm) return "wasm";
   if (value === "server") return "server";
   return "native";
+}
+
+function declaresWasmPlugin(value: any): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (typeof value.runtime === "string" && value.runtime.trim().toLowerCase() === "wasm") return true;
+  if (typeof value.wasm === "string" && value.wasm.trim()) return true;
+  if (!value.binaries || typeof value.binaries !== "object" || Array.isArray(value.binaries)) return false;
+  return Object.entries(value.binaries).some(([key, filename]) =>
+    key.trim().toLowerCase().includes("wasm")
+      || (typeof filename === "string" && filename.trim().toLowerCase().endsWith(".wasm"))
+  );
+}
+
+async function rejectUnsupportedWasmManifest(manifestPath: string, pluginId: string): Promise<void> {
+  const manifest = JSON.parse(await fs.readFile(manifestPath, "utf-8"));
+  if (declaresWasmPlugin(manifest)) {
+    throw new Error(`WASM plugins are not supported: ${pluginId}`);
+  }
 }
 
 function normalizeNativeLoader(loader: any): "memory" | "os" | undefined {

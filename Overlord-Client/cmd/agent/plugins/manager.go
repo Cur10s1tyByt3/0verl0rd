@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,13 +50,11 @@ func (m *Manager) Load(ctx context.Context, manifest PluginManifest, binary []by
 	}
 	m.mu.Unlock()
 
-	var np PluginRuntime
-	var err error
-	if manifest.RuntimeKind == "wasm" || manifest.WASM != "" {
-		np, err = loadWASMPlugin(ctx, manifest, binary)
-	} else {
-		np, err = loadNativePlugin(manifest, binary)
+	if strings.EqualFold(strings.TrimSpace(manifest.RuntimeKind), "wasm") {
+		return errors.New("WASM plugins are not supported")
 	}
+
+	np, err := loadNativePlugin(manifest, binary)
 	if err != nil {
 		return err
 	}

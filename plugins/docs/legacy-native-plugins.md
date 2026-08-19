@@ -1,12 +1,12 @@
-# Legacy Native Plugins
+# Native Plugins
 
-Legacy native v1 plugins run as shared libraries inside the agent. They are still supported and still useful when you need capabilities that the WASM runtime intentionally does not expose.
+Native plugins run as shared libraries inside the agent.
 
-Use legacy native plugins when you need direct OS APIs, native libraries, custom process/thread behavior, platform-specific integrations, or code that cannot reasonably be compiled to the Plugin 2.0 WASM ABI.
+Use native plugins when you need direct OS APIs, native libraries, custom process/thread behavior, or platform-specific integrations.
 
 Native plugins run with the same privileges as the agent. They are not sandboxed.
 
-## What Legacy Plugins Can Do
+## What Native Plugins Can Do
 
 | Capability | Notes |
 |------------|-------|
@@ -16,11 +16,9 @@ Native plugins run with the same privileges as the agent. They are not sandboxed
 | Emit plugin events | Send events back to the UI/server through the host callback. |
 | Receive UI/server commands | Handle `PluginOnEvent` calls from plugin UI actions or server-side routing. |
 
-WASM Plugin 2.0 is preferred for sandboxed, portable agent modules. Legacy native plugins are the escape hatch for privileged native behavior.
-
 ## Bundle Layout
 
-A legacy bundle is a zip with web assets plus one or more platform binaries:
+A native bundle is a zip with web assets plus one or more platform binaries:
 
 ```text
 <pluginId>.zip
@@ -253,7 +251,7 @@ Most plugin authors can ignore this, but it is useful when debugging Linux nativ
 
 ## Build Scripts
 
-Legacy samples include `build.bat` and `build.sh`. They compile native binaries and zip them with web assets.
+Native samples include `build.bat` and `build.sh`. They compile native binaries and zip them with web assets.
 
 Default usage:
 
@@ -316,4 +314,4 @@ The native plugin can reply by invoking the host callback. Those callback events
 
 ## Security Notes
 
-Legacy native plugins are trusted executable code. They can call OS APIs, read/write files available to the agent process, spawn subprocesses, open sockets, and interact with native libraries. Use plugin signing, per-user plugin access, and code review before deploying third-party native plugins.
+Native plugins are trusted executable code. They can call OS APIs, read/write files available to the agent process, spawn subprocesses, open sockets, and interact with native libraries. Use plugin signing, per-user plugin access, and code review before deploying third-party native plugins.

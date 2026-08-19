@@ -10,7 +10,7 @@ Plugin bundles are zip files named after the plugin ID. `config.json` must be at
   <pluginId>.html
   <pluginId>.css
   <pluginId>.js              optional when src/ui.ts exists
-  <pluginId>.wasm            optional agent-side WASM module
+  <pluginId>-<os>-<arch>.*   optional native agent library
   server.js                  optional server runtime
   src/
     ui.ts                    compiled to assets/<pluginId>.js
@@ -25,8 +25,7 @@ After extraction the server stores assets under `Overlord-Server/plugins/<plugin
 ```json
 {
   "apiVersion": 2,
-  "runtime": "wasm",
-  "wasm": "sample-wasm.wasm"
+  "runtime": "server"
 }
 ```
 
@@ -35,8 +34,7 @@ Use:
 | Runtime | Use case |
 |---------|----------|
 | `server` | Server-only extension, build plugin, dashboard plugin, RPC-backed plugin. |
-| `wasm` | Sandboxed agent-side Plugin 2.0 module. |
-| `native` or omitted v1 fields | Legacy shared-library agent plugin. |
+| `native` or omitted v1 fields | Shared-library agent plugin. |
 
 Server-only plugins are not sent to clients and do not use auto-load.
 

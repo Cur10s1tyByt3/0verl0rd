@@ -45,7 +45,7 @@ describe("loadPluginBundle", () => {
     expect(bundle.size).toBe("test-binary".length);
   });
 
-  test("loads wasm manifest independently of client platform", async () => {
+  test("rejects an extracted WASM manifest", async () => {
     const root = await createTempRoot();
     const pluginDir = join(root, "wasm-demo");
     await mkdir(pluginDir, { recursive: true });
@@ -62,13 +62,23 @@ describe("loadPluginBundle", () => {
       }),
     );
 
-    const bundle = await loadPluginBundle(root, "wasm-demo", async () => {}, "Windows 11", "amd64");
+    await expect(loadPluginBundle(root, "wasm-demo", async () => {}, "Windows 11", "amd64"))
+      .rejects.toThrow("WASM plugins are not supported");
+  });
 
-    expect(bundle.manifest.apiVersion).toBe(2);
-    expect(bundle.manifest.runtime).toBe("wasm");
-    expect(bundle.manifest.wasm).toBe("plugin.wasm");
-    expect(bundle.binaryPath).toBe(join(root, "wasm-demo", "plugin.wasm"));
-    expect(bundle.size).toBe(4);
+  test("rejects a bundle containing a WASM module", async () => {
+    const root = await createTempRoot();
+    const AdmZip = require("adm-zip");
+    const zip = new AdmZip();
+    zip.addFile("config.json", Buffer.from(JSON.stringify({ name: "WASM Demo", runtime: "wasm" })));
+    zip.addFile("wasm-demo.html", Buffer.from("<div></div>"));
+    zip.addFile("wasm-demo.css", Buffer.from("body {}"));
+    zip.addFile("wasm-demo.js", Buffer.from("console.log('demo')"));
+    zip.addFile("wasm-demo.wasm", Buffer.from([0x00, 0x61, 0x73, 0x6d]));
+    zip.writeZip(join(root, "wasm-demo.zip"));
+
+    await expect(ensurePluginExtracted(root, "wasm-demo", (name) => name))
+      .rejects.toThrow("WASM plugins are not supported");
   });
 
   test("keeps helper DLLs out of the native platform binary map", async () => {

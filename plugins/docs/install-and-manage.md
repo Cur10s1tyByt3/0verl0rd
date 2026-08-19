@@ -36,8 +36,7 @@ Navbar plugins appear in the Plugin Apps group when enabled and configured with:
 | Plugin kind | Manager behavior |
 |-------------|------------------|
 | Server-only (`runtime: "server"`) | Shown as a server extension. Auto-load controls are hidden. It is not sent to clients. |
-| WASM (`runtime: "wasm"`) | Shows declared needs and approval state. Can be loaded on compatible clients after needs approval. |
-| Legacy native | Shows native binary/runtime compatibility. Requires matching OS/architecture binary. |
+| Native (`runtime: "native"`) | Shows native binary/runtime compatibility. Requires a matching OS/architecture binary. |
 
 ## Auto-Load
 
@@ -50,16 +49,15 @@ Auto-load notes:
 | Rule | Detail |
 |------|--------|
 | Enabled flag | Disabled plugins are never auto-loaded. |
-| WASM needs | WASM plugins with unapproved needs are blocked. |
 | Persistence | Auto-load state is saved in `.plugin-state.json`. |
-| Platform matching | WASM is universal; legacy native requires a matching binary. |
+| Platform matching | Native plugins require a matching binary. |
 | Bundle default | `autoLoadByDefault: true` enables auto-load only after the plugin passes trusted enablement or an administrator explicitly confirms enablement. |
 
 ## Useful APIs
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /api/plugins` | List installed plugins, runtime, needs, enabled state, server state, and auto-load state. |
+| `GET /api/plugins` | List installed plugins, runtime, enabled state, server state, and auto-load state. |
 | `POST /api/plugins/<id>/autoload` | Configure auto-load for client-side plugins. Server-only plugins reject this. |
 | `POST /api/plugins/<id>/rpc` | Call a server-side plugin RPC method. |
 | `GET /api/plugins/<id>/stream` | Subscribe to server-side plugin broadcasts. |

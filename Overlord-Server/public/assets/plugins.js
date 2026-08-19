@@ -146,24 +146,19 @@ function renderPlugins(plugins) {
     titleRow.appendChild(trustBadge);
 
     const runtimeBadge = document.createElement("span");
-    const isWasm = plugin.runtime === "wasm";
     const isV2 = Number(plugin.apiVersion || 1) >= 2;
     runtimeBadge.className = `inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${
       isServerOnly
         ? "text-fuchsia-200 border-fuchsia-700 bg-fuchsia-950/50"
-        : isWasm
-        ? "text-cyan-300 border-cyan-700 bg-cyan-950/40"
         : isV2
           ? "text-emerald-300 border-emerald-700 bg-emerald-950/40"
         : "text-slate-300 border-slate-700 bg-slate-900/60"
     }`;
     runtimeBadge.innerHTML = isServerOnly
       ? '<i class="fa-solid fa-server"></i> Server Extension'
-      : isWasm
-      ? '<i class="fa-solid fa-cube"></i> WASM 2.0'
       : isV2
         ? '<i class="fa-solid fa-code"></i> Plugin 2.0'
-      : '<i class="fa-solid fa-puzzle-piece"></i> Native Legacy';
+      : '<i class="fa-solid fa-puzzle-piece"></i> Native';
     titleRow.appendChild(runtimeBadge);
 
     const subtitle = document.createElement("div");

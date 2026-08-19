@@ -343,7 +343,7 @@ export type PluginManifest = {
   id: string;
   name: string;
   apiVersion?: number;
-  runtime?: "native" | "wasm" | "server" | string;
+  runtime?: "native" | "server" | string;
   nativeLoader?: "memory" | "os" | string;
   autoLoadByDefault?: boolean;
   nativeEntrypoints?: PluginNativeEntrypoints;
@@ -351,7 +351,6 @@ export type PluginManifest = {
   description?: string;
   binary?: string;
   binaries?: Record<string, string>;
-  wasm?: string;
   needs?: PluginNeeds;
   entry?: string;
   assets?: {
