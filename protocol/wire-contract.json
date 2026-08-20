@@ -1,6 +1,6 @@
 {
   "$schema": "./wire-contract.schema.json",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "protocolVersion": 1,
   "encoding": "messagepack",
   "compatibility": "additive",
@@ -8,32 +8,50 @@
     "defaultVersion": 1,
     "overrides": {
       "backstage_start_browser_injected": {
-        "latestVersion": 2,
+        "latestVersion": 3,
+        "minVersion": 2,
         "changes": {
           "2": {
             "breaking": true,
             "summary": "Use a Backstage injection DLL with a randomized reflective-loader export",
             "migration": "Keep the v1 payload fields unchanged but supply a DLL exporting ReflectiveLoader; v2 supplies the same payload with a DLL whose loader export is x followed by six lowercase hexadecimal digits"
+          },
+          "3": {
+            "breaking": true,
+            "summary": "Remove the legacy fixed-export injection DLL; only the randomized-export Rust DLL is served",
+            "migration": "v2 payloads are unchanged and remain valid. v1 is no longer supported: clients that require a DLL exporting the fixed ReflectiveLoader name are rejected at negotiation and must be upgraded to accept a DLL whose loader export is x followed by six lowercase hexadecimal digits"
           }
         }
       },
       "backstage_start_chrome_injected": {
-        "latestVersion": 2,
+        "latestVersion": 3,
+        "minVersion": 2,
         "changes": {
           "2": {
             "breaking": true,
             "summary": "Use a Backstage injection DLL with a randomized reflective-loader export",
             "migration": "Keep the v1 payload fields unchanged but supply a DLL exporting ReflectiveLoader; v2 supplies the same payload with a DLL whose loader export is x followed by six lowercase hexadecimal digits"
+          },
+          "3": {
+            "breaking": true,
+            "summary": "Remove the legacy fixed-export injection DLL; only the randomized-export Rust DLL is served",
+            "migration": "v2 payloads are unchanged and remain valid. v1 is no longer supported: clients that require a DLL exporting the fixed ReflectiveLoader name are rejected at negotiation and must be upgraded to accept a DLL whose loader export is x followed by six lowercase hexadecimal digits"
           }
         }
       },
       "backstage_start_process_injected": {
-        "latestVersion": 2,
+        "latestVersion": 3,
+        "minVersion": 2,
         "changes": {
           "2": {
             "breaking": true,
             "summary": "Use a Backstage injection DLL with a randomized reflective-loader export",
             "migration": "Keep the v1 payload fields unchanged but supply a DLL exporting ReflectiveLoader; v2 supplies the same payload with a DLL whose loader export is x followed by six lowercase hexadecimal digits"
+          },
+          "3": {
+            "breaking": true,
+            "summary": "Remove the legacy fixed-export injection DLL; only the randomized-export Rust DLL is served",
+            "migration": "v2 payloads are unchanged and remain valid. v1 is no longer supported: clients that require a DLL exporting the fixed ReflectiveLoader name are rejected at negotiation and must be upgraded to accept a DLL whose loader export is x followed by six lowercase hexadecimal digits"
           }
         }
       }

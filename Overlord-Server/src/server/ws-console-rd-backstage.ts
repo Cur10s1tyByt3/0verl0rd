@@ -40,7 +40,10 @@ function getVersionedInjectionDll(
 ): Uint8Array | null {
   if (!target) return null;
   try {
-    return getInjectionDllBytes(requireCommandVersion(target, commandType));
+    // Gate on command negotiation so clients that cannot run the command are
+    // rejected, then serve the single randomized-export injection DLL.
+    requireCommandVersion(target, commandType);
+    return getInjectionDllBytes();
   } catch (error) {
     logger.warn(`[backstage] cannot negotiate ${commandType}: ${error instanceof Error ? error.message : String(error)}`);
     return null;

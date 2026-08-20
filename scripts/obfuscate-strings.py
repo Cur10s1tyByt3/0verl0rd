@@ -3,7 +3,7 @@
 Generate _OBF_CHR sequences for compile-time string obfuscation (ROT16).
 
 Usage:
-    python scripts/obfuscate-strings.py ReflectiveLoader
+    python scripts/obfuscate-strings.py "ntdll.dll"
     python scripts/obfuscate-strings.py "ntdll.dll" "RtlAddFunctionTable"
 
 Outputs a C array initializer using _OBF_CHR() for each character.
@@ -23,7 +23,7 @@ def obfuscate(s):
 def main():
     if len(sys.argv) < 2:
         print("Usage: python obfuscate-strings.py STRING [STRING...]", file=sys.stderr)
-        print("Example: python obfuscate-strings.py ReflectiveLoader", file=sys.stderr)
+        print("Example: python scripts/obfuscate-strings.py \"ntdll.dll\"", file=sys.stderr)
         sys.exit(1)
 
     for arg in sys.argv[1:]:

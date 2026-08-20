@@ -6,7 +6,6 @@ import { ensureToolchain, getToolchainRoot } from "./toolchain-manager";
 import { resolveRuntimeRoot } from "./runtime-paths";
 import {
   BACKSTAGE_DLL_NAME,
-  BACKSTAGE_LEGACY_DLL_NAME,
   backstageDllOutputPath,
   invalidateBackstageDll,
 } from "./backstage-dll-cache";
@@ -170,8 +169,7 @@ export async function rebuildBackstageDll(
   _building = true;
   _lastBuild = { startedAt: Date.now(), finishedAt: null, ok: null, message: "Build started." };
 
-  const outPath = backstageDllOutputPath(2);
-  const legacyOutPath = backstageDllOutputPath(1);
+  const outPath = backstageDllOutputPath();
   const outDir = path.dirname(outPath);
 
   try {
@@ -207,7 +205,6 @@ export async function rebuildBackstageDll(
       fullEnv.PATH = [...binDirs, fullEnv.PATH || ""].filter(Boolean).join(path.delimiter);
     }
     Object.assign(fullEnv, env);
-    delete fullEnv.BACKSTAGE_LOADER_EXPORT;
     delete fullEnv.BACKSTAGE_LOADER_SEED;
 
     const streamLines = async (stream: ReadableStream<Uint8Array> | null) => {
@@ -255,7 +252,6 @@ export async function rebuildBackstageDll(
     };
 
     await buildArtifact({ BACKSTAGE_LOADER_SEED: String(Date.now()) }, outPath);
-    await buildArtifact({ BACKSTAGE_LOADER_EXPORT: "ReflectiveLoader" }, legacyOutPath);
 
     const exportName = readPeExportName(outPath);
     invalidateBackstageDll();
@@ -264,7 +260,7 @@ export async function rebuildBackstageDll(
       startedAt: _lastBuild.startedAt,
       finishedAt: Date.now(),
       ok: true,
-      message: `DLLs rebuilt: ${BACKSTAGE_DLL_NAME} (${fs.statSync(outPath).size} bytes, export: ${exportName ?? "unknown"}) and ${BACKSTAGE_LEGACY_DLL_NAME} (${fs.statSync(legacyOutPath).size} bytes, export: ReflectiveLoader).`,
+      message: `DLL rebuilt: ${BACKSTAGE_DLL_NAME} (${fs.statSync(outPath).size} bytes, export: ${exportName ?? "unknown"}).`,
     };
     send({
       type: "output",

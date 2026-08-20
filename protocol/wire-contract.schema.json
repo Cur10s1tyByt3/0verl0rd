@@ -35,6 +35,7 @@
             "required": ["latestVersion", "changes"],
             "properties": {
               "latestVersion": { "type": "integer", "minimum": 2 },
+              "minVersion": { "type": "integer", "minimum": 1 },
               "changes": {
                 "type": "object",
                 "patternProperties": {

@@ -3,7 +3,7 @@
 package wire
 
 const (
-	WireSchemaVersion = 1
+	WireSchemaVersion = 2
 	WireProtocolVersion = 1
 )
 
@@ -456,10 +456,10 @@ var CommandVersionSupport = map[CommandType]CommandVersionRange{
 	CommandBackstageSetQuality: {Min: 1, Max: 1},
 	CommandBackstageSetResolution: {Min: 1, Max: 1},
 	CommandBackstageStart: {Min: 1, Max: 1},
-	CommandBackstageStartBrowserInjected: {Min: 1, Max: 2},
-	CommandBackstageStartChromeInjected: {Min: 1, Max: 2},
+	CommandBackstageStartBrowserInjected: {Min: 2, Max: 3},
+	CommandBackstageStartChromeInjected: {Min: 2, Max: 3},
 	CommandBackstageStartProcess: {Min: 1, Max: 1},
-	CommandBackstageStartProcessInjected: {Min: 1, Max: 2},
+	CommandBackstageStartProcessInjected: {Min: 2, Max: 3},
 	CommandBackstageStop: {Min: 1, Max: 1},
 	CommandBackstageWindowList: {Min: 1, Max: 1},
 	CommandClientLogsRequest: {Min: 1, Max: 1},

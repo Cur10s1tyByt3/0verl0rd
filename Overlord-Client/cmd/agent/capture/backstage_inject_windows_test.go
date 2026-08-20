@@ -115,13 +115,13 @@ func TestGetProcessesLockingFileShortPathDoesNotPanic(t *testing.T) {
 	_ = getProcessesLockingFile("a")
 }
 
-func TestIsBackstageLoaderExportSupportsBothCommandVersions(t *testing.T) {
-	for _, name := range []string{"ReflectiveLoader", "x012abc", "xffffff"} {
+func TestIsBackstageLoaderExportAcceptsRandomizedExport(t *testing.T) {
+	for _, name := range []string{"x012abc", "xffffff"} {
 		if !isBackstageLoaderExport(name) {
 			t.Fatalf("expected loader export %q to be accepted", name)
 		}
 	}
-	for _, name := range []string{"reflectiveloader", "x012ABc", "x12345", "x1234567", "other"} {
+	for _, name := range []string{"ReflectiveLoader", "reflectiveloader", "x012ABc", "x12345", "x1234567", "other"} {
 		if isBackstageLoaderExport(name) {
 			t.Fatalf("expected loader export %q to be rejected", name)
 		}

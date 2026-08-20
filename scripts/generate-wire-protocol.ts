@@ -10,6 +10,7 @@ type Contract = {
     defaultVersion: 1;
     overrides: Record<string, {
       latestVersion: number;
+      minVersion?: number;
       changes: Record<string, {
         breaking: true;
         summary: string;
@@ -62,6 +63,14 @@ for (const [command, override] of Object.entries(contract.commandVersioning.over
   if (!Number.isInteger(override.latestVersion) || override.latestVersion < 2) {
     throw new Error(`latestVersion for ${command} must be at least 2`);
   }
+  if (
+    override.minVersion !== undefined &&
+    (!Number.isInteger(override.minVersion) ||
+      override.minVersion < 1 ||
+      override.minVersion > override.latestVersion)
+  ) {
+    throw new Error(`minVersion for ${command} must be an integer between 1 and latestVersion`);
+  }
   for (let version = 2; version <= override.latestVersion; version += 1) {
     const change = override.changes[String(version)];
     if (
@@ -112,7 +121,7 @@ const commandVersionSupport = Object.fromEntries(
   commands.map((command) => [
     command,
     {
-      min: 1,
+      min: contract.commandVersioning.overrides[command]?.minVersion ?? 1,
       max: contract.commandVersioning.overrides[command]?.latestVersion ?? 1,
     },
   ]),

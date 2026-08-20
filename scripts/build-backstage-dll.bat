@@ -13,7 +13,6 @@ set "CRATE_DIR=%ROOT%BackstageInjection-Rust"
 set "OUT_DIR=%ROOT%Overlord-Server\dist-clients"
 set "TARGET=x86_64-pc-windows-gnu"
 set "DLL_NAME=BackstageInjection.x64.dll"
-set "LEGACY_DLL_NAME=BackstageInjection.legacy.x64.dll"
 
 where cargo >nul 2>&1
 if %ERRORLEVEL% neq 0 (
@@ -24,7 +23,6 @@ if %ERRORLEVEL% neq 0 (
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 
 echo Building randomized BackstageInjection DLL for %TARGET% ...
-set "BACKSTAGE_LOADER_EXPORT="
 set "BACKSTAGE_LOADER_SEED=%RANDOM%%RANDOM%%RANDOM%"
 cargo build --release --target %TARGET% --manifest-path "%CRATE_DIR%\Cargo.toml"
 if %ERRORLEVEL% neq 0 goto :error
@@ -35,17 +33,8 @@ if not exist "%SRC_DLL%" goto :error
 copy /y "%SRC_DLL%" "%OUT_DIR%\%DLL_NAME%" >nul
 if %ERRORLEVEL% neq 0 goto :error
 
-echo Building legacy BackstageInjection DLL for %TARGET% ...
-set "BACKSTAGE_LOADER_SEED="
-set "BACKSTAGE_LOADER_EXPORT=ReflectiveLoader"
-cargo build --release --target %TARGET% --manifest-path "%CRATE_DIR%\Cargo.toml"
-if %ERRORLEVEL% neq 0 goto :error
-copy /y "%SRC_DLL%" "%OUT_DIR%\%LEGACY_DLL_NAME%" >nul
-if %ERRORLEVEL% neq 0 goto :error
-
 echo.
 echo Built: %OUT_DIR%\%DLL_NAME%
-echo Built: %OUT_DIR%\%LEGACY_DLL_NAME%
 exit /b 0
 
 :error

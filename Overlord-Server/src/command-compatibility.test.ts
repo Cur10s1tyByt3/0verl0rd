@@ -46,25 +46,34 @@ describe("command version negotiation", () => {
     });
   });
 
-  test("keeps legacy Backstage agents on v1 and negotiates v2 with new agents", () => {
+  test("rejects legacy (v1-only) Backstage agents and negotiates v2/v3 with newer agents", () => {
     const command = "backstage_start_browser_injected" as const;
     const payload = { browser: "chrome", dll: new Uint8Array([1, 2, 3]) };
 
-    expect(versionCommandForClient({}, {
-      type: "command",
-      commandType: command,
-      id: "legacy-backstage",
-      payload,
-    })).toMatchObject({ commandVersion: 1, payload });
+    // Pre-3.0 agents assume v1, which the server no longer supports.
+    expect(getCommandCompatibility({}, command)).toMatchObject({
+      supported: false,
+      reason: "no_common_version",
+    });
+    expect(() => requireCommandVersion({}, command)).toThrow("no shared version");
 
     expect(versionCommandForClient({
       commandVersions: { [command]: { min: 1, max: 2 } },
     }, {
       type: "command",
       commandType: command,
-      id: "current-backstage",
+      id: "v2-backstage",
       payload,
     })).toMatchObject({ commandVersion: 2, payload });
+
+    expect(versionCommandForClient({
+      commandVersions: { [command]: { min: 2, max: 3 } },
+    }, {
+      type: "command",
+      commandType: command,
+      id: "v3-backstage",
+      payload,
+    })).toMatchObject({ commandVersion: 3, payload });
   });
 
   test("strictly reports missing commands and non-overlapping versions", () => {

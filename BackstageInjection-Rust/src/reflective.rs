@@ -1,11 +1,12 @@
 //! Position-independent reflective loader, pure Rust (no C).
 //!
-//! This is a direct port of the Harmony Security `ReflectiveLoader` that was
-//! previously compiled from `reflective/ReflectiveLoader.c`. The injection
-//! stubs (`inject_reflective`) copy this DLL's raw bytes into a remote process
-//! and start a thread on our exported `ReflectiveLoader`. When that thread
-//! begins, the copied image is *not* relocated and its imports are *not*
-//! resolved, so this function must be position independent end to end:
+//! This is a direct port of the Harmony Security `ReflectiveLoader` approach.
+//! The injection stubs (`inject_reflective`) copy this DLL's raw bytes into a
+//! remote process and start a thread on our exported loader entry, whose name
+//! is randomized per build (see build.rs) rather than a fixed string. When
+//! that thread begins, the copied image is *not* relocated and its imports
+//! are *not* resolved, so this function must be position independent end to
+//! end:
 //!
 //!   - It never reads relocatable data. All image structures are reached by
 //!     computing addresses at runtime and reading with volatile scalar loads.

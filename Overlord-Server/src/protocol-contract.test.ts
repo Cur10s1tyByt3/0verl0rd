@@ -34,9 +34,11 @@ describe("generated wire protocol contract", () => {
     expect(Object.keys(COMMAND_VERSION_SUPPORT).length).toBe(COMMAND_TYPES.length);
     for (const command of COMMAND_TYPES) {
       const isVersioned = versionedBackstageCommands.has(command);
-      expect(COMMAND_VERSION_SUPPORT[command]).toEqual({ min: 1, max: isVersioned ? 2 : 1 });
-      expect(isSupportedCommandVersion(command, 1)).toBe(true);
+      expect(COMMAND_VERSION_SUPPORT[command].min).toBe(isVersioned ? 2 : 1);
+      expect(COMMAND_VERSION_SUPPORT[command].max).toBe(isVersioned ? 3 : 1);
+      expect(isSupportedCommandVersion(command, 1)).toBe(!isVersioned);
       expect(isSupportedCommandVersion(command, 2)).toBe(isVersioned);
+      expect(isSupportedCommandVersion(command, 3)).toBe(isVersioned);
       if (isVersioned) {
         expect(() => getImplicitCommandVersion(command)).toThrow("explicit commandVersion");
       } else {
