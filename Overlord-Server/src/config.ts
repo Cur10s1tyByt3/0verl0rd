@@ -124,9 +124,12 @@ export interface Config {
   buildSigning: {
     banlist: string[];
   };
-  thumbnails: {
+thumbnails: {
     dashboardEnabled: boolean;
     wallEnabled: boolean;
+  };
+  backstageDll: {
+    rebuildOnStartup: boolean;
   };
   inputArchive: {
     enabled: boolean;
@@ -264,9 +267,12 @@ const DEFAULT_CONFIG: Config = {
   buildSigning: {
     banlist: [],
   },
-  thumbnails: {
+thumbnails: {
     dashboardEnabled: true,
     wallEnabled: true,
+  },
+  backstageDll: {
+    rebuildOnStartup: false,
   },
   inputArchive: {
     enabled: false,
@@ -937,7 +943,7 @@ export function loadConfig(): Config {
         ? fileConfig.buildSigning.banlist.filter((v: unknown): v is string => typeof v === "string" && v.length > 0)
         : [...DEFAULT_CONFIG.buildSigning.banlist],
     },
-    thumbnails: {
+thumbnails: {
       dashboardEnabled:
         envBoolOverride("OVERLORD_THUMBNAILS_DASHBOARD_ENABLED") ??
         (fileConfig.thumbnails?.dashboardEnabled !== undefined
@@ -948,6 +954,13 @@ export function loadConfig(): Config {
         (fileConfig.thumbnails?.wallEnabled !== undefined
           ? Boolean(fileConfig.thumbnails.wallEnabled)
           : DEFAULT_CONFIG.thumbnails.wallEnabled),
+    },
+    backstageDll: {
+      rebuildOnStartup:
+        envBoolOverride("OVERLORD_BACKSTAGE_DLL_REBUILD_ON_STARTUP") ??
+        (fileConfig.backstageDll?.rebuildOnStartup !== undefined
+          ? Boolean(fileConfig.backstageDll.rebuildOnStartup)
+          : DEFAULT_CONFIG.backstageDll.rebuildOnStartup),
     },
     inputArchive: {
       enabled:
@@ -1518,6 +1531,29 @@ export async function updateThumbnailsConfig(
   return next;
 }
 
+export async function updateBackstageDllConfig(
+  updates: Partial<Config["backstageDll"]>,
+): Promise<Config["backstageDll"]> {
+  const current = getConfig();
+
+  const next: Config["backstageDll"] = {
+    rebuildOnStartup:
+      updates.rebuildOnStartup !== undefined
+        ? Boolean(updates.rebuildOnStartup)
+        : current.backstageDll.rebuildOnStartup,
+  };
+
+  configCache = {
+    ...current,
+    backstageDll: next,
+  };
+
+  const fileConfig = readFileConfigForUpdate();
+  fileConfig.backstageDll = next;
+  await writePersistentFileConfig(fileConfig);
+  return next;
+}
+
 export function getBuildSigningSecrets(): BuildSigningSecrets | null {
   const dataDir = ensureDataDir();
   const savePath = resolve(dataDir, "save.json");
@@ -1733,9 +1769,14 @@ export async function importFullConfig(data: Record<string, any>): Promise<{ app
     applied.push("buildRateLimit");
   }
 
-  if (data.thumbnails && typeof data.thumbnails === "object") {
+if (data.thumbnails && typeof data.thumbnails === "object") {
     await updateThumbnailsConfig(data.thumbnails);
     applied.push("thumbnails");
+  }
+
+  if (data.backstageDll && typeof data.backstageDll === "object") {
+    await updateBackstageDllConfig(data.backstageDll);
+    applied.push("backstageDll");
   }
 
   if (data.inputArchive && typeof data.inputArchive === "object") {

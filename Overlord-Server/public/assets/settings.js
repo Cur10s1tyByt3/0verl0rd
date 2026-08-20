@@ -303,6 +303,7 @@ async function renderPermissionsOverview() {
         "system:chat",
         "system:appearance",
         "system:thumbnails",
+        "system:backstage-dll",
         "system:input-archive",
         "system:build-limits",
         "system:export-import",
@@ -3024,6 +3025,10 @@ async function init() {
       await loadThumbnailSettings();
       initThumbnailHandlers();
     }
+    if (userHas("system:backstage-dll")) {
+      await loadBackstageDllSettings();
+      initBackstageDllHandlers();
+    }
     if (userHas("system:health")) {
       await loadHealthStats();
       initHealthHandlers();
@@ -3101,3 +3106,146 @@ async function init() {
 }
 
 init();
+
+// ── Backstage DLL Settings ────────────────────────────────────────────────
+
+let _backstageDllPollTimer = null;
+
+function showBackstageDllMsg(text, type, targetEl) {
+  const el = targetEl || document.getElementById("backstage-dll-msg");
+  if (!el) return;
+  el.textContent = text;
+  if (type === "error") {
+    el.className = "text-sm rounded-lg px-3 py-2 border border-rose-800 bg-rose-900/20 text-rose-200";
+  } else if (type === "info") {
+    el.className = "text-sm rounded-lg px-3 py-2 border border-sky-800 bg-sky-900/20 text-sky-200";
+  } else {
+    el.className = "text-sm rounded-lg px-3 py-2 border border-emerald-800 bg-emerald-900/20 text-emerald-200";
+  }
+  el.classList.remove("hidden");
+}
+
+function renderBackstageDllStatus(status) {
+  if (!status) return;
+  const setText = (id, text) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  };
+  setText("backstage-dll-export", status.exportName || (status.exists ? "(no randomized export?)" : "-"));
+  setText("backstage-dll-path", status.outputPath || "-");
+  setText("backstage-dll-size", formatBytes(status.sizeBytes));
+  setText("backstage-dll-crate", status.crateDir || "(crate not found)");
+
+  const tc = status.toolchainDetails || {};
+  const hint = [];
+  if (tc.cargoOnPath) hint.push("cargo on PATH");
+  if (tc.rustInstalled) hint.push("rust toolchain cached");
+  if (tc.rustTargetInstalled) hint.push("windows-gnu target ready");
+  if (tc.mingwReady) hint.push("mingw-w64 ready");
+  const tcEl = document.getElementById("backstage-dll-toolchain");
+  if (tcEl) {
+    tcEl.textContent = hint.length
+      ? `Build tooling: ${hint.join(", ")}`
+      : "Build tooling: none detected (the first rebuild will download it into the data dir).";
+  }
+
+  const btn = document.getElementById("backstage-dll-rebuild-btn");
+  if (btn) btn.disabled = !!status.building;
+  const lastBuild = status.lastBuild;
+  if (lastBuild && lastBuild.finishedAt) {
+    showBackstageDllMsg(
+      `${lastBuild.ok ? "Last build succeeded" : "Last build failed"} (${formatDate(lastBuild.finishedAt)}): ${lastBuild.message}`,
+      lastBuild.ok ? "success" : "error",
+      document.getElementById("backstage-dll-lastbuild"),
+    );
+    if (status.building) {
+      showBackstageDllMsg("Rebuild in progress...", "info");
+    }
+  } else if (status.building) {
+    showBackstageDllMsg("Rebuild in progress...", "info");
+  }
+}
+
+async function loadBackstageDllSettings() {
+  if (!userHas("system:backstage-dll")) return;
+  try {
+    const res = await fetch("/api/settings/backstage-dll", { credentials: "include" });
+    if (!res.ok) return;
+    const data = await res.json();
+    renderBackstageDllStatus(data.status || {});
+    const el = document.getElementById("backstage-dll-rebuild-startup");
+    if (el) el.checked = !!(data.backstageDll && data.backstageDll.rebuildOnStartup);
+  } catch (e) {
+    console.error("Failed to load backstage DLL settings", e);
+  }
+}
+
+function initBackstageDllHandlers() {
+  const form = document.getElementById("backstage-dll-form");
+  if (form) form.addEventListener("submit", saveBackstageDllSettings);
+  const btn = document.getElementById("backstage-dll-rebuild-btn");
+  if (btn) btn.addEventListener("click", triggerBackstageDllRebuild);
+}
+
+async function saveBackstageDllSettings(e) {
+  e.preventDefault();
+  if (!requireUiPermission("system:backstage-dll", "Backstage DLL permission required.")) return;
+  const rebuildOnStartup = !!document.getElementById("backstage-dll-rebuild-startup")?.checked;
+  try {
+    const res = await fetch("/api/settings/backstage-dll", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rebuildOnStartup }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showBackstageDllMsg(data.error || "Failed to save", "error");
+      return;
+    }
+    showBackstageDllMsg("Backstage DLL settings saved.", "success");
+    renderBackstageDllStatus(data.status || {});
+  } catch (err) {
+    console.error("Failed to save backstage DLL settings", err);
+    showBackstageDllMsg("Failed to save.", "error");
+  }
+}
+
+async function triggerBackstageDllRebuild() {
+  if (!requireUiPermission("system:backstage-dll", "Backstage DLL permission required.")) return;
+  try {
+    const res = await fetch("/api/settings/backstage-dll/rebuild", {
+      method: "POST",
+      credentials: "include",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showBackstageDllMsg(data.message || data.error || "Rebuild failed to start.", "error");
+      return;
+    }
+    showBackstageDllMsg("Rebuild started in the background.", "info");
+    pollBackstageDllStatus();
+  } catch (err) {
+    console.error("Failed to start backstage DLL rebuild", err);
+    showBackstageDllMsg("Failed to start rebuild.", "error");
+  }
+}
+
+function pollBackstageDllStatus() {
+  const tick = async () => {
+    try {
+      const res = await fetch("/api/settings/backstage-dll", { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      renderBackstageDllStatus(data.status || {});
+      if (data.status && data.status.building) {
+        clearTimeout(_backstageDllPollTimer);
+        _backstageDllPollTimer = setTimeout(tick, 2000);
+      }
+    } catch (err) {
+      console.error("Failed to poll backstage DLL status", err);
+    }
+  };
+  clearTimeout(_backstageDllPollTimer);
+  tick();
+}

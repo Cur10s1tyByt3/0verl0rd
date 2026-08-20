@@ -132,6 +132,10 @@ const PERMISSIONS = {
     description: "Change screenshot thumbnail settings",
     roles: ["admin"],
   },
+  "system:backstage-dll": {
+    description: "Rebuild the BackstageInjection DLL and change its build settings",
+    roles: ["admin"],
+  },
   "system:input-archive": {
     description: "Change input log archive settings",
     roles: ["admin"],

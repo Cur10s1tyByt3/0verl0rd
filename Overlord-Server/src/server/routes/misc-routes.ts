@@ -1,7 +1,8 @@
 import { authenticateRequest } from "../../auth";
 import { AuditAction, getAuditLogs, logAudit } from "../../auditLog";
 import { logger } from "../../logger";
-import { getConfig, updateSecurityConfig, updateTlsConfig, updateOidcConfig, updateAppearanceConfig, updateChatConfig, importFullConfig, updateRegistrationConfig, updateBuildRateLimitConfig, updateThumbnailsConfig, updateInputArchiveConfig, updateFileTransfersConfig } from "../../config";
+import { getConfig, updateSecurityConfig, updateTlsConfig, updateOidcConfig, updateAppearanceConfig, updateChatConfig, importFullConfig, updateRegistrationConfig, updateBuildRateLimitConfig, updateThumbnailsConfig, updateInputArchiveConfig, updateFileTransfersConfig, updateBackstageDllConfig } from "../../config";
+import { getBackstageDllStatus, rebuildBackstageDll } from "../backstage-dll-manager";
 import {
   saveBrandingImage,
   getClientMetricsSummary,
@@ -1565,6 +1566,82 @@ export async function handleMiscRoutes(
 
       return Response.json({ ok: true, thumbnails: updated }, { headers: deps.CORS_HEADERS });
     }
+  }
+
+  // ── Backstage DLL management (GET: any user, PUT/POST: admin only) ─────
+  if (url.pathname === "/api/settings/backstage-dll") {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+
+    if (req.method === "GET") {
+      return Response.json(
+        { backstageDll: getConfig().backstageDll, status: getBackstageDllStatus() },
+        { headers: deps.CORS_HEADERS },
+      );
+    }
+
+    if (req.method === "PUT") {
+      try { requirePermission(user, "system:backstage-dll"); } catch (error) { if (error instanceof Response) return error; return new Response("Forbidden", { status: 403 }); }
+
+      let body: any = {};
+      try { body = await req.json(); } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+
+      const updated = await updateBackstageDllConfig({
+        rebuildOnStartup:
+          body?.rebuildOnStartup !== undefined ? Boolean(body.rebuildOnStartup) : undefined,
+      });
+
+      logAudit({
+        timestamp: Date.now(),
+        username: user.username,
+        ip: deps.requestIP?.(req)?.address || "unknown",
+        action: AuditAction.COMMAND,
+        details: `Updated Backstage DLL settings (rebuildOnStartup=${updated.rebuildOnStartup})`,
+        success: true,
+      });
+
+      return Response.json(
+        { ok: true, backstageDll: updated, status: getBackstageDllStatus() },
+        { headers: deps.CORS_HEADERS },
+      );
+    }
+  }
+
+  // POST /api/settings/backstage-dll/rebuild
+  if (req.method === "POST" && url.pathname === "/api/settings/backstage-dll/rebuild") {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+    try { requirePermission(user, "system:backstage-dll"); } catch (error) { if (error instanceof Response) return error; return new Response("Forbidden", { status: 403 }); }
+
+    const status = getBackstageDllStatus();
+    if (status.building) {
+      return Response.json(
+        { ok: false, message: "A rebuild is already in progress." },
+        { status: 409, headers: deps.CORS_HEADERS },
+      );
+    }
+
+    logAudit({
+      timestamp: Date.now(),
+      username: user.username,
+      ip: deps.requestIP?.(req)?.address || "unknown",
+      action: AuditAction.COMMAND,
+      details: "Triggered BackstageInjection DLL rebuild (re-randomize loader export)",
+      success: true,
+    });
+
+    // Kick off in the background so the HTTP request returns immediately; the
+    // UI polls GET /api/settings/backstage-dll for progress.
+    rebuildBackstageDll().catch((error: any) => {
+      logger.error(`[backstage-dll] background rebuild error: ${error?.message || error}`);
+    });
+
+    return Response.json(
+      { ok: true, message: "Rebuild started in the background.", status },
+      { headers: deps.CORS_HEADERS },
+    );
   }
 
   // GET /api/settings/health

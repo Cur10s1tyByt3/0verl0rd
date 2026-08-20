@@ -130,6 +130,7 @@
             <a data-target="chat-settings-section"    class="settings-nav-link" data-permission="system:chat" style="--accent: 56 189 248"><i class="fa-solid fa-comments w-4 text-sky-400"></i><span>Team Chat</span></a>
             <a data-target="registration-section"     class="settings-nav-link" data-permission="system:registration" style="--accent: 52 211 153"><i class="fa-solid fa-user-plus w-4 text-emerald-400"></i><span>Registration</span></a>
             <a data-target="thumbnails-section"       class="settings-nav-link" data-permission="system:thumbnails" style="--accent: 56 189 248"><i class="fa-solid fa-images w-4 text-sky-400"></i><span>Screenshot Thumbnails</span></a>
+            <a data-target="backstage-dll-section"     class="settings-nav-link" data-permission="system:backstage-dll" style="--accent: 251 146 60"><i class="fa-solid fa-gears w-4 text-orange-400"></i><span>Backstage DLL</span></a>
             <a data-target="input-archive-admin-section" class="settings-nav-link" data-permission="system:input-archive" style="--accent: 250 204 21"><i class="fa-solid fa-database w-4 text-yellow-400"></i><span>Input Archive Admin</span></a>
             <a data-target="build-rate-limit-section" class="settings-nav-link" data-permission="system:build-limits" style="--accent: 251 146 60"><i class="fa-solid fa-gauge-high w-4 text-orange-400"></i><span>Build Rate Limit</span></a>
             <a data-target="section-appearance"       class="settings-nav-link" data-permission="system:appearance" style="--accent: 232 121 249"><i class="fa-solid fa-palette w-4 text-fuchsia-400"></i><span>Branding</span></a>
@@ -1235,6 +1236,65 @@
           </button>
         </form>
         <p id="thumbnails-msg" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
+      </section>
+
+      <!-- Backstage DLL -->
+      <section id="backstage-dll-section" data-permission="system:backstage-dll" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-orange-500/10 border border-orange-500/30">
+            <i class="fa-solid fa-gears text-orange-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">Backstage DLL</h2>
+            <p class="text-sm text-slate-400">Admin-only. Rebuild the BackstageInjection DLL to re-randomize the loader export name.</p>
+          </div>
+        </div>
+
+        <div class="text-xs text-slate-400 bg-slate-800/40 border border-slate-700/60 rounded-lg p-3">
+          <p>Each rebuild generates a new random <code class="text-orange-300">x&lthex&gt</code> export name for the reflective loader. The Go client and the C# build harness already locate the loader by pattern, so newly built DLLs are used without further changes. The rebuilt DLL is stored in the server data directory.</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          <div class="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
+            <div class="text-slate-400">Current export name</div>
+            <div id="backstage-dll-export" class="font-mono text-orange-300">-</div>
+          </div>
+          <div class="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
+            <div class="text-slate-400">Active DLL</div>
+            <div id="backstage-dll-path" class="font-mono text-xs text-slate-200 break-all">-</div>
+          </div>
+          <div class="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
+            <div class="text-slate-400">Size</div>
+            <div id="backstage-dll-size" class="font-medium text-slate-200">-</div>
+          </div>
+          <div class="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
+            <div class="text-slate-400">Rust crate</div>
+            <div id="backstage-dll-crate" class="font-mono text-xs text-slate-200 break-all">-</div>
+          </div>
+        </div>
+
+        <div id="backstage-dll-toolchain" class="text-xs text-slate-400"></div>
+        <p id="backstage-dll-lastbuild" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
+
+        <form id="backstage-dll-form" class="space-y-4">
+          <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-700/60 bg-slate-900/40 hover:bg-slate-900/70 cursor-pointer transition-colors">
+            <input id="backstage-dll-rebuild-startup" type="checkbox" class="mt-1 h-4 w-4 accent-orange-500" />
+            <div>
+              <div class="text-sm font-medium text-slate-100">Recompile on server startup</div>
+              <div class="text-xs text-slate-400">Rebuild and re-randomize the DLL every time the server starts. Uses the persistent toolchain cache in the data dir.</div>
+            </div>
+          </label>
+
+          <div class="flex flex-wrap items-center gap-3">
+            <button type="submit" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-600 transition-colors text-white text-sm font-medium">
+              <i class="fa-solid fa-floppy-disk"></i>Save
+            </button>
+            <button type="button" id="backstage-dll-rebuild-btn" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-700 hover:bg-orange-600 transition-colors text-white text-sm font-medium">
+              <i class="fa-solid fa-rotate"></i>Rebuild Now (re-randomize)
+            </button>
+          </div>
+        </form>
+        <p id="backstage-dll-msg" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
       </section>
 
       <!-- Input Archive Admin -->

@@ -98,19 +98,22 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 # Server source (Overlord-Server/dist-clients may carry a pre-built DLL from a dev build)
 COPY Overlord-Server/ ./
 
-# BackstageInjection-Rust source for the cross-compile fallback (used only if no
-# pre-built DLL is already present in dist-clients).
+# BackstageInjection-Rust source is copied into the runtime stage too so the
+# server can recompile + re-randomize the loader export name on demand
+# (Settings -> Backstage DLL).
 COPY BackstageInjection-Rust/ ./BackstageInjection-Rust/
 COPY scripts/build-backstage-dll.sh ./scripts/
 
+# Always compile the Backstage DLL from source so every image embeds a freshly
+# randomized loader export name (build.rs picks a new `x<hex>` per build).
+# Pass `--build-arg BACKSTAGE_FRESH=$(date +%s)` to defeat BuildKit layer
+# caching and force a new random name even with unchanged source.
+ARG BACKSTAGE_FRESH=
 RUN mkdir -p dist-clients && \
-    if [ -f dist-clients/BackstageInjection.x64.dll ]; then \
-      echo "Using pre-built BackstageInjection DLL"; \
-    else \
-      chmod +x scripts/build-backstage-dll.sh && \
-      BACKSTAGE_CRATE_DIR=BackstageInjection-Rust BACKSTAGE_OUT_DIR=dist-clients bash scripts/build-backstage-dll.sh || \
-      echo "WARNING: BackstageInjection DLL not available (build it with cargo/MSVC on Windows)"; \
-    fi
+    chmod +x scripts/build-backstage-dll.sh && \
+    echo "Building BackstageInjection DLL (fresh=${BACKSTAGE_FRESH:-default})" && \
+    BACKSTAGE_CRATE_DIR=BackstageInjection-Rust BACKSTAGE_OUT_DIR=dist-clients bash scripts/build-backstage-dll.sh || \
+    echo "WARNING: BackstageInjection DLL build failed; runtime can rebuild on demand (Settings -> Backstage DLL)"
 
 # Keep production build phases separate so BuildKit reports the exact slow or
 # failing phase and can cache each completed phase independently.
@@ -177,6 +180,11 @@ COPY --from=builder /app/dist-clients ./dist-clients
 # Go agent source needed at every agent build.
 COPY Overlord-Client/ ./Overlord-Client/
 RUN test -s ./Overlord-Client/third_party/nvcodec/nvEncodeAPI.h
+
+# Rust crate + build script needed for on-demand Backstage DLL recompilation
+# (re-randomized loader export) at runtime.
+COPY BackstageInjection-Rust/ ./BackstageInjection-Rust/
+COPY scripts/build-backstage-dll.sh ./scripts/
 
 RUN mkdir -p certs data
 

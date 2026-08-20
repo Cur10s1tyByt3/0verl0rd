@@ -14,7 +14,8 @@ export type ToolchainKey =
   | "linux-musl-armv7"
   | "android-ndk"
   | "ldid"
-  | "upx";
+  | "upx"
+  | "rust";
 
 export type EnsuredToolchain = {
   key: ToolchainKey;
@@ -25,7 +26,7 @@ export type EnsuredToolchain = {
   rootDir: string;
 };
 
-type ArchiveFormat = "tar.gz" | "tar.xz" | "zip" | "binary";
+type ArchiveFormat = "tar.gz" | "tar.xz" | "zip" | "binary" | "rustup";
 
 type Manifest = {
   displayName: string;
@@ -37,6 +38,7 @@ type Manifest = {
   cxxBasename?: string;
   arBasename?: string;
   binaryFilename?: string;
+  pathBasename?: string;
 };
 
 const ANDROID_NDK_VERSION = "r27c";
@@ -47,6 +49,28 @@ function ndkHostTriple(): string {
 
 function ldidArch(): string {
   return process.arch === "arm64" ? "aarch64" : "x86_64";
+}
+
+// Rust toolchain pinned to the same version the Docker builder installs.
+const RUST_VERSION = "1.85.0";
+
+// The windows-gnu std is fetched from the rustup dist server regardless of host
+// triple via `--target x86_64-pc-windows-gnu`; only the rustup-init binary is
+// host-specific.
+const RUST_TARGET = "x86_64-pc-windows-gnu";
+
+function rustupInitUrl(): string {
+  const platform = process.platform;
+  const arch = process.arch;
+  let triple: string;
+  if (platform === "win32") {
+    triple = arch === "arm64" ? "aarch64-pc-windows-msvc" : "x86_64-pc-windows-msvc";
+  } else if (platform === "darwin") {
+    triple = arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
+  } else {
+    triple = arch === "arm64" ? "aarch64-unknown-linux-gnu" : "x86_64-unknown-linux-gnu";
+  }
+  return `https://static.rust-lang.org/rustup/dist/${triple}/rustup-init${platform === "win32" ? ".exe" : ""}`;
 }
 
 const MANIFESTS: Record<ToolchainKey, Manifest> = {
@@ -123,6 +147,14 @@ const MANIFESTS: Record<ToolchainKey, Manifest> = {
     archive: "tar.xz",
     binSubdir: "upx-4.2.4-amd64_linux",
     binaryFilename: "upx",
+  },
+  rust: {
+    displayName: `Rust toolchain ${RUST_VERSION} (rustup minimal, ${RUST_TARGET} target)`,
+    url: rustupInitUrl(),
+    approxSizeMB: 260,
+    archive: "rustup",
+    binSubdir: "cargo/bin",
+    pathBasename: "cargo",
   },
 };
 
@@ -237,6 +269,35 @@ async function downloadAndExtract(
       fs.chmodSync(finalBin, 0o755);
       break;
     }
+    case "rustup": {
+      // rustup-init is an installer, not an archive. Rename the download to its
+      // canonical name and run it with RUSTUP_HOME/CARGO_HOME pointing inside
+      // tmpDir, so the whole toolchain tree is atomically published into the
+      // data dir afterwards by the standard rename below.
+      const exeName = process.platform === "win32" ? "rustup-init.exe" : "rustup-init";
+      const initPath = path.join(tmpDir, exeName);
+      fs.renameSync(archivePath, initPath);
+      if (process.platform !== "win32") fs.chmodSync(initPath, 0o755);
+      const rustupHome = path.join(tmpDir, "rustup");
+      const cargoHome = path.join(tmpDir, "cargo");
+      fs.mkdirSync(rustupHome, { recursive: true });
+      fs.mkdirSync(cargoHome, { recursive: true });
+      fs.mkdirSync(path.join(cargoHome, "bin"), { recursive: true });
+      send({
+        type: "output",
+        text: `[toolchain] Installing ${m.displayName} (downloads Rust std + ${RUST_TARGET} target)...\n`,
+        level: "info",
+      });
+      const r = await $`${initPath} -y --no-modify-path --default-toolchain ${RUST_VERSION} --profile minimal --target ${RUST_TARGET}`
+        .env({ RUSTUP_HOME: rustupHome, CARGO_HOME: cargoHome })
+        .nothrow();
+      if (r.exitCode !== 0) {
+        const detail =
+          r.stderr.toString().trim() || r.stdout.toString().trim() || "no output";
+        throw new Error(`rustup-init install failed for ${key} (exit ${r.exitCode}): ${detail}`);
+      }
+      break;
+    }
   }
 
   // Atomic publish: rename tmpDir → rootDir. If another process already
@@ -265,7 +326,7 @@ async function downloadAndExtract(
 
 function tryResolveFromPath(key: ToolchainKey): EnsuredToolchain | null {
   const m = MANIFESTS[key];
-  const primaryBin = m.ccBasename || m.binaryFilename;
+  const primaryBin = m.pathBasename || m.ccBasename || m.binaryFilename;
   if (!primaryBin) return null;
 
   const found = Bun.which(primaryBin);

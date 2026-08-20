@@ -1,13 +1,11 @@
 import type { ServerWebSocket } from "bun";
 import { v4 as uuidv4 } from "uuid";
-import { existsSync, readFileSync } from "fs";
-import path from "path";
 import * as clientManager from "../clientManager";
 import { logger } from "../logger";
 import { negotiateDesktopCodec } from "./desktop-codec-negotiation";
 import { metrics } from "../metrics";
 import { encodeMessage } from "../protocol";
-import { resolveRuntimeRoot } from "./runtime-paths";
+import { getInjectionDllBytes } from "./backstage-dll-cache";
 import * as sessionManager from "../sessions/sessionManager";
 import type { ConsoleSession, RemoteDesktopViewer, SocketData } from "../sessions/types";
 import type { ClientInfo } from "../types";
@@ -33,54 +31,6 @@ import {
   startRemoteDesktopRecording,
   stopRemoteDesktopRecording,
 } from "./rd-recording";
-
-let _cachedInjectionDll: Uint8Array | null = null;
-let _dllCachePath: string | null = null;
-let _dllCacheMtimeMs: number = 0;
-
-function getInjectionDllBytes(): Uint8Array | null {
-  const runtimeRoot = resolveRuntimeRoot();
-  const candidates = [
-    path.resolve(runtimeRoot, "dist-clients", "BackstageInjection.x64.dll"),
-    path.resolve(process.cwd(), "dist-clients", "BackstageInjection.x64.dll"),
-    path.resolve(import.meta.dir, "../../dist-clients/BackstageInjection.x64.dll"),
-  ];
-
-  if (_dllCachePath) {
-    try {
-      const { statSync } = require("fs");
-      const st = statSync(_dllCachePath);
-      if (st.mtimeMs === _dllCacheMtimeMs && _cachedInjectionDll) {
-        return _cachedInjectionDll;
-      }
-      _cachedInjectionDll = new Uint8Array(readFileSync(_dllCachePath));
-      _dllCacheMtimeMs = st.mtimeMs;
-      logger.info(`[backstage] reloaded injection DLL from ${_dllCachePath} (${_cachedInjectionDll.length} bytes)`);
-      return _cachedInjectionDll;
-    } catch {
-      _dllCachePath = null;
-      _cachedInjectionDll = null;
-    }
-  }
-
-  for (const dllPath of candidates) {
-    if (!existsSync(dllPath)) continue;
-    try {
-      const { statSync } = require("fs");
-      const st = statSync(dllPath);
-      _cachedInjectionDll = new Uint8Array(readFileSync(dllPath));
-      _dllCachePath = dllPath;
-      _dllCacheMtimeMs = st.mtimeMs;
-      logger.info(`[backstage] loaded injection DLL from ${dllPath} (${_cachedInjectionDll.length} bytes)`);
-      return _cachedInjectionDll;
-    } catch {
-      continue;
-    }
-  }
-
-  logger.warn(`[backstage] injection DLL not found. Checked: ${candidates.join(", ")}`);
-  return null;
-}
 
 const VIEWER_BACKPRESSURE_BYTES = Math.max(
   64 * 1024,
