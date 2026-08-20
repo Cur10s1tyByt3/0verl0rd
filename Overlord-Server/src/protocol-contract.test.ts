@@ -26,12 +26,22 @@ describe("generated wire protocol contract", () => {
   });
 
   test("publishes a version range for every command", () => {
+    const versionedBackstageCommands = new Set([
+      "backstage_start_browser_injected",
+      "backstage_start_chrome_injected",
+      "backstage_start_process_injected",
+    ]);
     expect(Object.keys(COMMAND_VERSION_SUPPORT).length).toBe(COMMAND_TYPES.length);
     for (const command of COMMAND_TYPES) {
-      expect(COMMAND_VERSION_SUPPORT[command]).toEqual({ min: 1, max: 1 });
+      const isVersioned = versionedBackstageCommands.has(command);
+      expect(COMMAND_VERSION_SUPPORT[command]).toEqual({ min: 1, max: isVersioned ? 2 : 1 });
       expect(isSupportedCommandVersion(command, 1)).toBe(true);
-      expect(isSupportedCommandVersion(command, 2)).toBe(false);
-      expect(getImplicitCommandVersion(command)).toBe(1);
+      expect(isSupportedCommandVersion(command, 2)).toBe(isVersioned);
+      if (isVersioned) {
+        expect(() => getImplicitCommandVersion(command)).toThrow("explicit commandVersion");
+      } else {
+        expect(getImplicitCommandVersion(command)).toBe(1);
+      }
     }
   });
 

@@ -6,7 +6,38 @@
   "compatibility": "additive",
   "commandVersioning": {
     "defaultVersion": 1,
-    "overrides": {}
+    "overrides": {
+      "backstage_start_browser_injected": {
+        "latestVersion": 2,
+        "changes": {
+          "2": {
+            "breaking": true,
+            "summary": "Use a Backstage injection DLL with a randomized reflective-loader export",
+            "migration": "Keep the v1 payload fields unchanged but supply a DLL exporting ReflectiveLoader; v2 supplies the same payload with a DLL whose loader export is x followed by six lowercase hexadecimal digits"
+          }
+        }
+      },
+      "backstage_start_chrome_injected": {
+        "latestVersion": 2,
+        "changes": {
+          "2": {
+            "breaking": true,
+            "summary": "Use a Backstage injection DLL with a randomized reflective-loader export",
+            "migration": "Keep the v1 payload fields unchanged but supply a DLL exporting ReflectiveLoader; v2 supplies the same payload with a DLL whose loader export is x followed by six lowercase hexadecimal digits"
+          }
+        }
+      },
+      "backstage_start_process_injected": {
+        "latestVersion": 2,
+        "changes": {
+          "2": {
+            "breaking": true,
+            "summary": "Use a Backstage injection DLL with a randomized reflective-loader export",
+            "migration": "Keep the v1 payload fields unchanged but supply a DLL exporting ReflectiveLoader; v2 supplies the same payload with a DLL whose loader export is x followed by six lowercase hexadecimal digits"
+          }
+        }
+      }
+    }
   },
   "serverToAgentMessageTypes": [
     "enrollment_challenge",

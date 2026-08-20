@@ -17,14 +17,19 @@ func TestGeneratedWireContract(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing version range for %s", command)
 		}
-		if versionRange.Min != 1 || versionRange.Max != 1 {
+		wantMax := 1
+		switch command {
+		case CommandBackstageStartBrowserInjected, CommandBackstageStartChromeInjected, CommandBackstageStartProcessInjected:
+			wantMax = 2
+		}
+		if versionRange.Min != 1 || versionRange.Max != wantMax {
 			t.Fatalf("unexpected version range for %s: %+v", command, versionRange)
 		}
 		if !IsSupportedCommandVersion(string(command), 1) {
 			t.Fatalf("%s must support v1", command)
 		}
-		if IsSupportedCommandVersion(string(command), 2) {
-			t.Fatalf("%s must not support undeclared v2", command)
+		if IsSupportedCommandVersion(string(command), 2) != (wantMax == 2) {
+			t.Fatalf("unexpected v2 support for %s", command)
 		}
 	}
 	if !IsCommandType("desktop_start") {

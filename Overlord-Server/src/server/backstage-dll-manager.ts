@@ -6,6 +6,7 @@ import { ensureToolchain, getToolchainRoot } from "./toolchain-manager";
 import { resolveRuntimeRoot } from "./runtime-paths";
 import {
   BACKSTAGE_DLL_NAME,
+  BACKSTAGE_LEGACY_DLL_NAME,
   backstageDllOutputPath,
   invalidateBackstageDll,
 } from "./backstage-dll-cache";
@@ -169,7 +170,8 @@ export async function rebuildBackstageDll(
   _building = true;
   _lastBuild = { startedAt: Date.now(), finishedAt: null, ok: null, message: "Build started." };
 
-  const outPath = backstageDllOutputPath();
+  const outPath = backstageDllOutputPath(2);
+  const legacyOutPath = backstageDllOutputPath(1);
   const outDir = path.dirname(outPath);
 
   try {
@@ -205,19 +207,8 @@ export async function rebuildBackstageDll(
       fullEnv.PATH = [...binDirs, fullEnv.PATH || ""].filter(Boolean).join(path.delimiter);
     }
     Object.assign(fullEnv, env);
-
-    const proc = Bun.spawn(
-      [
-        "cargo",
-        "build",
-        "--release",
-        "--target",
-        RUST_TARGET,
-        "--manifest-path",
-        path.join(crateDir, "Cargo.toml"),
-      ],
-      { env: fullEnv, stdout: "pipe", stderr: "pipe" },
-    );
+    delete fullEnv.BACKSTAGE_LOADER_EXPORT;
+    delete fullEnv.BACKSTAGE_LOADER_SEED;
 
     const streamLines = async (stream: ReadableStream<Uint8Array> | null) => {
       if (!stream) return "";
@@ -234,22 +225,37 @@ export async function rebuildBackstageDll(
       return buf;
     };
 
-    const [stdoutText, stderrText] = await Promise.all([
-      streamLines(proc.stdout),
-      streamLines(proc.stderr),
-    ]);
-    const exitCode = await proc.exited;
-
-    if (exitCode !== 0) {
-      const detail = stderrText.trim() || stdoutText.trim() || `cargo exit ${exitCode}`;
-      throw new Error(`cargo build failed (exit ${exitCode}): ${detail}`);
-    }
-
     const built = path.join(crateDir, "target", RUST_TARGET, "release", "BackstageInjection.dll");
-    if (!fs.existsSync(built)) {
-      throw new Error(`Expected built DLL not found at ${built}`);
-    }
-    fs.copyFileSync(built, outPath);
+    const buildArtifact = async (loaderEnv: Record<string, string>, destination: string) => {
+      const proc = Bun.spawn(
+        [
+          "cargo",
+          "build",
+          "--release",
+          "--target",
+          RUST_TARGET,
+          "--manifest-path",
+          path.join(crateDir, "Cargo.toml"),
+        ],
+        { env: { ...fullEnv, ...loaderEnv }, stdout: "pipe", stderr: "pipe" },
+      );
+      const [stdoutText, stderrText] = await Promise.all([
+        streamLines(proc.stdout),
+        streamLines(proc.stderr),
+      ]);
+      const exitCode = await proc.exited;
+      if (exitCode !== 0) {
+        const detail = stderrText.trim() || stdoutText.trim() || `cargo exit ${exitCode}`;
+        throw new Error(`cargo build failed (exit ${exitCode}): ${detail}`);
+      }
+      if (!fs.existsSync(built)) {
+        throw new Error(`Expected built DLL not found at ${built}`);
+      }
+      fs.copyFileSync(built, destination);
+    };
+
+    await buildArtifact({ BACKSTAGE_LOADER_SEED: String(Date.now()) }, outPath);
+    await buildArtifact({ BACKSTAGE_LOADER_EXPORT: "ReflectiveLoader" }, legacyOutPath);
 
     const exportName = readPeExportName(outPath);
     invalidateBackstageDll();
@@ -258,7 +264,7 @@ export async function rebuildBackstageDll(
       startedAt: _lastBuild.startedAt,
       finishedAt: Date.now(),
       ok: true,
-      message: `DLL rebuilt at ${outPath} (${fs.statSync(outPath).size} bytes, export: ${exportName ?? "unknown"}).`,
+      message: `DLLs rebuilt: ${BACKSTAGE_DLL_NAME} (${fs.statSync(outPath).size} bytes, export: ${exportName ?? "unknown"}) and ${BACKSTAGE_LEGACY_DLL_NAME} (${fs.statSync(legacyOutPath).size} bytes, export: ReflectiveLoader).`,
     };
     send({
       type: "output",

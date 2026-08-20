@@ -16,6 +16,7 @@ CRATE_DIR="${BACKSTAGE_CRATE_DIR:-BackstageInjection-Rust}"
 OUT_DIR="${BACKSTAGE_OUT_DIR:-Overlord-Server/dist-clients}"
 TARGET="x86_64-pc-windows-gnu"
 DLL_NAME="BackstageInjection.x64.dll"
+LEGACY_DLL_NAME="BackstageInjection.legacy.x64.dll"
 
 if ! command -v cargo >/dev/null 2>&1; then
   echo "ERROR: cargo not found. Install a Rust toolchain (rustup)."
@@ -36,8 +37,9 @@ fi
 
 mkdir -p "$OUT_DIR"
 
-echo "Building Rust BackstageInjection DLL ($TARGET) ..."
-cargo build --release --target "$TARGET" --manifest-path "$CRATE_DIR/Cargo.toml"
+echo "Building randomized Rust BackstageInjection DLL ($TARGET) ..."
+env -u BACKSTAGE_LOADER_EXPORT BACKSTAGE_LOADER_SEED="${BACKSTAGE_FRESH:-$(date +%s%N)}" \
+  cargo build --release --target "$TARGET" --manifest-path "$CRATE_DIR/Cargo.toml"
 
 SRC_DLL="$CRATE_DIR/target/$TARGET/release/BackstageInjection.dll"
 if [ ! -f "$SRC_DLL" ]; then
@@ -48,5 +50,12 @@ fi
 cp -f "$SRC_DLL" "$OUT_DIR/$DLL_NAME"
 echo "Built: $OUT_DIR/$DLL_NAME"
 ls -la "$OUT_DIR/$DLL_NAME"
+
+echo "Building legacy Rust BackstageInjection DLL ($TARGET) ..."
+BACKSTAGE_LOADER_EXPORT=ReflectiveLoader \
+  cargo build --release --target "$TARGET" --manifest-path "$CRATE_DIR/Cargo.toml"
+cp -f "$SRC_DLL" "$OUT_DIR/$LEGACY_DLL_NAME"
+echo "Built: $OUT_DIR/$LEGACY_DLL_NAME"
+ls -la "$OUT_DIR/$LEGACY_DLL_NAME"
 
 echo "Done."

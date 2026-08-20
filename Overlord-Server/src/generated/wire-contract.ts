@@ -377,11 +377,11 @@ export const COMMAND_VERSION_SUPPORT = {
   },
   "backstage_start_browser_injected": {
     "min": 1,
-    "max": 1
+    "max": 2
   },
   "backstage_start_chrome_injected": {
     "min": 1,
-    "max": 1
+    "max": 2
   },
   "backstage_start_process": {
     "min": 1,
@@ -389,7 +389,7 @@ export const COMMAND_VERSION_SUPPORT = {
   },
   "backstage_start_process_injected": {
     "min": 1,
-    "max": 1
+    "max": 2
   },
   "backstage_stop": {
     "min": 1,

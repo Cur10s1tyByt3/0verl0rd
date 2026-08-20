@@ -46,6 +46,27 @@ describe("command version negotiation", () => {
     });
   });
 
+  test("keeps legacy Backstage agents on v1 and negotiates v2 with new agents", () => {
+    const command = "backstage_start_browser_injected" as const;
+    const payload = { browser: "chrome", dll: new Uint8Array([1, 2, 3]) };
+
+    expect(versionCommandForClient({}, {
+      type: "command",
+      commandType: command,
+      id: "legacy-backstage",
+      payload,
+    })).toMatchObject({ commandVersion: 1, payload });
+
+    expect(versionCommandForClient({
+      commandVersions: { [command]: { min: 1, max: 2 } },
+    }, {
+      type: "command",
+      commandType: command,
+      id: "current-backstage",
+      payload,
+    })).toMatchObject({ commandVersion: 2, payload });
+  });
+
   test("strictly reports missing commands and non-overlapping versions", () => {
     expect(getCommandCompatibility(
       { commandVersions: {} },
