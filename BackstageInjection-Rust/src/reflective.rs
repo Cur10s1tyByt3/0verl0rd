@@ -85,16 +85,6 @@ unsafe fn wr_u8(p: usize, off: usize, v: u8) {
 }
 
 #[inline(always)]
-unsafe fn wr_u16(p: usize, off: usize, v: u16) {
-    core::ptr::write_volatile((p + off) as *mut u16, v);
-}
-
-#[inline(always)]
-unsafe fn wr_u32(p: usize, off: usize, v: u32) {
-    core::ptr::write_volatile((p + off) as *mut u32, v);
-}
-
-#[inline(always)]
 unsafe fn wr_u64(p: usize, off: usize, v: u64) {
     core::ptr::write_volatile((p + off) as *mut u64, v);
 }

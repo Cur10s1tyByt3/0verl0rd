@@ -317,7 +317,8 @@ pub unsafe fn inject_library(process: usize, path: &[u16]) -> bool {
         dbg_log!("inject: system dll not loaded — abort");
         return false;
     }
-    let load_library_w = unsafe { abi::GetProcAddress(k32, obf!(b"LoadLibraryW").as_ptr()) };
+    let load_library_name = obf!(b"LoadLibraryW");
+    let load_library_w = unsafe { abi::GetProcAddress(k32, load_library_name.as_ptr()) };
     if load_library_w == 0 {
         dbg_log!("inject: load-fn not found — abort");
         return false;

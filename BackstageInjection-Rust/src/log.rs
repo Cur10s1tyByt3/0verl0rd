@@ -105,22 +105,22 @@ fn open_log() -> Option<usize> {
 fn log_paths() -> Option<(Vec<u16>, Vec<u16>, Vec<u16>)> {
     let env_name = obf16!(b"TEMP");
     let mut temp = [0u16; 32768];
-    unsafe {
-        let len = abi::GetEnvironmentVariableW(env_name.as_ptr(), temp.as_mut_ptr(), temp.len() as u32);
-        if len == 0 || len >= temp.len() as u32 {
-            return None;
-        }
-        let prefix = &temp[..len as usize];
-        let base = concat_z(prefix, &obf16!(b"\\Overlord"));
-        let dir = concat_z(prefix, &obf16!(b"\\Overlord\\backstage"));
-        let pid = abi::GetCurrentProcessId();
-        let mut file = prefix.to_vec();
-        file.extend_from_slice(&obf16!(b"\\Overlord\\backstage\\BackstageInjection-debug-"));
-        append_pid(&mut file, pid);
-        file.extend_from_slice(&obf16!(b".log"));
-        file.push(0);
-        Some((base, dir, file))
+    let len = unsafe {
+        abi::GetEnvironmentVariableW(env_name.as_ptr(), temp.as_mut_ptr(), temp.len() as u32)
+    };
+    if len == 0 || len >= temp.len() as u32 {
+        return None;
     }
+    let prefix = &temp[..len as usize];
+    let base = concat_z(prefix, &obf16!(b"\\Overlord"));
+    let dir = concat_z(prefix, &obf16!(b"\\Overlord\\backstage"));
+    let pid = unsafe { abi::GetCurrentProcessId() };
+    let mut file = prefix.to_vec();
+    file.extend_from_slice(&obf16!(b"\\Overlord\\backstage\\BackstageInjection-debug-"));
+    append_pid(&mut file, pid);
+    file.extend_from_slice(&obf16!(b".log"));
+    file.push(0);
+    Some((base, dir, file))
 }
 
 fn concat_z(prefix: &[u16], suffix: &[u16]) -> Vec<u16> {
