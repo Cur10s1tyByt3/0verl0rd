@@ -116,12 +116,18 @@ export async function handlePluginRoutes(
 
   async function loadPluginOnConnectedClients(pluginId: string): Promise<void> {
     const allClients = clientManager.getAllClients();
+    const autoEvents = deps.pluginState.autoStartEvents[pluginId];
     for (const [clientId, client] of allClients) {
       if (deps.isPluginLoaded(clientId, pluginId) || deps.isPluginLoading(clientId, pluginId)) continue;
       try {
         const bundle = await deps.loadPluginBundle(pluginId, client.os, client.arch);
         deps.markPluginLoading(clientId, pluginId);
         deps.sendPluginBundle(client, bundle);
+        if (autoEvents && autoEvents.length > 0) {
+          for (const evt of autoEvents) {
+            deps.enqueuePluginEvent(clientId, pluginId, evt.event, evt.payload);
+          }
+        }
         metrics.recordCommand("plugin_load");
       } catch {
       }
